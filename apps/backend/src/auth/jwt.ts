@@ -20,10 +20,16 @@ export interface RefreshTokenPayload {
   familyId: string;
 }
 
+/** Attached to request.user by the authenticate guard. */
+export interface AuthenticatedUser {
+  id: string;
+}
+
 declare module '@fastify/jwt' {
   interface FastifyJWT {
     namespaces: 'access' | 'refresh';
     payload: AccessTokenPayload | RefreshTokenPayload;
+    user: AuthenticatedUser;
   }
 }
 

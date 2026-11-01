@@ -141,6 +141,15 @@ export async function createGameRow(db: Database, input: GameRowInput) {
   });
 }
 
+/** Authorization header carrying a freshly signed access token for the user. */
+export async function authHeadersFor(
+  app: FastifyInstance,
+  userId: string,
+): Promise<{ authorization: string }> {
+  const token = await app.jwt.access.sign({ sub: userId, typ: 'access' });
+  return { authorization: `Bearer ${token}` };
+}
+
 /** Collects pino output lines for log assertions. */
 export function createLogCapture(): LogDestination & { lines: string[]; text(): string } {
   const lines: string[] = [];

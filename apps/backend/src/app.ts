@@ -16,6 +16,7 @@ import { frameworkErrorHandler, registerErrorHandling } from './lib/errors.js';
 import { buildLoggerOptions, type LogDestination } from './lib/logger.js';
 import { createGoogleVerifier } from './auth/google.verify.js';
 import { registerJwt } from './auth/jwt.js';
+import { authGuard } from './auth/guard.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
 
@@ -80,6 +81,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(swaggerUi, { routePrefix: '/docs' });
 
   await registerJwt(app, config);
+  await app.register(authGuard);
 
   await app.register(healthRoutes);
   await app.register(authRoutes, {

@@ -74,6 +74,14 @@ export async function findUserByGoogleSub(db: Database, sub: string): Promise<Us
   return row;
 }
 
+export async function findUserByUsername(
+  db: Database,
+  username: string,
+): Promise<UserRow | undefined> {
+  const [row] = await db.select().from(users).where(eq(users.username, username)).limit(1);
+  return row;
+}
+
 /**
  * Creates the user for a Google identity on first login, otherwise refreshes the mutable
  * profile fields. Username and googleSub never change after creation.

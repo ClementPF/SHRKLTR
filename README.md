@@ -42,6 +42,20 @@ The api container bind-mounts `apps/backend` and restarts on file changes. Stop 
   `TEST_DATABASE_URL`.
 - Logs never include request headers; authorization headers and token fields are redacted.
 
+### Sessions
+
+- `POST /auth/token {provider: "google", idToken}` returns `{accessToken, refreshToken, user}`.
+  Access tokens (HS256, `JWT_ACCESS_SECRET`) last 15 minutes; refresh tokens (HS256,
+  `JWT_REFRESH_SECRET`) last 30 days and are recorded in `refresh_tokens`.
+- Protected routes use `onRequest: [app.authenticate]`, which accepts only access tokens and sets
+  `request.user.id`. Refresh tokens never authorize API calls.
+- `POST /auth/refresh {refreshToken}` rotates: the presented token is consumed and a new pair is
+  returned. Presenting a consumed or unknown token returns 401 and revokes the whole token family.
+- `POST /auth/logout {refreshToken}` revokes the family and returns 204.
+- `POST /auth/dev-token {username}` with header `x-dev-auth: <DEV_AUTH_SECRET>` returns a session
+  for an existing user (for example a seeded `dev-alex`). It answers 404 when the header is wrong
+  and is not registered at all when `APP_ENV=production`.
+
 ### Database migrations and demo data
 
 - The schema lives in `apps/backend/src/db/schema.ts`. After changing it, run
@@ -58,7 +72,7 @@ The api container bind-mounts `apps/backend` and restarts on file changes. Stop 
 `npm run test -w apps/backend` runs vitest against the `sharkulator_test` database on port 5433
 (`docker compose up -d db` first). The global setup recreates the `public` schema and applies the
 committed migrations with `drizzle-kit migrate`; set `TEST_DATABASE_URL` to use another database. Test
-helpers live in `apps/backend/test/helpers.ts` (`buildTestApp`, `truncateAll`, factories).
+helpers live in `apps/backend/test/helpers.ts` (`buildTestApp`, `truncateAll`, factories, `authHeadersFor`).
 
 ## Production image
 
