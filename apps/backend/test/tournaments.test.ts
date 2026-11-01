@@ -14,6 +14,12 @@ import {
 } from './helpers.js';
 
 type Headers = { authorization: string };
+
+// U+0130 lowercases to "i" + U+0307, so the longest valid displayName (100 chars) derives a
+// 200 UTF-16 code unit slug.
+const MAX_DISPLAY_NAME = 'İ'.repeat(100);
+const MAX_SLUG = MAX_DISPLAY_NAME.toLowerCase();
+const MAX_SLUG_PATH = `/tournaments/${encodeURIComponent(MAX_SLUG)}`;
 type UserRow = Awaited<ReturnType<typeof createUser>>;
 
 describe('tournament routes', () => {
@@ -136,6 +142,22 @@ describe('tournament routes', () => {
       expect(await app.db.select().from(sports)).toHaveLength(0);
     });
 
+    it('rejects a displayName over 100 characters with 400', async () => {
+      const res = await post({ displayName: `${MAX_DISPLAY_NAME}I`, sportName: 'babyfoot' });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('creates a maximal Unicode name whose 200-unit slug is routable', async () => {
+      expect(MAX_SLUG).toHaveLength(200);
+      const res = await post({ displayName: MAX_DISPLAY_NAME, sportName: 'babyfoot' });
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({ name: MAX_SLUG, displayName: MAX_DISPLAY_NAME });
+      const detail = await app.inject({ method: 'GET', url: MAX_SLUG_PATH, headers });
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json()).toEqual(res.json());
+    });
+
     it('save/findByName: the created tournament reads back identically', async () => {
       const created = (await post({ displayName: 'Office Cup', sportName: 'babyfoot' })).json();
       const res = await app.inject({ method: 'GET', url: '/tournaments/officecup', headers });
@@ -184,6 +206,25 @@ describe('tournament routes', () => {
       const res = await app.inject({ method: 'GET', url: '/tournaments/nope', headers });
       expect(res.statusCode).toBe(404);
       expect(res.json().error.code).toBe('TOURNAMENT_NOT_FOUND');
+    });
+
+    it('routes an unknown 200-character name to the handler (404)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/tournaments/${'a'.repeat(200)}`,
+        headers,
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe('TOURNAMENT_NOT_FOUND');
+    });
+
+    it('rejects a name longer than 200 characters with 414', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/tournaments/${'a'.repeat(201)}`,
+        headers,
+      });
+      expect(res.statusCode).toBe(414);
     });
   });
 
@@ -290,6 +331,43 @@ describe('tournament routes', () => {
         headers,
       });
       expect(newName.json().id).toBe(created.id);
+    });
+
+    it('renames into the maximal Unicode slug and back out of it', async () => {
+      const created = (await post({ displayName: 'Cup', sportName: 'babyfoot' })).json();
+      const intoLong = await app.inject({
+        method: 'PUT',
+        url: '/tournaments/cup',
+        headers,
+        payload: { displayName: MAX_DISPLAY_NAME },
+      });
+      expect(intoLong.statusCode).toBe(200);
+      expect(intoLong.json()).toMatchObject({ id: created.id, name: MAX_SLUG });
+
+      const detail = await app.inject({ method: 'GET', url: MAX_SLUG_PATH, headers });
+      expect(detail.statusCode).toBe(200);
+      expect(detail.json().id).toBe(created.id);
+
+      const toggled = await app.inject({
+        method: 'PUT',
+        url: MAX_SLUG_PATH,
+        headers,
+        payload: { isOver: true },
+      });
+      expect(toggled.statusCode).toBe(200);
+      expect(toggled.json()).toMatchObject({ id: created.id, name: MAX_SLUG, isOver: true });
+
+      const outOfLong = await app.inject({
+        method: 'PUT',
+        url: MAX_SLUG_PATH,
+        headers,
+        payload: { displayName: 'Short Cup' },
+      });
+      expect(outOfLong.statusCode).toBe(200);
+      expect(outOfLong.json()).toMatchObject({ id: created.id, name: 'shortcup', isOver: true });
+      expect((await app.inject({ method: 'GET', url: MAX_SLUG_PATH, headers })).statusCode).toBe(
+        404,
+      );
     });
 
     it('keeps games and stats attached after a rename', async () => {
@@ -444,6 +522,26 @@ describe('tournament routes', () => {
       expect(after.statusCode).toBe(404);
     });
 
+    it('deletes a maximal Unicode slug → 204 with the same cascade', async () => {
+      const doomed = await seedFullTournament(MAX_SLUG);
+      await seedFullTournament('kept');
+
+      const res = await app.inject({ method: 'DELETE', url: MAX_SLUG_PATH, headers });
+      expect(res.statusCode).toBe(204);
+
+      expect(await app.db.select().from(tournaments).where(eq(tournaments.id, doomed.id))).toEqual(
+        [],
+      );
+      expect(await app.db.select().from(tournaments)).toHaveLength(1);
+      expect(await app.db.select().from(games)).toHaveLength(2);
+      expect(await app.db.select().from(outcomes)).toHaveLength(4);
+      expect(await app.db.select().from(stats)).toHaveLength(2);
+      expect(await app.db.select().from(rivalryStats)).toHaveLength(2);
+      expect((await app.inject({ method: 'GET', url: MAX_SLUG_PATH, headers })).statusCode).toBe(
+        404,
+      );
+    });
+
     it('rejects a non-owner with 403 and deletes nothing', async () => {
       await seedFullTournament('cup');
       const intruder = await createUser(app.db);
@@ -485,6 +583,16 @@ describe('tournament routes', () => {
         expect.objectContaining({ id: alice.id, username: 'alice' }),
         expect.objectContaining({ id: bob.id, username: 'bob' }),
       ]);
+    });
+
+    it('lists members of a tournament with the maximal Unicode slug', async () => {
+      const created = (await post({ displayName: MAX_DISPLAY_NAME, sportName: 'babyfoot' })).json();
+      const alice = await createUser(app.db, { username: 'alice' });
+      await createStatsRow(app.db, { userId: alice.id, tournamentId: created.id });
+
+      const res = await app.inject({ method: 'GET', url: `${MAX_SLUG_PATH}/users`, headers });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual([expect.objectContaining({ id: alice.id, username: 'alice' })]);
     });
 
     it('returns an empty array when nobody has played yet (owner is not a member)', async () => {

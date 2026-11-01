@@ -32,6 +32,10 @@ declare module 'fastify' {
 
 export const CORS_ORIGINS = ['http://localhost:8081'];
 
+// Tournament slugs come from displayNames of up to 100 chars, and lowercasing can double a
+// char's UTF-16 length (U+0130 → "i" + U+0307), so decoded path params may reach 200 units.
+export const MAX_PARAM_LENGTH = 200;
+
 export interface BuildAppOptions {
   config: AppConfig;
   /** false disables logging; a destination captures log lines (tests). Defaults to stdout. */
@@ -48,6 +52,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const app = Fastify({
     logger,
     frameworkErrors: frameworkErrorHandler,
+    routerOptions: { maxParamLength: MAX_PARAM_LENGTH },
   }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
