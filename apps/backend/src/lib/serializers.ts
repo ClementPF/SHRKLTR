@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { users } from '../db/schema.js';
+import type { sports, users } from '../db/schema.js';
 
 export const userDtoSchema = z
   .object({
@@ -25,4 +25,19 @@ export function toUserDto(row: UserRow): UserDto {
     pictureUrl: row.pictureUrl,
     locale: row.locale,
   };
+}
+
+export const sportDtoSchema = z
+  .object({
+    id: z.uuid(),
+    name: z.string(),
+  })
+  .meta({ id: 'Sport' });
+
+export type SportDto = z.infer<typeof sportDtoSchema>;
+
+type SportRow = typeof sports.$inferSelect;
+
+export function toSportDto(row: SportRow): SportDto {
+  return { id: row.id, name: row.name };
 }
