@@ -14,6 +14,9 @@ import type { AppConfig } from './config.js';
 import { createDb, type Database } from './db/client.js';
 import { frameworkErrorHandler, registerErrorHandling } from './lib/errors.js';
 import { buildLoggerOptions, type LogDestination } from './lib/logger.js';
+import { createGoogleVerifier } from './auth/google.verify.js';
+import { registerJwt } from './auth/jwt.js';
+import { authRoutes } from './routes/auth.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
 
 declare module 'fastify' {
@@ -76,7 +79,15 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
   await app.register(swaggerUi, { routePrefix: '/docs' });
 
+  await registerJwt(app, config);
+
   await app.register(healthRoutes);
+  await app.register(authRoutes, {
+    verifyGoogleIdToken: createGoogleVerifier({
+      jwksUrl: config.GOOGLE_JWKS_URL,
+      clientId: config.GOOGLE_CLIENT_ID,
+    }),
+  });
 
   return app;
 }
