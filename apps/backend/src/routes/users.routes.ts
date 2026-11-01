@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from '@fastify/type-provider-zod';
 import { ApiError, errorResponseSchema } from '../lib/errors.js';
-import { toUserDto, userDtoSchema } from '../lib/serializers.js';
+import {
+  toTournamentDto,
+  toUserDto,
+  tournamentDtoSchema,
+  userDtoSchema,
+} from '../lib/serializers.js';
+import { listTournamentsForUser } from '../services/tournament.service.js';
 import {
   findUserById,
   findUserByUsername,
@@ -134,6 +140,30 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       return toUserDto(user);
     },
   );
+
+  app.get(
+    '/users/:username/tournaments',
+    {
+      schema: {
+        tags: ['users'],
+        summary: 'Tournaments the user has played in',
+        description: 'Tournaments where the user has a stats row.',
+        security,
+        params: usernameParamsSchema,
+        response: {
+          200: z.array(tournamentDtoSchema),
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => {
+      const user = await findUserByUsername(app.db, request.params.username);
+      if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+      return (await listTournamentsForUser(app.db, user.id)).map(toTournamentDto);
+    },
+  );
+
   app.post(
     '/users/:username/challenge',
     {

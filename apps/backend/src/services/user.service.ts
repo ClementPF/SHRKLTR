@@ -2,6 +2,7 @@ import { asc, eq, like, or } from 'drizzle-orm';
 import type { GoogleIdentity } from '../auth/google.verify.js';
 import type { Database } from '../db/client.js';
 import { users } from '../db/schema.js';
+import { isUniqueViolation } from '../lib/db-errors.js';
 
 type UserRow = typeof users.$inferSelect;
 
@@ -57,16 +58,6 @@ function splitName(identity: GoogleIdentity): {
 function displayNameOf(identity: GoogleIdentity): string {
   const fromParts = [identity.givenName, identity.familyName].filter(Boolean).join(' ');
   return identity.name ?? (fromParts || identity.email?.split('@')[0] || FALLBACK_USERNAME);
-}
-
-function isUniqueViolation(err: unknown, constraint: string): boolean {
-  let current: unknown = err;
-  while (typeof current === 'object' && current !== null) {
-    const e = current as { code?: unknown; constraint_name?: unknown; cause?: unknown };
-    if (e.code === '23505' && e.constraint_name === constraint) return true;
-    current = e.cause;
-  }
-  return false;
 }
 
 export async function findUserByGoogleSub(db: Database, sub: string): Promise<UserRow | undefined> {

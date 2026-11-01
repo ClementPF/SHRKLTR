@@ -20,6 +20,7 @@ import { authGuard } from './auth/guard.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
 import { sportRoutes } from './routes/sports.routes.js';
+import { tournamentRoutes } from './routes/tournaments.routes.js';
 import { userRoutes } from './routes/users.routes.js';
 
 declare module 'fastify' {
@@ -94,6 +95,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
   await app.register(userRoutes);
   await app.register(sportRoutes);
+  await app.register(tournamentRoutes);
 
   return app;
 }
