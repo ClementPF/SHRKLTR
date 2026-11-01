@@ -3,5 +3,6 @@ elo/
 node_modules/
 dist/
 .expo/
+expo-env.d.ts
 package-lock.json
 apps/backend/drizzle/

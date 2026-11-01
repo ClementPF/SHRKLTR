@@ -7,6 +7,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/dist/**',
       '**/.expo/**',
+      '**/expo-env.d.ts',
       'SHRKLTR-BCKND/**',
       'elo/**',
       'apps/backend/drizzle/**',
@@ -14,4 +15,11 @@ export default tseslint.config(
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  {
+    files: ['apps/mobile/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { module: 'writable', require: 'readonly' },
+    },
+  },
 );
