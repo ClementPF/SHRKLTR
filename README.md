@@ -42,11 +42,22 @@ The api container bind-mounts `apps/backend` and restarts on file changes. Stop 
   `TEST_DATABASE_URL`.
 - Logs never include request headers; authorization headers and token fields are redacted.
 
+### Database migrations and demo data
+
+- The schema lives in `apps/backend/src/db/schema.ts`. After changing it, run
+  `DATABASE_URL=postgres://sharkulator:sharkulator@localhost:5433/sharkulator_dev npm run db:generate -w apps/backend`
+  and commit the new folder under `apps/backend/drizzle/`.
+- The api container applies pending migrations on every boot (`docker/api/entrypoint.sh`).
+- `npm run seed -w apps/backend` loads idempotent demo data into `sharkulator_dev` (host default
+  `localhost:5433`, override with `DATABASE_URL`): users `dev-alex`, `dev-sam`, `dev-jordan`,
+  `dev-taylor`, `dev-morgan`, three sports, three tournaments with games, stats, and rivalries.
+  Re-running it adds nothing.
+
 ### Backend tests
 
 `npm run test -w apps/backend` runs vitest against the `sharkulator_test` database on port 5433
-(`docker compose up -d db` first). The global setup recreates the `public` schema and pushes the
-drizzle schema with `drizzle-kit push`; set `TEST_DATABASE_URL` to use another database. Test
+(`docker compose up -d db` first). The global setup recreates the `public` schema and applies the
+committed migrations with `drizzle-kit migrate`; set `TEST_DATABASE_URL` to use another database. Test
 helpers live in `apps/backend/test/helpers.ts` (`buildTestApp`, `truncateAll`, factories).
 
 ## Production image
