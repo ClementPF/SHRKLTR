@@ -12,7 +12,7 @@ import {
 } from '@fastify/type-provider-zod';
 import type { AppConfig } from './config.js';
 import { createDb, type Database } from './db/client.js';
-import { registerErrorHandling } from './lib/errors.js';
+import { frameworkErrorHandler, registerErrorHandling } from './lib/errors.js';
 import { buildLoggerOptions, type LogDestination } from './lib/logger.js';
 import { healthRoutes } from './routes/health.routes.js';
 
@@ -38,7 +38,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       ? false
       : buildLoggerOptions(config, opts.logger === true ? undefined : opts.logger);
 
-  const app = Fastify({ logger }).withTypeProvider<ZodTypeProvider>();
+  const app = Fastify({
+    logger,
+    frameworkErrors: frameworkErrorHandler,
+  }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);

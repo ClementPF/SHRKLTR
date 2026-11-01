@@ -1,4 +1,4 @@
-import type { FastifyError, FastifyInstance } from 'fastify';
+import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   hasZodFastifySchemaValidationErrors,
   isResponseSerializationError,
@@ -67,7 +67,42 @@ function isFastifyClientError(err: unknown): err is FastifyError & { statusCode:
   return typeof statusCode === 'number' && statusCode >= 400 && statusCode < 500;
 }
 
+/**
+ * Fastify's `frameworkErrors` option: errors raised before routing (e.g. FST_ERR_BAD_URL for
+ * an undecodable path) never reach setErrorHandler, so they are enveloped here instead.
+ */
+export function frameworkErrorHandler(
+  err: FastifyError,
+  request: FastifyRequest,
+  reply: FastifyReply,
+): void {
+  if (isFastifyClientError(err)) {
+    const code = codeByStatus[err.statusCode] ?? 'REQUEST_ERROR';
+    void reply.code(err.statusCode).send(errorBody(code, err.message));
+    return;
+  }
+  request.log.error({ err }, 'framework error');
+  void reply.code(500).send(errorBody('INTERNAL_ERROR', 'Internal server error'));
+}
+
+// @fastify/cors replies to strict-preflight failures directly from its onRequest hook with this
+// exact text/plain body, bypassing the error handler.
+const CORS_INVALID_PREFLIGHT_BODY = 'Invalid Preflight Request';
+
 export function registerErrorHandling(app: FastifyInstance): void {
+  // Must be added before @fastify/cors registers its OPTIONS route so the hook applies to it.
+  app.addHook('onSend', async (request, reply, payload) => {
+    if (
+      request.method === 'OPTIONS' &&
+      reply.statusCode === 400 &&
+      payload === CORS_INVALID_PREFLIGHT_BODY
+    ) {
+      reply.type('application/json; charset=utf-8');
+      return JSON.stringify(errorBody('BAD_REQUEST', 'Invalid CORS preflight request'));
+    }
+    return payload;
+  });
+
   app.setErrorHandler((err, request, reply) => {
     if (hasZodFastifySchemaValidationErrors(err)) {
       return reply.code(400).send(errorBody('VALIDATION_ERROR', err.message));

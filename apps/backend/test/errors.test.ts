@@ -118,4 +118,45 @@ describe('error envelope', () => {
       error: { code: 'NOT_FOUND', message: 'Route GET /does-not-exist not found' },
     });
   });
+
+  it('returns 400 in the envelope for a malformed URL', async () => {
+    const res = await app.inject({ method: 'GET', url: '/%world' });
+    expect(res.statusCode).toBe(400);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+    expect(envelope.parse(res.json()).error.code).toBe('BAD_REQUEST');
+  });
+
+  it('returns 400 in the envelope for a preflight missing Access-Control-Request-Method', async () => {
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/health',
+      headers: { origin: 'http://localhost:8081' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+    expect(res.json()).toEqual({
+      error: { code: 'BAD_REQUEST', message: 'Invalid CORS preflight request' },
+    });
+  });
+
+  it('returns 400 in the envelope for a preflight missing Origin', async () => {
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/health',
+      headers: { 'access-control-request-method': 'GET' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(envelope.parse(res.json()).error.code).toBe('BAD_REQUEST');
+  });
+
+  it('still answers valid preflights with 204 and CORS headers', async () => {
+    const res = await app.inject({
+      method: 'OPTIONS',
+      url: '/health',
+      headers: { origin: 'http://localhost:8081', 'access-control-request-method': 'GET' },
+    });
+    expect(res.statusCode).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+    expect(res.headers['access-control-allow-methods']).toContain('GET');
+  });
 });
