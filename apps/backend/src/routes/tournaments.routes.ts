@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from '@fastify/type-provider-zod';
 import { ApiError, errorResponseSchema } from '../lib/errors.js';
 import {
+  gameDtoSchema,
+  toGameDto,
   toTournamentDto,
   toUserDto,
   tournamentDtoSchema,
@@ -15,6 +17,7 @@ import {
   listTournaments,
   updateTournament,
 } from '../services/tournament.service.js';
+import { submitGame } from '../services/game.service.js';
 
 // Trimming before min(1) guarantees a non-empty slug once whitespace is stripped.
 const displayNameSchema = z.string().trim().min(1).max(100);
@@ -35,6 +38,19 @@ const updateTournamentSchema = z
     message: 'Provide displayName and/or isOver',
   })
   .meta({ id: 'UpdateTournamentRequest' });
+
+const submitGameSchema = z
+  .object({
+    outcomes: z
+      .array(
+        z.object({
+          username: z.string().min(1),
+          result: z.enum(['WIN', 'TIE', 'LOSS']),
+        }),
+      )
+      .max(100),
+  })
+  .meta({ id: 'SubmitGameRequest' });
 
 const nameParamsSchema = z.object({ name: z.string().min(1) });
 
@@ -170,5 +186,36 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) => (await listTournamentUsers(app.db, request.params.name)).map(toUserDto),
+  );
+
+  app.post(
+    '/tournaments/:name/games',
+    {
+      schema: {
+        tags: ['games'],
+        summary: 'Record a game (submitted by a losing player)',
+        description:
+          'Needs as many winners as losers, no repeated player and no TIE. The caller must be ' +
+          'one of the losers. Date and outcome scores are computed by the server.',
+        security,
+        params: nameParamsSchema,
+        body: submitGameSchema,
+        response: {
+          201: gameDtoSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          403: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const game = await submitGame(app.db, {
+        tournamentName: request.params.name,
+        callerId: request.user.id,
+        outcomes: request.body.outcomes,
+      });
+      return reply.code(201).send(toGameDto(game));
+    },
   );
 };

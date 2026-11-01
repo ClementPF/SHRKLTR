@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { sports, tournaments, users } from '../db/schema.js';
+import type { games, outcomes, sports, tournaments, users } from '../db/schema.js';
 
 export const userDtoSchema = z
   .object({
@@ -67,5 +67,52 @@ export function toTournamentDto(row: {
     isOver: row.tournament.isOver,
     sport: toSportDto(row.sport),
     owner: row.owner ? toUserDto(row.owner) : null,
+  };
+}
+
+export const outcomeDtoSchema = z
+  .object({
+    id: z.uuid(),
+    result: z.enum(['WIN', 'TIE', 'LOSS']),
+    scoreValue: z.number(),
+    user: userDtoSchema,
+  })
+  .meta({ id: 'Outcome' });
+
+export type OutcomeDto = z.infer<typeof outcomeDtoSchema>;
+
+export function toOutcomeDto(row: {
+  outcome: typeof outcomes.$inferSelect;
+  user: UserRow;
+}): OutcomeDto {
+  return {
+    id: row.outcome.id,
+    result: row.outcome.result,
+    scoreValue: row.outcome.scoreValue,
+    user: toUserDto(row.user),
+  };
+}
+
+export const gameDtoSchema = z
+  .object({
+    id: z.uuid(),
+    date: z.iso.datetime(),
+    tournament: tournamentDtoSchema,
+    outcomes: z.array(outcomeDtoSchema),
+  })
+  .meta({ id: 'Game' });
+
+export type GameDto = z.infer<typeof gameDtoSchema>;
+
+export function toGameDto(row: {
+  game: typeof games.$inferSelect;
+  tournament: Parameters<typeof toTournamentDto>[0];
+  outcomes: Parameters<typeof toOutcomeDto>[0][];
+}): GameDto {
+  return {
+    id: row.game.id,
+    date: row.game.date.toISOString(),
+    tournament: toTournamentDto(row.tournament),
+    outcomes: row.outcomes.map(toOutcomeDto),
   };
 }
