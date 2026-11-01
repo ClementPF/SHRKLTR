@@ -1,0 +1,8 @@
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+export type Database = ReturnType<typeof createDb>;
+
+// drizzle 1.0-rc requires the connection string form; passing a postgres-js client is unsupported.
+export function createDb(connectionString: string) {
+  return drizzle(connectionString);
+}

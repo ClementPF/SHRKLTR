@@ -1,0 +1,51 @@
+name: sharkulator
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sharkulator
+      POSTGRES_PASSWORD: sharkulator
+      POSTGRES_DB: sharkulator_dev
+    ports:
+      - '5433:5432'
+    volumes:
+      - sharkulator_pgdata:/var/lib/postgresql/data
+      - ./docker/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sharkulator -d sharkulator_dev']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      target: dev
+    env_file: .env
+    environment:
+      PORT: 3100
+      HOST: 0.0.0.0
+    command: ['npx', 'tsx', 'watch', 'src/server.ts']
+    ports:
+      - '3100:3100'
+    volumes:
+      - ./apps/backend:/app/apps/backend
+      # Keep the container's linux node_modules instead of the host's macOS ones.
+      - /app/apps/backend/node_modules
+    init: true
+    stop_grace_period: 10s
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3100/health >/dev/null || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  sharkulator_pgdata:
+    name: sharkulator_pgdata

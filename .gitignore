@@ -1,0 +1,13 @@
+# Legacy reference repos (read-only, separate git repos)
+SHRKLTR-BCKND/
+elo/
+
+node_modules/
+dist/
+.expo/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+coverage/

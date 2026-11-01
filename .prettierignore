@@ -1,0 +1,7 @@
+SHRKLTR-BCKND/
+elo/
+node_modules/
+dist/
+.expo/
+package-lock.json
+apps/backend/drizzle/
