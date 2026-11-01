@@ -1,6 +1,6 @@
 # Legacy reference repos (read-only, separate git repos)
-SHRKLTR-BCKND/
-elo/
+/SHRKLTR-BCKND/
+/elo/
 
 node_modules/
 dist/
