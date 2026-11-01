@@ -1,15 +1,8 @@
 import { buildApp } from './app.js';
+import { loadConfig } from './config.js';
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  console.error('DATABASE_URL is required');
-  process.exit(1);
-}
-
-const port = Number(process.env.PORT ?? 3100);
-const host = process.env.HOST ?? '0.0.0.0';
-
-const app = await buildApp({ databaseUrl });
+const config = loadConfig();
+const app = await buildApp({ config });
 
 let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals) {
@@ -29,7 +22,7 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('SIGINT', () => void shutdown('SIGINT'));
 
 try {
-  await app.listen({ port, host });
+  await app.listen({ port: config.PORT, host: config.HOST });
 } catch (err) {
   app.log.error({ err }, 'failed to start');
   process.exit(1);
