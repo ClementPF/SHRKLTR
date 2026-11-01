@@ -9,6 +9,7 @@ import {
   setPushToken,
   updateUserProfile,
 } from '../services/user.service.js';
+import { challengeUser } from '../services/challenge.service.js';
 
 // Strict: username, googleSub or any other unknown key is rejected with 400 instead of being
 // silently dropped, so clients learn those fields are immutable.
@@ -24,6 +25,14 @@ const updateMeSchema = z
 const pushTokenSchema = z
   .object({ value: z.string().trim().min(1).max(512) })
   .meta({ id: 'PushTokenRequest' });
+
+const challengeSchema = z
+  .object({
+    message: z.string().trim().min(1).max(500).optional(),
+    challenger: z.string().min(1).optional().describe('Must be the authenticated username'),
+  })
+  .optional()
+  .meta({ id: 'ChallengeRequest' });
 
 const usernameParamsSchema = z.object({ username: z.string().min(1) });
 
@@ -123,6 +132,40 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       const user = await findUserByUsername(app.db, request.params.username);
       if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
       return toUserDto(user);
+    },
+  );
+  app.post(
+    '/users/:username/challenge',
+    {
+      schema: {
+        tags: ['users'],
+        summary: 'Challenge a user with a push notification',
+        description:
+          'Sends "<firstName> is challenging you." to the target. Push delivery is best effort: ' +
+          'a failed delivery still returns 204. The target must have a registered push token.',
+        security,
+        params: usernameParamsSchema,
+        body: challengeSchema,
+        response: {
+          204: z.null().describe('Challenge sent'),
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          403: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      await challengeUser(
+        { db: app.db, pushUrl: app.config.PUSH_URL, log: request.log },
+        {
+          callerId: request.user.id,
+          targetUsername: request.params.username,
+          challenger: request.body?.challenger,
+          message: request.body?.message,
+        },
+      );
+      return reply.code(204).send(null);
     },
   );
 };
