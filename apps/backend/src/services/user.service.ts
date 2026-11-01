@@ -1,4 +1,4 @@
-import { eq, like, or } from 'drizzle-orm';
+import { asc, eq, like, or } from 'drizzle-orm';
 import type { GoogleIdentity } from '../auth/google.verify.js';
 import type { Database } from '../db/client.js';
 import { users } from '../db/schema.js';
@@ -80,6 +80,49 @@ export async function findUserByUsername(
 ): Promise<UserRow | undefined> {
   const [row] = await db.select().from(users).where(eq(users.username, username)).limit(1);
   return row;
+}
+
+export async function findUserById(db: Database, id: string): Promise<UserRow | undefined> {
+  const [row] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return row;
+}
+
+export async function listUsers(db: Database): Promise<UserRow[]> {
+  return db.select().from(users).orderBy(asc(users.username));
+}
+
+export interface ProfileUpdate {
+  firstName?: string | undefined;
+  lastName?: string | undefined;
+  locale?: string | null | undefined;
+  pictureUrl?: string | null | undefined;
+}
+
+export async function updateUserProfile(
+  db: Database,
+  id: string,
+  update: ProfileUpdate,
+): Promise<UserRow | undefined> {
+  const changes: ProfileUpdate = {};
+  if (update.firstName !== undefined) changes.firstName = update.firstName;
+  if (update.lastName !== undefined) changes.lastName = update.lastName;
+  if (update.locale !== undefined) changes.locale = update.locale;
+  if (update.pictureUrl !== undefined) changes.pictureUrl = update.pictureUrl;
+  const [row] = await db
+    .update(users)
+    .set({ ...changes, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning();
+  return row;
+}
+
+export async function setPushToken(db: Database, id: string, token: string): Promise<boolean> {
+  const rows = await db
+    .update(users)
+    .set({ pushToken: token, updatedAt: new Date() })
+    .where(eq(users.id, id))
+    .returning({ id: users.id });
+  return rows.length > 0;
 }
 
 /**

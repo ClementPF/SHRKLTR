@@ -19,6 +19,7 @@ import { registerJwt } from './auth/jwt.js';
 import { authGuard } from './auth/guard.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
+import { userRoutes } from './routes/users.routes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -90,6 +91,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
       clientId: config.GOOGLE_CLIENT_ID,
     }),
   });
+  await app.register(userRoutes);
 
   return app;
 }
