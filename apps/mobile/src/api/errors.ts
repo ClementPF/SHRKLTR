@@ -15,6 +15,8 @@ export class ApiError extends Error {
 /** Status 0 marks a request that never got an HTTP response. */
 export const NETWORK_ERROR = 'NETWORK_ERROR';
 export const SESSION_EXPIRED = 'SESSION_EXPIRED';
+/** The request belonged to a session that was signed out or replaced before it finished. */
+export const SESSION_CHANGED = 'SESSION_CHANGED';
 
 export function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
   if (typeof value !== 'object' || value === null || !('error' in value)) return false;

@@ -5,7 +5,7 @@ import { sessionStore, type SessionStore } from '@/auth/session-store';
 import { queryClient as defaultQueryClient } from '@/lib/query-client';
 
 import { API_URL } from './config';
-import { ApiError, NETWORK_ERROR, SESSION_EXPIRED, toApiError } from './errors';
+import { ApiError, NETWORK_ERROR, SESSION_CHANGED, SESSION_EXPIRED, toApiError } from './errors';
 import type { TokenPair } from './types';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
@@ -68,7 +68,9 @@ export function createApiClient({
 }: ApiClientOptions): ApiClient {
   // Resolved per call so tests (and polyfills) that swap globalThis.fetch are honored.
   const doFetch = (input: string, init: RequestInit) => (fetchFn ?? globalThis.fetch)(input, init);
-  let refreshInFlight: Promise<string | null> | null = null;
+  // Keyed by session generation: a refresh started for a previous session must never be
+  // shared with (or have its result applied to) the session that replaced it.
+  let refreshInFlight: { generation: number; promise: Promise<string | null> } | null = null;
 
   async function send(url: string, init: RequestInit): Promise<Response> {
     try {
@@ -80,13 +82,13 @@ export function createApiClient({
     }
   }
 
-  async function loseSession(): Promise<void> {
-    await store.clear();
+  async function loseSession(generation: number): Promise<void> {
+    if (!(await store.clear(generation))) return;
     queryClient?.clear();
     emitAuthLost();
   }
 
-  async function performRefresh(): Promise<string | null> {
+  async function performRefresh(generation: number): Promise<string | null> {
     const session = store.get();
     if (!session) return null;
     const response = await send(buildUrl(baseUrl, '/auth/refresh'), {
@@ -96,21 +98,28 @@ export function createApiClient({
     });
     if (response.ok) {
       const pair = await parseBody<TokenPair>(response);
-      await store.updateTokens(pair);
-      return pair.accessToken;
+      return (await store.updateTokens(pair, generation)) ? pair.accessToken : null;
     }
+    // Only a definitive rejection ends the session; network errors and 5xx keep it so a
+    // later request can retry the refresh.
     if (response.status >= 400 && response.status < 500) {
-      await loseSession();
+      await loseSession(generation);
       return null;
     }
     throw await toApiError(response);
   }
 
   function refresh(): Promise<string | null> {
-    refreshInFlight ??= performRefresh().finally(() => {
-      refreshInFlight = null;
-    });
-    return refreshInFlight;
+    const generation = store.generation();
+    if (refreshInFlight?.generation === generation) return refreshInFlight.promise;
+    const entry = {
+      generation,
+      promise: performRefresh(generation).finally(() => {
+        if (refreshInFlight === entry) refreshInFlight = null;
+      }),
+    };
+    refreshInFlight = entry;
+    return entry.promise;
   }
 
   async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -129,16 +138,21 @@ export function createApiClient({
       });
     };
 
+    const generation = store.generation();
     const usedToken = auth ? store.get()?.accessToken : undefined;
     let response = await run(usedToken);
 
     if (response.status === 401 && auth && usedToken) {
+      const sessionChanged = () =>
+        new ApiError(401, SESSION_CHANGED, 'You were signed out while this request was running.');
+      if (store.generation() !== generation) throw sessionChanged();
       // Another request may already have rotated the tokens while this one was in flight.
       const current = store.get()?.accessToken;
       const nextToken = current && current !== usedToken ? current : await refresh();
       if (!nextToken) {
         throw new ApiError(401, SESSION_EXPIRED, 'Your session has expired. Please sign in again.');
       }
+      if (store.generation() !== generation) throw sessionChanged();
       response = await run(nextToken);
     }
 

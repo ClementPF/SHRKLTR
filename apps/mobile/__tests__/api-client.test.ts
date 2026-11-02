@@ -4,7 +4,13 @@ import { ApiError } from '@/api/errors';
 import { createSessionStore } from '@/auth/session-store';
 import { SESSION_STORAGE_KEY } from '@/auth/storage';
 
-import { deferred, jsonResponse, makeSession, memoryStorage } from '../test-utils/session';
+import {
+  deferred,
+  jsonResponse,
+  makeSession,
+  memoryStorage,
+  testUser,
+} from '../test-utils/session';
 
 const BASE = 'http://api.test';
 
@@ -129,7 +135,7 @@ describe('api client', () => {
     expect(fetchFn).toHaveBeenCalledTimes(5);
   });
 
-  it('clears the session and query cache and emits auth-lost when refresh fails', async () => {
+  it('clears the session and query cache and emits auth-lost on a definitive 4xx refresh rejection', async () => {
     const { client, store, data, queryClient, fetchFn, refreshCalls } = await setup();
     const lost = jest.fn();
     const unsubscribe = onAuthLost(lost);
@@ -154,17 +160,219 @@ describe('api client', () => {
     unsubscribe();
   });
 
-  it('keeps the session when refresh hits a network error', async () => {
-    const { client, store, fetchFn } = await setup();
-    fetchFn.mockImplementation(async (url) => {
-      if (url === `${BASE}/auth/refresh`) throw new TypeError('Network request failed');
-      return jsonResponse(401);
+  it('keeps the session when refresh hits a network error (transient: retried by a later request)', async () => {
+    const { client, store, queryClient, fetchFn, refreshCalls, authHeader } = await setup();
+    const lost = jest.fn();
+    const unsubscribe = onAuthLost(lost);
+    let refreshFails = true;
+    fetchFn.mockImplementation(async (url, init) => {
+      if (url === `${BASE}/auth/refresh`) {
+        if (refreshFails) throw new TypeError('Network request failed');
+        return jsonResponse(200, { accessToken: 'access-2', refreshToken: 'refresh-2' });
+      }
+      const auth = (init.headers as Record<string, string>).Authorization;
+      return auth === 'Bearer access-2' ? jsonResponse(200, { ok: true }) : jsonResponse(401);
     });
 
     await expect(client.get('/users/me')).rejects.toMatchObject({
       status: 0,
       code: 'NETWORK_ERROR',
     });
-    expect(store.get()).not.toBeNull();
+    expect(store.get()).toMatchObject({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+    expect(queryClient.clear).not.toHaveBeenCalled();
+    expect(lost).not.toHaveBeenCalled();
+
+    refreshFails = false;
+    await expect(client.get('/users/me')).resolves.toEqual({ ok: true });
+    expect(refreshCalls()).toHaveLength(2);
+    expect(refreshCalls()[1]![1].body).toBe(JSON.stringify({ refreshToken: 'refresh-1' }));
+    expect(authHeader(fetchFn.mock.calls.length - 1)).toBe('Bearer access-2');
+    unsubscribe();
+  });
+
+  it('keeps the session when refresh answers 5xx (transient) and surfaces the server error', async () => {
+    const { client, store, data, queryClient, fetchFn, refreshCalls } = await setup();
+    const lost = jest.fn();
+    const unsubscribe = onAuthLost(lost);
+    fetchFn.mockImplementation(async (url) =>
+      url === `${BASE}/auth/refresh`
+        ? jsonResponse(503, { error: { code: 'UNAVAILABLE', message: 'down' } })
+        : jsonResponse(401),
+    );
+
+    await expect(client.get('/users/me')).rejects.toMatchObject({
+      status: 503,
+      code: 'UNAVAILABLE',
+    });
+    expect(refreshCalls()).toHaveLength(1);
+    expect(store.get()).toMatchObject({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+    expect(data.has(SESSION_STORAGE_KEY)).toBe(true);
+    expect(queryClient.clear).not.toHaveBeenCalled();
+    expect(lost).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it('reuses tokens rotated by another request while this one was in flight', async () => {
+    const { client, fetchFn, refreshCalls, authHeader } = await setup();
+    const slow = deferred<Response>();
+    fetchFn.mockImplementation(async (url, init) => {
+      if (url === `${BASE}/auth/refresh`) {
+        return jsonResponse(200, { accessToken: 'access-2', refreshToken: 'refresh-2' });
+      }
+      const auth = (init.headers as Record<string, string>).Authorization;
+      if (url === `${BASE}/slow` && auth === 'Bearer access-1') return slow.promise;
+      return auth === 'Bearer access-2' ? jsonResponse(200, { url }) : jsonResponse(401);
+    });
+
+    const slowRequest = client.get('/slow');
+    await expect(client.get('/users/me')).resolves.toEqual({ url: `${BASE}/users/me` });
+    slow.resolve(jsonResponse(401));
+
+    await expect(slowRequest).resolves.toEqual({ url: `${BASE}/slow` });
+    expect(refreshCalls()).toHaveLength(1);
+    expect(authHeader(fetchFn.mock.calls.length - 1)).toBe('Bearer access-2');
+  });
+
+  describe('session generation isolation', () => {
+    const userB = { ...testUser, id: '00000000-0000-4000-8000-000000000002', username: 'dev-sam' };
+    const sessionB = makeSession({
+      accessToken: 'b-access',
+      refreshToken: 'b-refresh',
+      user: userB,
+    });
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    it('discards a refresh that succeeds after an account switch (no token merge)', async () => {
+      const { client, store, data, fetchFn, refreshCalls } = await setup();
+      const refreshResponse = deferred<Response>();
+      fetchFn.mockImplementation(async (url) =>
+        url === `${BASE}/auth/refresh` ? refreshResponse.promise : jsonResponse(401),
+      );
+
+      const request = client.get('/users/me');
+      await flush();
+      expect(refreshCalls()).toHaveLength(1);
+
+      await store.set(sessionB);
+      refreshResponse.resolve(
+        jsonResponse(200, { accessToken: 'access-2', refreshToken: 'refresh-2' }),
+      );
+
+      await expect(request).rejects.toBeInstanceOf(ApiError);
+      expect(store.get()).toEqual(sessionB);
+      expect(JSON.parse(data.get(SESSION_STORAGE_KEY) ?? '')).toEqual(sessionB);
+      // No replay of the old request with any credentials.
+      expect(fetchFn).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps the replacement session when the old refresh is rejected after a switch', async () => {
+      const { client, store, data, queryClient, fetchFn } = await setup();
+      const lost = jest.fn();
+      const unsubscribe = onAuthLost(lost);
+      const refreshResponse = deferred<Response>();
+      fetchFn.mockImplementation(async (url) =>
+        url === `${BASE}/auth/refresh` ? refreshResponse.promise : jsonResponse(401),
+      );
+
+      const request = client.get('/users/me');
+      await flush();
+      await store.set(sessionB);
+      refreshResponse.resolve(
+        jsonResponse(401, { error: { code: 'UNAUTHORIZED', message: 'revoked' } }),
+      );
+
+      await expect(request).rejects.toBeInstanceOf(ApiError);
+      expect(store.get()).toEqual(sessionB);
+      expect(JSON.parse(data.get(SESSION_STORAGE_KEY) ?? '')).toEqual(sessionB);
+      expect(queryClient.clear).not.toHaveBeenCalled();
+      expect(lost).not.toHaveBeenCalled();
+      unsubscribe();
+    });
+
+    it('does not refresh or replay a late 401 from the previous session', async () => {
+      const { client, store, fetchFn, refreshCalls } = await setup();
+      const late = deferred<Response>();
+      fetchFn.mockImplementation(async () => late.promise);
+
+      const request = client.get('/users/me');
+      await flush();
+      await store.set(sessionB);
+      late.resolve(jsonResponse(401));
+
+      await expect(request).rejects.toMatchObject({ status: 401 });
+      expect(refreshCalls()).toHaveLength(0);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(store.get()).toEqual(sessionB);
+    });
+
+    it('does not refresh or clear anything for a late 401 after logout', async () => {
+      const { client, store, queryClient, fetchFn, refreshCalls } = await setup();
+      const lost = jest.fn();
+      const unsubscribe = onAuthLost(lost);
+      const late = deferred<Response>();
+      fetchFn.mockImplementation(async () => late.promise);
+
+      const request = client.get('/users/me');
+      await flush();
+      await store.clear();
+      late.resolve(jsonResponse(401));
+
+      await expect(request).rejects.toMatchObject({ status: 401 });
+      expect(refreshCalls()).toHaveLength(0);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(queryClient.clear).not.toHaveBeenCalled();
+      expect(lost).not.toHaveBeenCalled();
+      unsubscribe();
+    });
+
+    it('starts a fresh refresh for the new session instead of joining the stale one', async () => {
+      const { client, store, fetchFn, refreshCalls, authHeader } = await setup();
+      const staleRefresh = deferred<Response>();
+      fetchFn.mockImplementation(async (url, init) => {
+        if (url === `${BASE}/auth/refresh`) {
+          const { refreshToken } = JSON.parse(String(init.body)) as { refreshToken: string };
+          return refreshToken === 'refresh-1'
+            ? staleRefresh.promise
+            : jsonResponse(200, { accessToken: 'b-access-2', refreshToken: 'b-refresh-2' });
+        }
+        const auth = (init.headers as Record<string, string>).Authorization;
+        return auth === 'Bearer b-access-2' ? jsonResponse(200, { url }) : jsonResponse(401);
+      });
+
+      const stale = client.get('/users/me');
+      await flush();
+      await store.set(sessionB);
+
+      await expect(client.get('/tournaments')).resolves.toEqual({ url: `${BASE}/tournaments` });
+      expect(refreshCalls()).toHaveLength(2);
+      expect(refreshCalls()[1]![1].body).toBe(JSON.stringify({ refreshToken: 'b-refresh' }));
+      expect(authHeader(fetchFn.mock.calls.length - 1)).toBe('Bearer b-access-2');
+
+      staleRefresh.resolve(
+        jsonResponse(200, { accessToken: 'access-2', refreshToken: 'refresh-2' }),
+      );
+      await expect(stale).rejects.toBeInstanceOf(ApiError);
+      expect(store.get()).toMatchObject({
+        accessToken: 'b-access-2',
+        refreshToken: 'b-refresh-2',
+        user: userB,
+      });
+    });
+
+    it('client.refresh() resolves null when the session changed mid-refresh', async () => {
+      const { client, store, fetchFn } = await setup();
+      const refreshResponse = deferred<Response>();
+      fetchFn.mockImplementation(async () => refreshResponse.promise);
+
+      const pending = client.refresh();
+      await flush();
+      await store.set(sessionB);
+      refreshResponse.resolve(
+        jsonResponse(200, { accessToken: 'access-2', refreshToken: 'refresh-2' }),
+      );
+
+      await expect(pending).resolves.toBeNull();
+      expect(store.get()).toEqual(sessionB);
+    });
   });
 });
