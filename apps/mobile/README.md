@@ -13,8 +13,9 @@ docker compose up -d                            # db + api on :3100
 ```
 
 `apps/mobile/.env` holds the public `EXPO_PUBLIC_*` values (API URL, Google web client ID).
-They are inlined into the bundle, so never put secrets there. On a physical device, set
-`EXPO_PUBLIC_API_URL` to the Mac's LAN address (for example `http://192.168.x.x:3100`).
+They are inlined into the bundle, so never put secrets there (in particular, the Google client
+secret lives only in the root `.env`). On a physical device, set `EXPO_PUBLIC_API_URL` to the
+Mac's LAN address; see [Expo Go on a physical device](#expo-go-on-a-physical-device).
 
 Dev sessions: in non-production builds (`EXPO_PUBLIC_ENV` other than `production`), set
 `EXPO_PUBLIC_DEV_AUTH` to the `DEV_AUTH_SECRET` from the repo-root `.env`. The app sends it as
@@ -45,7 +46,49 @@ cd apps/mobile
 CI=true npx expo start --port 8081   # web at http://localhost:8081, Expo Go via the QR code
 ```
 
-The first web compile takes 1-3 minutes.
+The first web compile takes 1-3 minutes. Drop `CI=true` to get the interactive terminal with
+the Expo Go QR code. Restart with `--clear` after changing `apps/mobile/.env`.
+
+## Expo Go on a physical device
+
+Expo Go loads the JavaScript bundle from the Mac's dev server. The iPhone and the Mac must be on
+the same Wi-Fi network, and Expo Go must support SDK 58 (keep it updated from the App Store).
+
+1. Find the Mac's LAN address: `ipconfig getifaddr en0` (for example `192.168.1.21`).
+2. In `apps/mobile/.env`, point the app at the API through that address. `localhost` on the phone
+   is the phone itself, so the default does not work on a device:
+
+   ```sh
+   EXPO_PUBLIC_API_URL=http://192.168.1.21:3100
+   ```
+
+   The Mac browser keeps working with this value (Docker publishes port 3100 on every
+   interface). Set it back to `http://localhost:3100` when you are done.
+
+3. Start the dev server in interactive mode so it prints a QR code, clearing the cache so the new
+   env value is inlined:
+
+   ```sh
+   cd apps/mobile
+   npx expo start --port 8081 --clear
+   ```
+
+4. On the iPhone, scan the terminal QR code with the Camera app (it opens Expo Go), or open Expo
+   Go and enter `exp://192.168.1.21:8081` manually. If macOS asks whether Node may accept incoming
+   connections, allow it.
+5. On the login screen, use **DEV SIGN-IN**: pick a seeded user chip (for example `dev-sam`) or
+   type a username, then sign in. This calls `POST /auth/dev-token` with `EXPO_PUBLIC_DEV_AUTH`.
+   **Continue with Google** is for the web app; Expo Go cannot complete it because the Google
+   web client only allows the `http://localhost:8081` redirect.
+6. The version label at the bottom of the login and settings screens ends in `L` when the app
+   talks to a local/LAN API.
+
+If the phone shows network errors, check that the label shows the LAN URL, that
+`curl http://<LAN-IP>:3100/health` works from the Mac, and that both devices are on the same
+network (guest networks often isolate clients).
+
+The camera permission prompt appears the first time the scanner opens. If you denied it, enable
+the camera for Expo Go in iOS Settings.
 
 ## Test and typecheck
 

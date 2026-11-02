@@ -6,87 +6,158 @@ read-only, gitignored references.
 
 ## Layout
 
-- `apps/backend`: Fastify + Zod + Drizzle API (PostgreSQL 17)
-- `apps/mobile`: Expo app
+- `apps/backend`: Fastify + Zod + Drizzle API on PostgreSQL 17 ([README](apps/backend/README.md))
+- `apps/mobile`: Expo SDK 58 app for iOS, Android, and web ([README](apps/mobile/README.md))
 - `docker-compose.yml`: `db` (Postgres, host port 5433) and `api` (hot reload, port 3100)
 - `Dockerfile`: `dev` target for compose, `prod` target for a slim production image
+- `DEVICE-CHECKLIST.md`: manual checks for real Google login, the two-device QR flow, and
+  native pull-to-refresh
 
-## Getting started
+## Prerequisites
+
+- Node 24+ and npm 11 (npm workspaces; do not use pnpm, yarn, or bun here)
+- Docker Desktop (Compose v2)
+- For device testing: an iPhone with Expo Go on the same Wi-Fi network as the Mac
+
+Ports used: 5433 (Postgres), 3100 (API), 8081 (Expo dev server / web app).
+
+## Quick start
+
+From the repo root:
 
 ```sh
-cp .env.example .env          # then replace the <generate-...> secrets
 npm install
-docker compose up -d          # starts db + api; migrations run on api boot
-curl localhost:3100/health    # {"status":"ok","database":"up"}
+cp .env.example .env                       # then generate the three secrets (see below)
+cp apps/mobile/.env.example apps/mobile/.env
+docker compose up -d                       # db + api; migrations run on api boot
+curl localhost:3100/health                 # {"status":"ok","database":"up"}
+npm run seed -w apps/backend               # idempotent demo data
+cd apps/mobile && CI=true npx expo start --port 8081
 ```
 
-The api container bind-mounts `apps/backend` and restarts on file changes. Stop with
-`docker compose stop`; reset the database with `docker compose down -v`.
+Open http://localhost:8081, then use **DEV SIGN-IN** (for example `dev-alex`) to see the seeded
+feed. The first web compile takes 1-3 minutes.
 
-## Scripts
-
-- `npm run typecheck`: TypeScript in every workspace
-- `npm run lint`: ESLint + Prettier check
-- `npm run test`: tests in every workspace
-
-## Backend
-
-- API docs: Swagger UI at http://localhost:3100/docs, OpenAPI JSON at `/docs/json` (generated
-  from the zod route schemas).
-- Errors always use `{"error": {"code": "...", "message": "..."}}` (`VALIDATION_ERROR` for
-  zod failures, `NOT_FOUND` for unknown routes, `INTERNAL_ERROR` for unexpected failures).
-- Configuration is parsed with zod in `apps/backend/src/config.ts`. Required: `DATABASE_URL`,
-  `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DEV_AUTH_SECRET` (32+ chars each),
-  `GOOGLE_CLIENT_ID`. Optional with defaults: `PORT` (3100), `HOST` (0.0.0.0), `APP_ENV`
-  (development | test | production), `LOG_LEVEL` (info), `GOOGLE_JWKS_URL`, `PUSH_URL`,
-  `TEST_DATABASE_URL`, `GOOGLE_CLIENT_SECRET` (server-only Web-application secret; unset makes
-  `POST /auth/google/code` answer 503), `GOOGLE_TOKEN_URL`, `GOOGLE_REDIRECT_ALLOWLIST`.
-- Logs never include request headers; authorization headers and token fields are redacted.
-
-### Sessions
-
-- `POST /auth/google/code {code, codeVerifier, redirectUri}` is the primary Google login: the
-  app keeps the PKCE authorization-code request, and the backend exchanges the code with
-  Google server-side using the server-only `GOOGLE_CLIENT_SECRET` (paste the real value into
-  `.env`; while it is unset the route answers 503). `redirectUri` must exactly match an entry
-  in `GOOGLE_REDIRECT_ALLOWLIST` (default `http://localhost:8081`), else 400. Returns
-  `{accessToken, refreshToken, user}`.
-- `POST /auth/token {provider: "google", idToken}` returns the same session for callers that
-  already hold a Google ID token.
-  Access tokens (HS256, `JWT_ACCESS_SECRET`) last 15 minutes; refresh tokens (HS256,
-  `JWT_REFRESH_SECRET`) last 30 days and are recorded in `refresh_tokens`.
-- Protected routes use `onRequest: [app.authenticate]`, which accepts only access tokens and sets
-  `request.user.id`. Refresh tokens never authorize API calls.
-- `POST /auth/refresh {refreshToken}` rotates: the presented token is consumed and a new pair is
-  returned. Presenting a consumed or unknown token returns 401 and revokes the whole token family.
-- `POST /auth/logout {refreshToken}` revokes the family and returns 204.
-- `POST /auth/dev-token {username}` with header `x-dev-auth: <DEV_AUTH_SECRET>` returns a session
-  for an existing user (for example a seeded `dev-alex`). It answers 404 when the header is wrong
-  and is not registered at all when `APP_ENV=production`.
-
-### Database migrations and demo data
-
-- The schema lives in `apps/backend/src/db/schema.ts`. After changing it, run
-  `DATABASE_URL=postgres://sharkulator:sharkulator@localhost:5433/sharkulator_dev npm run db:generate -w apps/backend`
-  and commit the new folder under `apps/backend/drizzle/`.
-- The api container applies pending migrations on every boot (`docker/api/entrypoint.sh`).
-  The server itself also runs the drizzle migrator against `apps/backend/drizzle` before
-  listening (`src/db/migrate.ts`), so the production image (`docker build --target prod`)
-  migrates its database on start. Already-applied migrations are skipped.
-- `npm run seed -w apps/backend` loads idempotent demo data into `sharkulator_dev` (host default
-  `localhost:5433`, override with `DATABASE_URL`): users `dev-alex`, `dev-sam`, `dev-jordan`,
-  `dev-taylor`, `dev-morgan`, three sports, three tournaments with games, stats, and rivalries.
-  Re-running it adds nothing.
-
-### Backend tests
-
-`npm run test -w apps/backend` runs vitest against the `sharkulator_test` database on port 5433
-(`docker compose up -d db` first). The global setup recreates the `public` schema and applies the
-committed migrations with `drizzle-kit migrate`; set `TEST_DATABASE_URL` to use another database. Test
-helpers live in `apps/backend/test/helpers.ts` (`buildTestApp`, `truncateAll`, factories, `authHeadersFor`).
-
-## Production image
+Generate each secret in `.env` (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DEV_AUTH_SECRET`)
+with:
 
 ```sh
-docker build --target prod -t sharkulator-api .
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
+
+Then copy the `DEV_AUTH_SECRET` value into `apps/mobile/.env` as `EXPO_PUBLIC_DEV_AUTH` to enable
+the dev sign-in control. The mission `init.sh` script generates the root secrets for you but
+leaves `EXPO_PUBLIC_DEV_AUTH` blank.
+
+### Starting over from an empty database
+
+```sh
+docker compose down -v      # removes the containers and the sharkulator_pgdata volume
+docker compose up -d        # fresh db; the api applies every migration on boot
+npm run seed -w apps/backend
+curl localhost:3100/health
+```
+
+The api usually answers `/health` within about 10 seconds; a few `curl` failures right after
+`up` are normal while it boots.
+
+## Day-to-day commands
+
+| What                               | Command                                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------------------- |
+| Start db + api                     | `docker compose up -d`                                                                 |
+| Stop db + api                      | `docker compose stop`                                                                  |
+| API logs                           | `docker compose logs -f api`                                                           |
+| Seed demo data                     | `npm run seed -w apps/backend`                                                         |
+| Expo dev server (web + Expo Go)    | `cd apps/mobile && CI=true npx expo start --port 8081`                                 |
+| Backend tests (needs `db` running) | `npm run test -w apps/backend`                                                         |
+| Mobile tests                       | `CI=true npm run test -w apps/mobile`                                                  |
+| All tests                          | `npm run test`                                                                         |
+| Typecheck both workspaces          | `npm run typecheck`                                                                    |
+| Lint + Prettier check              | `npm run lint`                                                                         |
+| Format                             | `npm run format`                                                                       |
+| Generate a migration               | see [apps/backend/README.md](apps/backend/README.md#database-migrations-and-demo-data) |
+| Production API image               | `docker build --target prod -t sharkulator-api .`                                      |
+
+`CI=true` stops Expo from opening a browser and runs jest once instead of in watch mode.
+
+## API docs
+
+- Swagger UI: http://localhost:3100/docs
+- OpenAPI JSON: http://localhost:3100/docs/json
+- Health: http://localhost:3100/health
+
+## Environment variables
+
+### Root `.env` (backend, gitignored; template in `.env.example`)
+
+| Variable                    | Required         | Default / example                                                    | Notes                                                                          |
+| --------------------------- | ---------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `PORT`                      | no               | `3100`                                                               | Compose pins it to 3100.                                                       |
+| `HOST`                      | no               | `0.0.0.0`                                                            |                                                                                |
+| `APP_ENV`                   | no               | `development`                                                        | `development`, `test`, or `production`. Production disables `/auth/dev-token`. |
+| `DATABASE_URL`              | yes              | `postgres://sharkulator:sharkulator@db:5432/sharkulator_dev`         | Compose-internal host. Host tools use `localhost:5433`.                        |
+| `TEST_DATABASE_URL`         | for tests        | `postgres://sharkulator:sharkulator@localhost:5433/sharkulator_test` | Used by host-run vitest.                                                       |
+| `JWT_ACCESS_SECRET`         | yes              | 32-byte hex                                                          | Signs 15-minute access tokens.                                                 |
+| `JWT_REFRESH_SECRET`        | yes              | 32-byte hex                                                          | Signs 30-day refresh tokens.                                                   |
+| `DEV_AUTH_SECRET`           | yes              | 32-byte hex                                                          | `x-dev-auth` header value for `POST /auth/dev-token`.                          |
+| `GOOGLE_CLIENT_ID`          | yes              | `686477747885-…apps.googleusercontent.com`                           | Google Web-application client ID (public). Expected `aud` of Google ID tokens. |
+| `GOOGLE_CLIENT_SECRET`      | for Google login | unset                                                                | Web-application client **secret**. Server-only; see below.                     |
+| `GOOGLE_JWKS_URL`           | no               | `https://www.googleapis.com/oauth2/v3/certs`                         | Overridden in tests.                                                           |
+| `GOOGLE_TOKEN_URL`          | no               | `https://oauth2.googleapis.com/token`                                | Overridden in tests.                                                           |
+| `GOOGLE_REDIRECT_ALLOWLIST` | no               | `http://localhost:8081`                                              | Comma-separated exact redirect URIs accepted by `POST /auth/google/code`.      |
+| `PUSH_URL`                  | no               | `https://exp.host/--/api/v2/push/send`                               | Expo push API; point at a local collector when testing.                        |
+| `LOG_LEVEL`                 | no               | `info`                                                               |                                                                                |
+
+### `apps/mobile/.env` (gitignored; template in `apps/mobile/.env.example`)
+
+| Variable                       | Default / example          | Notes                                                                     |
+| ------------------------------ | -------------------------- | ------------------------------------------------------------------------- |
+| `EXPO_PUBLIC_API_URL`          | `http://localhost:3100`    | Use the Mac's LAN address on a physical device (see the mobile README).   |
+| `EXPO_PUBLIC_GOOGLE_CLIENT_ID` | same as `GOOGLE_CLIENT_ID` | Public client ID used for the PKCE authorization request.                 |
+| `EXPO_PUBLIC_ENV`              | `development`              | `production` hides the dev sign-in control.                               |
+| `EXPO_PUBLIC_DEV_AUTH`         | empty                      | Set to the root `DEV_AUTH_SECRET` to enable dev sign-in. Dev builds only. |
+
+Every `EXPO_PUBLIC_*` value is inlined into the app bundle. Never put a real secret there.
+Restart the Expo dev server after editing `apps/mobile/.env`.
+
+### Setting up `GOOGLE_CLIENT_SECRET`
+
+Real Google login sends the authorization code to the backend (`POST /auth/google/code`), which
+exchanges it with Google using the Web-application client secret. Only the backend ever holds
+that secret.
+
+1. In Google Cloud Console, open **APIs & Services → Credentials** and the Web-application OAuth
+   client whose ID is `GOOGLE_CLIENT_ID`. Check that `http://localhost:8081` is listed under both
+   **Authorized JavaScript origins** and **Authorized redirect URIs**.
+2. Copy its client secret and paste it into the **root** `.env` (gitignored):
+   `GOOGLE_CLIENT_SECRET=<your secret>`.
+3. Recreate the api container so it reloads `.env`: `docker compose up -d --force-recreate api`.
+   A `tsx watch` restart does not reload environment variables.
+
+Never commit the secret, never put it in `apps/mobile/.env` or any `EXPO_PUBLIC_*` variable, and
+never paste it into chat or logs. While it is unset, `POST /auth/google/code` answers 503 and the
+app shows a sign-in error; dev sign-in keeps working.
+
+## Troubleshooting
+
+- **`/health` fails right after `docker compose up -d`**: the api is still applying migrations.
+  Retry for about 10 seconds. If it keeps failing, check `docker compose logs api`.
+- **A backend change is not picked up** (for example a new route returns 404): `tsx watch`
+  sometimes misses bind-mount changes on macOS. Run `docker compose restart api`.
+- **`.env` change ignored by the api**: recreate it with `docker compose up -d --force-recreate api`.
+- **Port 5433, 3100, or 8081 already in use**: find the owner with `lsof -i :<port>` and stop it.
+  Compose never uses 5432, so another local Postgres does not conflict.
+- **Web app stuck on a blank page**: the first Metro compile takes 1-3 minutes. Watch the Expo
+  terminal for `Web Bundled`.
+- **No DEV SIGN-IN control on the login screen**: `EXPO_PUBLIC_DEV_AUTH` is empty or
+  `EXPO_PUBLIC_ENV=production`. Set it and restart Expo with `--clear`.
+- **Dev sign-in answers "not found"**: `EXPO_PUBLIC_DEV_AUTH` does not match the root
+  `DEV_AUTH_SECRET`, or the user is not seeded (`npm run seed -w apps/backend`).
+- **Google sign-in shows an error after consent**: a 503 means `GOOGLE_CLIENT_SECRET` is unset or
+  the api was not recreated; a 400 means the redirect URI is not in `GOOGLE_REDIRECT_ALLOWLIST`;
+  a 401 means Google rejected the code (retry from the start).
+- **Phone shows network errors**: `EXPO_PUBLIC_API_URL` still points at `localhost`. See
+  [Expo Go on a device](apps/mobile/README.md#expo-go-on-a-physical-device).
+- **Backend tests fail to connect**: start the database first with `docker compose up -d db`.
+- **Fresh start**: `docker compose down -v`, then follow the quick start again.
