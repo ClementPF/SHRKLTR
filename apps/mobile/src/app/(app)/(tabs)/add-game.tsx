@@ -1,5 +1,5 @@
-import { ScreenPlaceholder } from '@/components/screen-placeholder';
+import { GameChoiceScreen } from '@/features/game-form/choice-screen';
 
-export default function AddGameScreen() {
-  return <ScreenPlaceholder title="Add Game" />;
+export default function AddGameRoute() {
+  return <GameChoiceScreen />;
 }

@@ -1,35 +1,13 @@
-import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { Game, Outcome } from '@/api/types';
+import type { Game } from '@/api/types';
 import { useRivalry } from '@/features/users/queries';
 import { formatPoints, fromNow } from '@/lib/format';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
 
+import { TeamColumn } from './outcome-columns';
 import { RivalryRows } from './rivalry-card';
-
-const GOLD = '#FFD700';
-
-function OutcomeColumn({ outcomes, won }: { outcomes: Outcome[]; won: boolean }) {
-  return (
-    <View style={styles.column} testID={won ? 'game-winners' : 'game-losers'}>
-      <SymbolView
-        name={{ ios: 'trophy.fill', android: 'emoji_events', web: 'emoji_events' }}
-        tintColor={won ? GOLD : Colors.textMuted}
-        size={28}
-        accessibilityLabel={won ? 'Winners' : 'Losers'}
-      />
-      <View style={[styles.team, { borderColor: won ? GOLD : Colors.border }]}>
-        {outcomes.map((o) => (
-          <Text key={o.id} style={styles.player} numberOfLines={1}>
-            {o.user.username}
-          </Text>
-        ))}
-      </View>
-    </View>
-  );
-}
 
 function LiveRivalry({
   username,
@@ -94,9 +72,9 @@ export function GameRow({ game, viewer }: GameRowProps) {
       <Text style={styles.date}>{fromNow(game.date)}</Text>
       <Text style={styles.tournament}>{game.tournament.displayName}</Text>
       <View style={styles.versus}>
-        <OutcomeColumn outcomes={winners} won />
+        <TeamColumn members={winners.map((o) => o.user)} won testID="game-winners" />
         <Text style={styles.vs}>VS</Text>
-        <OutcomeColumn outcomes={losers} won={false} />
+        <TeamColumn members={losers.map((o) => o.user)} won={false} testID="game-losers" />
       </View>
       {expanded && (
         <View style={styles.rivalry} testID="game-rivalry">
@@ -125,16 +103,6 @@ const styles = StyleSheet.create({
   date: { ...Typography.caption },
   tournament: { ...Typography.body, fontWeight: '700', textAlign: 'center' },
   versus: { flexDirection: 'row', alignItems: 'center' },
-  column: { flex: 1, alignItems: 'center', gap: Spacing.xs },
-  team: {
-    alignSelf: 'stretch',
-    marginHorizontal: Spacing.sm,
-    paddingVertical: Spacing.sm,
-    borderWidth: 3,
-    borderRadius: 16,
-    gap: Spacing.xs,
-  },
-  player: { ...Typography.body, textAlign: 'center' },
   vs: { fontSize: 24, fontWeight: '700', color: Colors.accent },
   rivalry: {
     borderTopWidth: 1,

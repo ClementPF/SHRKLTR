@@ -82,5 +82,20 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
 - Refresh: tab and detail routes call `useInvalidateOnFocus` (`src/lib/`) so returning to a screen
   refetches data changed elsewhere (e.g. a game submitted from another device); received or
   opened push notifications invalidate every query (`src/notifications/`, wired in the root layout).
+- Add Game tab (QR-only game entry): `src/features/game-form/`. The tab asks WON or LOST.
+  Winners open `/game-form/winner`, a QR code (react-native-qrcode-svg, 220px) of
+  `{username, tournamentName, tournament: {name}, result: "WIN"}`. Losers open
+  `/game-form/scanner`: an expo-camera `CameraView` scanning QR codes, with camera-unavailable
+  and permission-denied states (headless browsers show one of these) and a Get Scanned toggle that
+  shows the loser's own `LOSS` code for team mates. Each scan is parsed and validated by the pure
+  helpers in `src/lib/qr.ts` (required keys, same tournament, username dedupe, outcomes seeded with
+  the scanner's own LOSS); the zustand draft (`store.ts`) holds the tournament and scanned outcomes.
+  Both screens default to the tournament of the player's latest game and re-pick it through EDIT
+  (`/game-form/tournament`: recent + all tournaments, searchable). "All good" stays disabled until
+  the teams are complete, then asks for confirmation, POSTs `/tournaments/:name/games`, opens
+  `/game-form/result?id=` and invalidates the `users`, `stats` and `tournaments` queries so mounted
+  feed/history lists refetch immediately. Non-production builds print the QR payload under each
+  code and offer a "paste a QR code payload" field on the scanner, so the flow can be driven
+  without a camera (copy the winner's payload into the loser's field).
 - `src/features/` TanStack Query hooks,
   `src/components/` shared UI, `src/theme/` dark theme constants (accent `#CE2924`).

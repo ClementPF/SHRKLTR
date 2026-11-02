@@ -13,6 +13,7 @@ import {
   getUserGames,
   getUserRivalries,
   getUserStats,
+  getUserTournaments,
 } from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
 import type { Game, RivalryStats, Stats } from '@/api/types';
@@ -25,6 +26,7 @@ export const DETAIL_PAGE_SIZE = 10;
 export const userKeys = {
   all: ['users'] as const,
   stats: (username: string) => ['users', username, 'stats'] as const,
+  tournaments: (username: string) => ['users', username, 'tournaments'] as const,
   games: (username: string, tournamentName: string | undefined, pageSize: number) =>
     ['users', username, 'games', { tournamentName: tournamentName ?? null, pageSize }] as const,
   rivalries: (username: string, tournamentName: string | undefined) =>
@@ -43,6 +45,15 @@ export function useUserStats(username: string | undefined) {
   return useQuery({
     queryKey: userKeys.stats(username ?? ''),
     queryFn: () => getUserStats(username!),
+    enabled: !!username,
+  });
+}
+
+/** Tournaments the user has played in. */
+export function useUserTournaments(username: string | undefined) {
+  return useQuery({
+    queryKey: userKeys.tournaments(username ?? ''),
+    queryFn: () => getUserTournaments(username!),
     enabled: !!username,
   });
 }
