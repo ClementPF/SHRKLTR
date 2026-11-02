@@ -31,7 +31,7 @@ describe('LoginScreen', () => {
       status: 'unauthenticated',
       session: null,
       user: null,
-      login: jest.fn(async () => undefined),
+      loginWithGoogleCode: jest.fn(async () => undefined),
       loginWithDevUser,
       logout: jest.fn(async () => undefined),
       refresh: jest.fn(async () => false),

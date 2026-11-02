@@ -80,6 +80,13 @@ export interface SessionResponse extends TokenPair {
   user: User;
 }
 
+/** Body of POST /auth/google/code; the backend redeems the code at Google. */
+export interface GoogleCodeExchangeRequest {
+  code: string;
+  codeVerifier: string;
+  redirectUri: string;
+}
+
 export interface ErrorEnvelope {
   error: { code: string; message: string };
 }

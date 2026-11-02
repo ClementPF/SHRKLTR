@@ -88,8 +88,8 @@ export interface LoginScreenProps {
 }
 
 export function LoginScreen({ devSignInEnabled = isDevSessionEnabled() }: LoginScreenProps) {
-  const { login } = useSession();
-  const google = useGoogleSignIn(login);
+  const { loginWithGoogleCode } = useSession();
+  const google = useGoogleSignIn(loginWithGoogleCode);
 
   return (
     <ScrollView style={Palette.screen} contentContainerStyle={styles.container}>

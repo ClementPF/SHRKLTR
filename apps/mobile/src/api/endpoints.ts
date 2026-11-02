@@ -2,6 +2,7 @@ import { api } from './client';
 import type {
   CreateTournamentRequest,
   Game,
+  GoogleCodeExchangeRequest,
   PageParams,
   RivalryStats,
   SessionResponse,
@@ -17,8 +18,16 @@ import type {
 const seg = encodeURIComponent;
 
 // Auth (unauthenticated routes: no Bearer, no refresh-on-401)
-export const exchangeGoogleIdToken = (idToken: string) =>
-  api.post<SessionResponse>('/auth/token', { provider: 'google', idToken }, { auth: false });
+export const exchangeGoogleCode = ({
+  code,
+  codeVerifier,
+  redirectUri,
+}: GoogleCodeExchangeRequest) =>
+  api.post<SessionResponse>(
+    '/auth/google/code',
+    { code, codeVerifier, redirectUri },
+    { auth: false },
+  );
 
 export const logoutSession = (refreshToken: string) =>
   api.post<void>('/auth/logout', { refreshToken }, { auth: false });

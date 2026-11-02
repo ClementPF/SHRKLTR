@@ -12,8 +12,8 @@ import {
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '@/api/client';
-import { exchangeGoogleIdToken, getMe, logoutSession } from '@/api/endpoints';
-import type { User } from '@/api/types';
+import { exchangeGoogleCode, getMe, logoutSession } from '@/api/endpoints';
+import type { GoogleCodeExchangeRequest, User } from '@/api/types';
 import { queryClient as defaultQueryClient } from '@/lib/query-client';
 import { registerForPushNotifications } from '@/notifications/push-registration';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
@@ -28,8 +28,8 @@ export interface SessionContextValue {
   status: SessionStatus;
   session: StoredSession | null;
   user: User | null;
-  /** Exchanges a Google ID token for a backend session. */
-  login(idToken: string): Promise<void>;
+  /** Sends a Google authorization code (+ PKCE verifier) to the backend for a session. */
+  loginWithGoogleCode(exchange: GoogleCodeExchangeRequest): Promise<void>;
   /** Non-production only: signs in as a seeded user through /auth/dev-token. */
   loginWithDevUser(username: string): Promise<void>;
   logout(): Promise<void>;
@@ -112,9 +112,9 @@ export function SessionProvider({
     });
   }, [userId, registerPush]);
 
-  const login = useCallback(
-    async (idToken: string) => {
-      await store.set(await exchangeGoogleIdToken(idToken));
+  const loginWithGoogleCode = useCallback(
+    async (exchange: GoogleCodeExchangeRequest) => {
+      await store.set(await exchangeGoogleCode(exchange));
     },
     [store],
   );
@@ -143,12 +143,12 @@ export function SessionProvider({
       status: !hydrated ? 'loading' : session ? 'authenticated' : 'unauthenticated',
       session,
       user: session?.user ?? null,
-      login,
+      loginWithGoogleCode,
       loginWithDevUser,
       logout,
       refresh,
     }),
-    [hydrated, session, login, loginWithDevUser, logout, refresh],
+    [hydrated, session, loginWithGoogleCode, loginWithDevUser, logout, refresh],
   );
 
   return (

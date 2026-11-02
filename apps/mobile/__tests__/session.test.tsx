@@ -1,9 +1,10 @@
 import { act, render, screen } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
-import { logoutSession } from '@/api/endpoints';
+import { exchangeGoogleCode, logoutSession } from '@/api/endpoints';
 import { SessionProvider, useSession } from '@/auth/session';
 import { createSessionStore } from '@/auth/session-store';
+import { requestDevSession } from '@/auth/devSession';
 import { SESSION_STORAGE_KEY } from '@/auth/storage';
 
 import { ApiError, SESSION_EXPIRED } from '@/api/errors';
@@ -11,7 +12,7 @@ import { ApiError, SESSION_EXPIRED } from '@/api/errors';
 import { deferred, makeSession, memoryStorage, testUser } from '../test-utils/session';
 
 jest.mock('@/api/endpoints', () => ({
-  exchangeGoogleIdToken: jest.fn(),
+  exchangeGoogleCode: jest.fn(),
   getMe: jest.fn(async () => {
     throw new Error('offline');
   }),
@@ -27,6 +28,29 @@ function Probe() {
     <Text onPress={() => void logout()}>
       {status}:{user?.username ?? 'none'}
     </Text>
+  );
+}
+
+jest.mock('@/auth/devSession', () => ({
+  requestDevSession: jest.fn(),
+}));
+
+const GOOGLE_EXCHANGE = {
+  code: 'auth-code',
+  codeVerifier: 'verifier-xyz',
+  redirectUri: 'http://localhost:8081',
+};
+
+function LoginProbe() {
+  const { status, user, loginWithGoogleCode, loginWithDevUser } = useSession();
+  return (
+    <>
+      <Text>
+        {status}:{user?.username ?? 'none'}
+      </Text>
+      <Text onPress={() => void loginWithGoogleCode(GOOGLE_EXCHANGE)}>google</Text>
+      <Text onPress={() => void loginWithDevUser('dev-sam')}>dev</Text>
+    </>
   );
 }
 
@@ -142,6 +166,59 @@ describe('SessionProvider', () => {
     );
 
     expect(await screen.findByText('authenticated:dev-alex')).toBeTruthy();
+  });
+
+  it('loginWithGoogleCode exchanges the code through the backend and stores the session', async () => {
+    const { storage, data } = memoryStorage();
+    const session = makeSession({ accessToken: 'google-access', refreshToken: 'google-refresh' });
+    jest.mocked(exchangeGoogleCode).mockResolvedValueOnce(session);
+
+    await render(
+      <SessionProvider
+        store={createSessionStore(storage)}
+        queryClient={{ clear: jest.fn() }}
+        registerPush={jest.fn(async () => null)}
+      >
+        <LoginProbe />
+      </SessionProvider>,
+    );
+    const button = await screen.findByText('google');
+    expect(screen.getByText('unauthenticated:none')).toBeTruthy();
+
+    await act(async () => {
+      button.props.onPress();
+    });
+
+    expect(await screen.findByText('authenticated:dev-alex')).toBeTruthy();
+    expect(exchangeGoogleCode).toHaveBeenCalledWith(GOOGLE_EXCHANGE);
+    expect(JSON.parse(data.get(SESSION_STORAGE_KEY)!)).toEqual(session);
+    expect(requestDevSession).not.toHaveBeenCalled();
+  });
+
+  it('loginWithDevUser still signs in through the dev session without touching Google', async () => {
+    const { storage, data } = memoryStorage();
+    const session = makeSession({ user: { ...testUser, username: 'dev-sam' } });
+    jest.mocked(requestDevSession).mockResolvedValueOnce(session);
+
+    await render(
+      <SessionProvider
+        store={createSessionStore(storage)}
+        queryClient={{ clear: jest.fn() }}
+        registerPush={jest.fn(async () => null)}
+      >
+        <LoginProbe />
+      </SessionProvider>,
+    );
+    const button = await screen.findByText('dev');
+
+    await act(async () => {
+      button.props.onPress();
+    });
+
+    expect(await screen.findByText('authenticated:dev-sam')).toBeTruthy();
+    expect(requestDevSession).toHaveBeenCalledWith('dev-sam');
+    expect(exchangeGoogleCode).not.toHaveBeenCalled();
+    expect(JSON.parse(data.get(SESSION_STORAGE_KEY)!)).toEqual(session);
   });
 
   it('logout revokes the refresh token, clears storage and the query cache', async () => {
