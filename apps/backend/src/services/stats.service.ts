@@ -78,10 +78,13 @@ export async function lockParticipantStats(
   tournamentId: string,
   userIds: readonly string[],
 ) {
+  // Inserts must follow the same user-id order as the row locks below: two concurrent first games
+  // inserting the same users in opposite orders otherwise wait on each other's uncommitted rows.
+  const orderedUserIds = [...userIds].sort();
   await tx
     .insert(stats)
     .values(
-      userIds.map((userId) => ({
+      orderedUserIds.map((userId) => ({
         userId,
         tournamentId,
         score: DEFAULT_RATING,
@@ -93,7 +96,7 @@ export async function lockParticipantStats(
   const rows = await tx
     .select()
     .from(stats)
-    .where(and(eq(stats.tournamentId, tournamentId), inArray(stats.userId, [...userIds])))
+    .where(and(eq(stats.tournamentId, tournamentId), inArray(stats.userId, orderedUserIds)))
     .orderBy(asc(stats.userId))
     .for('update');
   return new Map(rows.map((row) => [row.userId, row]));
