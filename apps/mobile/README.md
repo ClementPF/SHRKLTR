@@ -28,8 +28,11 @@ Unauthenticated users land on `/login`; the `(app)` routes are guarded by `Stack
 refreshes an expired access token or returns to the login screen when the refresh token is revoked.
 
 - **Continue with Google** runs the authorization-code flow with PKCE (S256) through
-  `expo-auth-session` and posts the resulting ID token to `POST /auth/token`. On web the redirect
-  URI is `http://localhost:8081`, which must be registered for `EXPO_PUBLIC_GOOGLE_CLIENT_ID`.
+  `expo-auth-session`. After Google redirects back with the code, the app posts
+  `{code, codeVerifier, redirectUri}` to the backend `POST /auth/google/code`; the backend
+  exchanges the code server-side with the server-only client secret (the app never calls
+  Google's token endpoint and holds no secret). On web the redirect URI is
+  `http://localhost:8081`, which must be registered for `EXPO_PUBLIC_GOOGLE_CLIENT_ID`.
 - **Dev sign-in** (non-production builds with `EXPO_PUBLIC_DEV_AUTH` set) lists the seeded users
   and signs in through `/auth/dev-token`. Use it for browser E2E and Expo Go on a device.
 - **Settings → LOGOUT** revokes the session server-side and clears stored tokens and cached data.

@@ -39,12 +39,20 @@ The api container bind-mounts `apps/backend` and restarts on file changes. Stop 
   `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `DEV_AUTH_SECRET` (32+ chars each),
   `GOOGLE_CLIENT_ID`. Optional with defaults: `PORT` (3100), `HOST` (0.0.0.0), `APP_ENV`
   (development | test | production), `LOG_LEVEL` (info), `GOOGLE_JWKS_URL`, `PUSH_URL`,
-  `TEST_DATABASE_URL`.
+  `TEST_DATABASE_URL`, `GOOGLE_CLIENT_SECRET` (server-only Web-application secret; unset makes
+  `POST /auth/google/code` answer 503), `GOOGLE_TOKEN_URL`, `GOOGLE_REDIRECT_ALLOWLIST`.
 - Logs never include request headers; authorization headers and token fields are redacted.
 
 ### Sessions
 
-- `POST /auth/token {provider: "google", idToken}` returns `{accessToken, refreshToken, user}`.
+- `POST /auth/google/code {code, codeVerifier, redirectUri}` is the primary Google login: the
+  app keeps the PKCE authorization-code request, and the backend exchanges the code with
+  Google server-side using the server-only `GOOGLE_CLIENT_SECRET` (paste the real value into
+  `.env`; while it is unset the route answers 503). `redirectUri` must exactly match an entry
+  in `GOOGLE_REDIRECT_ALLOWLIST` (default `http://localhost:8081`), else 400. Returns
+  `{accessToken, refreshToken, user}`.
+- `POST /auth/token {provider: "google", idToken}` returns the same session for callers that
+  already hold a Google ID token.
   Access tokens (HS256, `JWT_ACCESS_SECRET`) last 15 minutes; refresh tokens (HS256,
   `JWT_REFRESH_SECRET`) last 30 days and are recorded in `refresh_tokens`.
 - Protected routes use `onRequest: [app.authenticate]`, which accepts only access tokens and sets
