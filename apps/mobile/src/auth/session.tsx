@@ -12,7 +12,7 @@ import {
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { api } from '@/api/client';
-import { exchangeGoogleIdToken, logoutSession } from '@/api/endpoints';
+import { exchangeGoogleIdToken, getMe, logoutSession } from '@/api/endpoints';
 import type { User } from '@/api/types';
 import { queryClient as defaultQueryClient } from '@/lib/query-client';
 import { registerForPushNotifications } from '@/notifications/push-registration';
@@ -45,6 +45,11 @@ export interface SessionProviderProps {
   queryClient?: Pick<QueryClient, 'clear'>;
   refreshTokens?: () => Promise<string | null>;
   registerPush?: () => Promise<string | null>;
+  /**
+   * Checks a restored session against the server (GET /users/me). The API client refreshes an
+   * expired access token, or clears the session when the refresh token is no longer accepted.
+   */
+  fetchCurrentUser?: () => Promise<User>;
   /** Rendered while stored tokens hydrate, so the app never shows a blank screen. */
   fallback?: ReactNode;
 }
@@ -64,6 +69,7 @@ export function SessionProvider({
   queryClient = defaultQueryClient,
   refreshTokens = api.refresh,
   registerPush = registerForPushNotifications,
+  fetchCurrentUser = getMe,
   fallback,
 }: SessionProviderProps) {
   const [hydrated, setHydrated] = useState(false);
@@ -73,16 +79,25 @@ export function SessionProvider({
   useEffect(() => {
     const unsubscribe = store.subscribe(setSession);
     let active = true;
-    void store.hydrate().then((restored) => {
+    void (async () => {
+      const restored = await store.hydrate();
+      if (restored) {
+        try {
+          await store.updateUser(await fetchCurrentUser());
+        } catch {
+          // A rejected refresh already cleared the session; any other failure (offline, server
+          // error) keeps the stored session so the app still opens.
+        }
+      }
       if (!active) return;
-      setSession(restored);
+      setSession(store.get());
       setHydrated(true);
-    });
+    })();
     return () => {
       active = false;
       unsubscribe();
     };
-  }, [store]);
+  }, [store, fetchCurrentUser]);
 
   const userId = session?.user.id ?? null;
   useEffect(() => {

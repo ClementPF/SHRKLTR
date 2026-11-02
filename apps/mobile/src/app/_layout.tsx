@@ -1,10 +1,33 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as WebBrowser from 'expo-web-browser';
 
-import { SessionProvider } from '@/auth/session';
+import { SessionProvider, useSession } from '@/auth/session';
 import { queryClient } from '@/lib/query-client';
+import { useNotificationListeners } from '@/notifications/use-notification-listeners';
 import { NavigationTheme } from '@/theme/navigation';
+
+// Google redirects its web popup back to the app root; this closes it and hands the result
+// to the opener. No-op everywhere else.
+WebBrowser.maybeCompleteAuthSession();
+
+function RootNavigator() {
+  const { session } = useSession();
+  useNotificationListeners(queryClient);
+
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Protected guard={!!session}>
+        <Stack.Screen name="(app)" />
+      </Stack.Protected>
+      <Stack.Protected guard={!session}>
+        <Stack.Screen name="(auth)/login" />
+      </Stack.Protected>
+    </Stack>
+  );
+}
 
 export default function RootLayout() {
   return (
@@ -12,7 +35,7 @@ export default function RootLayout() {
       <ThemeProvider value={NavigationTheme}>
         <StatusBar style="light" />
         <SessionProvider>
-          <Stack screenOptions={{ headerShown: false }} />
+          <RootNavigator />
         </SessionProvider>
       </ThemeProvider>
     </QueryClientProvider>

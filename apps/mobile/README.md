@@ -21,6 +21,20 @@ Dev sessions: in non-production builds (`EXPO_PUBLIC_ENV` other than `production
 the `x-dev-auth` header to `POST /auth/dev-token` to sign in as a seeded user without Google.
 Leave it empty in production builds.
 
+## Sign-in
+
+Unauthenticated users land on `/login`; the `(app)` routes are guarded by `Stack.Protected` in
+`src/app/_layout.tsx`. On launch a stored session is checked against `GET /users/me`, which
+refreshes an expired access token or returns to the login screen when the refresh token is revoked.
+
+- **Continue with Google** runs the authorization-code flow with PKCE (S256) through
+  `expo-auth-session` and posts the resulting ID token to `POST /auth/token`. On web the redirect
+  URI is `http://localhost:8081`, which must be registered for `EXPO_PUBLIC_GOOGLE_CLIENT_ID`.
+- **Dev sign-in** (non-production builds with `EXPO_PUBLIC_DEV_AUTH` set) lists the seeded users
+  and signs in through `/auth/dev-token`. Use it for browser E2E and Expo Go on a device.
+- **Settings → LOGOUT** revokes the session server-side and clears stored tokens and cached data.
+  The version label ends in `L` for a local/LAN API URL and `R` for a remote one.
+
 ## Run
 
 ```bash
