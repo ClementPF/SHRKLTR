@@ -1,10 +1,3 @@
-import { HealthStatus } from '@/components/health-status';
-import { ScreenPlaceholder } from '@/components/screen-placeholder';
+import { FeedScreen } from '@/features/feed/feed-screen';
 
-export default function FeedScreen() {
-  return (
-    <ScreenPlaceholder title="Feed">
-      <HealthStatus />
-    </ScreenPlaceholder>
-  );
-}
+export default FeedScreen;

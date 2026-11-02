@@ -1,5 +1,8 @@
-import { ScreenPlaceholder } from '@/components/screen-placeholder';
+import { useSession } from '@/auth/session';
+import { ProfileScreen } from '@/features/feed/profile-screen';
 
 export default function MeScreen() {
-  return <ScreenPlaceholder title="Me" />;
+  const username = useSession().user?.username;
+  if (!username) return null;
+  return <ProfileScreen username={username} viewer={username} />;
 }

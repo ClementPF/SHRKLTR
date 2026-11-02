@@ -31,7 +31,7 @@ export const DEMO_USERS: readonly DemoUser[] = [
   { username: 'dev-morgan', firstName: 'Morgan', lastName: 'Leroy' },
 ];
 
-export const DEMO_SPORTS: readonly string[] = ['babyfoot', 'ping-pong', 'chess'];
+export const DEMO_SPORTS: readonly string[] = ['babyfoot', 'ping-pong', 'chess', 'darts'];
 
 const game = (winners: string[], losers: string[], hoursAgo: number): DemoGame => ({
   winners,
@@ -78,6 +78,23 @@ export const DEMO_TOURNAMENTS: readonly DemoTournament[] = [
       game(['dev-taylor'], ['dev-alex'], 80),
       game(['dev-jordan'], ['dev-alex'], 48),
       game(['dev-morgan'], ['dev-jordan'], 12),
+    ],
+  },
+  {
+    // Gives dev-alex more history than one feed page (15) so infinite scroll is exercisable.
+    displayName: 'Lunch Darts',
+    sport: 'darts',
+    owner: 'dev-morgan',
+    games: [
+      game(['dev-alex'], ['dev-morgan'], 230),
+      game(['dev-morgan'], ['dev-alex'], 210),
+      game(['dev-alex'], ['dev-jordan'], 180),
+      game(['dev-sam'], ['dev-alex'], 140),
+      game(['dev-alex', 'dev-morgan'], ['dev-sam', 'dev-taylor'], 110),
+      game(['dev-taylor'], ['dev-alex'], 90),
+      game(['dev-alex'], ['dev-sam'], 60),
+      game(['dev-jordan'], ['dev-alex'], 36),
+      game(['dev-alex'], ['dev-taylor'], 20),
     ],
   },
 ];

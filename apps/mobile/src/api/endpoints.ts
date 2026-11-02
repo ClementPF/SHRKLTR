@@ -47,7 +47,8 @@ export const getUserRivalries = (username: string, tournamentName?: string) =>
 export const getUserGames = (
   username: string,
   params: PageParams & { tournamentName?: string } = {},
-) => api.get<Game[]>(`/users/${seg(username)}/games`, { query: { ...params } });
+  signal?: AbortSignal,
+) => api.get<Game[]>(`/users/${seg(username)}/games`, { query: { ...params }, signal });
 export const challengeUser = (username: string, message?: string) =>
   api.post<void>(`/users/${seg(username)}/challenge`, message ? { message } : {});
 

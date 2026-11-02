@@ -69,5 +69,11 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
   against the session generation inside serialized transitions), `session.tsx` (`SessionProvider`/`useSession`, shows a loading
   view until stored tokens hydrate), `devSession.ts`.
 - `src/notifications/` push registration (native only; web is a no-op).
+- Feed / Me / `user/[username]` (tournament user detail): `src/features/feed/` screens and
+  `src/features/users/queries.ts` hooks (`useUserGames` is an infinite query, 15 per page on the
+  feed and 10 on profiles; query keys are rooted at `users` and `stats` for invalidation).
+  The seeded `dev-alex` has more than 15 games (incl. the `Lunch Darts` tournament), so feed
+  infinite scroll can be exercised against seed data. Failures surface through the in-app
+  `DropdownAlert` banner (`showAlert`), because `Alert.alert` is a no-op on web.
 - `src/features/` TanStack Query hooks,
   `src/components/` shared UI, `src/theme/` dark theme constants (accent `#CE2924`).
