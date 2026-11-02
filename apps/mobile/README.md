@@ -61,7 +61,8 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
 
 - `src/app/` routes: `(app)/(tabs)/` holds the feed, me, add-game, tournaments, and settings tabs.
 - `src/api/` typed client (`client.ts`: Bearer auth, single-flight refresh on 401, one retry,
-  session + query cache cleared when refresh fails), DTO types and per-route `endpoints.ts`.
+  session + query cache cleared only when a refresh is definitively rejected (4xx; transient
+  network/5xx failures keep the session for a later retry)), DTO types and per-route `endpoints.ts`.
 - `src/auth/` session layer: `storage.ts` (SecureStore on native, `localStorage` on web, one
   JSON key `sharkulator.session`), `session.tsx` (`SessionProvider`/`useSession`, shows a loading
   view until stored tokens hydrate), `devSession.ts`.
