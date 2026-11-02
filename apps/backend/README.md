@@ -10,9 +10,15 @@ The normal way is Docker Compose from the repo root:
 
 ```sh
 docker compose up -d          # db on :5433, api on :3100 with tsx watch + bind mount
-curl localhost:3100/health    # {"status":"ok","database":"up"}
-npm run seed -w apps/backend
+i=0; until curl -sf localhost:3100/health; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "API not healthy after 60 s; run: docker compose logs api" >&2; break; fi; sleep 1; done; echo
+[ "$i" -lt 60 ] && npm run seed -w apps/backend   # idempotent demo data, only once the api is up
 ```
+
+The wait line polls `/health` once a second for up to 60 seconds and prints
+`{"status":"ok","database":"up"}` when the api is ready. The api applies migrations before it
+answers, so seeding earlier can fail with "relation does not exist". If the wait gives up it prints
+`API not healthy after 60 s` and the seed line does nothing; check `docker compose logs api`, fix
+the cause, and run both lines again.
 
 The api container bind-mounts `apps/backend` and restarts on file changes. If a change is not
 picked up, run `docker compose restart api`. After editing the root `.env`, run
