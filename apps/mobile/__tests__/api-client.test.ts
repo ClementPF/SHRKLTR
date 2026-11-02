@@ -1,6 +1,6 @@
 import { onAuthLost } from '@/auth/auth-events';
 import { createApiClient } from '@/api/client';
-import { ApiError } from '@/api/errors';
+import { ApiError, SESSION_CHANGED } from '@/api/errors';
 import { createSessionStore } from '@/auth/session-store';
 import { SESSION_STORAGE_KEY } from '@/auth/storage';
 
@@ -29,7 +29,11 @@ async function setup(session = makeSession()) {
   const authHeader = (call: number) =>
     (fetchFn.mock.calls[call]?.[1].headers as Record<string, string>).Authorization;
   const refreshCalls = () => fetchFn.mock.calls.filter(([url]) => url === `${BASE}/auth/refresh`);
-  return { client, store, data, queryClient, fetchFn, authHeader, refreshCalls };
+  return { client, store, storage, data, queryClient, fetchFn, authHeader, refreshCalls };
+}
+
+function deferredBodyResponse(status: number, body: Promise<string>): Response {
+  return { ok: status >= 200 && status < 300, status, text: () => body } as Response;
 }
 
 describe('api client', () => {
@@ -373,6 +377,135 @@ describe('api client', () => {
 
       await expect(pending).resolves.toBeNull();
       expect(store.get()).toEqual(sessionB);
+    });
+
+    it('never delivers a successful retry that resolves after an account switch', async () => {
+      const { client, store, fetchFn } = await setup();
+      const retry = deferred<Response>();
+      fetchFn.mockImplementation(async (url, init) => {
+        if (url === `${BASE}/auth/refresh`) {
+          return jsonResponse(200, { accessToken: 'access-2', refreshToken: 'refresh-2' });
+        }
+        const auth = (init.headers as Record<string, string>).Authorization;
+        return auth === 'Bearer access-2' ? retry.promise : jsonResponse(401);
+      });
+
+      const request = client.get('/users/me');
+      await flush();
+      expect(fetchFn).toHaveBeenCalledTimes(3);
+      await store.set(sessionB);
+      retry.resolve(jsonResponse(200, { secret: 'A' }));
+
+      await expect(request).rejects.toMatchObject({ status: 401, code: SESSION_CHANGED });
+      expect(store.get()).toEqual(sessionB);
+    });
+
+    it('never delivers a retry body that finishes parsing after logout', async () => {
+      const { client, store, fetchFn } = await setup();
+      const body = deferred<string>();
+      fetchFn.mockImplementation(async (url, init) => {
+        if (url === `${BASE}/auth/refresh`) {
+          return jsonResponse(200, { accessToken: 'access-2', refreshToken: 'refresh-2' });
+        }
+        const auth = (init.headers as Record<string, string>).Authorization;
+        return auth === 'Bearer access-2'
+          ? deferredBodyResponse(200, body.promise)
+          : jsonResponse(401);
+      });
+
+      const request = client.get('/users/me');
+      await flush();
+      await store.clear();
+      body.resolve(JSON.stringify({ secret: 'A' }));
+
+      await expect(request).rejects.toMatchObject({ status: 401, code: SESSION_CHANGED });
+    });
+
+    it('never delivers an initial 200 that arrives after an account switch', async () => {
+      const { client, store, fetchFn } = await setup();
+      const late = deferred<Response>();
+      fetchFn.mockImplementation(async () => late.promise);
+
+      const request = client.get('/users/me');
+      await flush();
+      await store.set(sessionB);
+      late.resolve(jsonResponse(200, { secret: 'A' }));
+
+      await expect(request).rejects.toMatchObject({ status: 401, code: SESSION_CHANGED });
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+    });
+
+    it('never delivers an initial 200 body that finishes parsing after an account switch', async () => {
+      const { client, store, fetchFn } = await setup();
+      const body = deferred<string>();
+      fetchFn.mockResolvedValueOnce(deferredBodyResponse(200, body.promise));
+
+      const request = client.get('/users/me');
+      await flush();
+      await store.set(sessionB);
+      body.resolve(JSON.stringify({ secret: 'A' }));
+
+      await expect(request).rejects.toMatchObject({ status: 401, code: SESSION_CHANGED });
+      expect(store.get()).toEqual(sessionB);
+    });
+
+    it("does not surface the old session's error response after a switch", async () => {
+      const { client, store, fetchFn } = await setup();
+      const late = deferred<Response>();
+      fetchFn.mockImplementation(async () => late.promise);
+
+      const request = client.get('/users/me');
+      await flush();
+      await store.set(sessionB);
+      late.resolve(jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'A only' } }));
+
+      await expect(request).rejects.toMatchObject({ status: 401, code: SESSION_CHANGED });
+    });
+
+    it('leaves auth:false requests unguarded across a switch', async () => {
+      const { client, store, fetchFn } = await setup();
+      const late = deferred<Response>();
+      fetchFn.mockImplementation(async () => late.promise);
+
+      const request = client.get('/health', { auth: false });
+      await flush();
+      await store.set(sessionB);
+      late.resolve(jsonResponse(200, { ok: true }));
+
+      await expect(request).resolves.toEqual({ ok: true });
+    });
+
+    it('keeps a session installed while the lost session is still being deleted from storage', async () => {
+      const { client, store, storage, data, queryClient, fetchFn } = await setup();
+      const lost = jest.fn();
+      const unsubscribe = onAuthLost(lost);
+      const deletion = deferred<void>();
+      (storage.removeItem as jest.Mock).mockImplementationOnce(async (key: string) => {
+        await deletion.promise;
+        data.delete(key);
+      });
+      fetchFn.mockImplementation(async (url) =>
+        url === `${BASE}/auth/refresh`
+          ? jsonResponse(401, { error: { code: 'UNAUTHORIZED', message: 'revoked' } })
+          : jsonResponse(401),
+      );
+
+      const request = client.get('/users/me');
+      await flush();
+      expect(store.get()).toBeNull();
+      expect(storage.removeItem).toHaveBeenCalledTimes(1);
+
+      const installB = store.set(sessionB);
+      expect(store.get()).toEqual(sessionB);
+      deletion.resolve();
+      await installB;
+
+      await expect(request).rejects.toMatchObject({ status: 401, code: SESSION_CHANGED });
+      expect(store.get()).toEqual(sessionB);
+      expect(JSON.parse(data.get(SESSION_STORAGE_KEY) ?? '')).toEqual(sessionB);
+      expect(queryClient.clear).not.toHaveBeenCalled();
+      expect(lost).not.toHaveBeenCalled();
+      unsubscribe();
     });
   });
 });

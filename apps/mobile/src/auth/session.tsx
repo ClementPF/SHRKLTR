@@ -82,8 +82,9 @@ export function SessionProvider({
     void (async () => {
       const restored = await store.hydrate();
       if (restored) {
+        const generation = store.generation();
         try {
-          await store.updateUser(await fetchCurrentUser());
+          await store.updateUser(await fetchCurrentUser(), generation);
         } catch {
           // A rejected refresh already cleared the session; any other failure (offline, server
           // error) keeps the stored session so the app still opens.
@@ -127,13 +128,14 @@ export function SessionProvider({
   );
 
   const logout = useCallback(async () => {
+    const generation = store.generation();
     const refreshToken = store.get()?.refreshToken;
     if (refreshToken) {
       // Local sign-out must succeed even if the server cannot be reached.
       await logoutSession(refreshToken).catch(() => undefined);
     }
-    await store.clear();
-    queryClient.clear();
+    // A login that completed during sign-out owns the session and the cache from then on.
+    if (await store.clear(generation)) queryClient.clear();
   }, [store, queryClient]);
 
   const refresh = useCallback(async () => (await refreshTokens()) !== null, [refreshTokens]);

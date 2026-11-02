@@ -23,8 +23,13 @@ export interface SessionStore {
   set(session: StoredSession): Promise<void>;
   /** Resolves false (and changes nothing) when `expectedGeneration` is no longer current. */
   updateTokens(pair: TokenPair, expectedGeneration?: number): Promise<boolean>;
-  updateUser(user: User): Promise<void>;
   /** Resolves false (and changes nothing) when `expectedGeneration` is no longer current. */
+  updateUser(user: User, expectedGeneration?: number): Promise<boolean>;
+  /**
+   * Resolves false (and changes nothing) when `expectedGeneration` is no longer current. Also
+   * resolves false when another session was installed while storage was being cleared, so
+   * sign-out side effects (cache clear, auth-lost) can be skipped for the replacement session.
+   */
   clear(expectedGeneration?: number): Promise<boolean>;
   subscribe(listener: SessionListener): () => void;
 }
@@ -34,6 +39,15 @@ export function createSessionStore(storage?: KeyValueStorage): SessionStore {
   let current: StoredSession | null = null;
   let generation = 0;
   const listeners = new Set<SessionListener>();
+
+  // Storage operations run one at a time in call order, so a slow write or delete for a
+  // replaced session can never land after (and overwrite) the session that replaced it.
+  let storageQueue: Promise<unknown> = Promise.resolve();
+  const persist = <T>(op: () => Promise<T>): Promise<T> => {
+    const run = storageQueue.then(op);
+    storageQueue = run.catch(() => undefined);
+    return run;
+  };
 
   const isStale = (expected: number | undefined) =>
     expected !== undefined && expected !== generation;
@@ -47,7 +61,10 @@ export function createSessionStore(storage?: KeyValueStorage): SessionStore {
     get: () => current,
     generation: () => generation,
     async hydrate() {
-      const restored = await readSession(backend()).catch(() => null);
+      const started = generation;
+      const restored = await persist(() => readSession(backend())).catch(() => null);
+      // A login or logout while storage was being read is newer than what was stored.
+      if (generation !== started) return current;
       generation += 1;
       publish(restored);
       return current;
@@ -55,27 +72,29 @@ export function createSessionStore(storage?: KeyValueStorage): SessionStore {
     async set(session) {
       generation += 1;
       publish(session);
-      await writeSession(session, backend());
+      await persist(() => writeSession(session, backend()));
     },
     async updateTokens(pair, expectedGeneration) {
       if (!current || isStale(expectedGeneration)) return false;
       const next = { ...current, ...pair };
       publish(next);
-      await writeSession(next, backend());
+      await persist(() => writeSession(next, backend()));
       return true;
     },
-    async updateUser(user) {
-      if (!current) return;
+    async updateUser(user, expectedGeneration) {
+      if (!current || isStale(expectedGeneration)) return false;
       const next = { ...current, user };
       publish(next);
-      await writeSession(next, backend());
+      await persist(() => writeSession(next, backend()));
+      return true;
     },
     async clear(expectedGeneration) {
       if (isStale(expectedGeneration)) return false;
       generation += 1;
+      const cleared = generation;
       publish(null);
-      await deleteSession(backend());
-      return true;
+      await persist(() => deleteSession(backend()));
+      return generation === cleared;
     },
     subscribe(listener) {
       listeners.add(listener);

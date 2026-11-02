@@ -71,6 +71,9 @@ export function createApiClient({
   // Keyed by session generation: a refresh started for a previous session must never be
   // shared with (or have its result applied to) the session that replaced it.
   let refreshInFlight: { generation: number; promise: Promise<string | null> } | null = null;
+  // The generation transition made by the last refresh rejection, so requests of the expired
+  // session report SESSION_EXPIRED rather than SESSION_CHANGED.
+  let lastExpiry: { from: number; to: number } | null = null;
 
   async function send(url: string, init: RequestInit): Promise<Response> {
     try {
@@ -83,7 +86,12 @@ export function createApiClient({
   }
 
   async function loseSession(generation: number): Promise<void> {
-    if (!(await store.clear(generation))) return;
+    // clear() resolves false when this session was already replaced, or was replaced while
+    // storage was being cleared; the cache and auth-lost then belong to the new session.
+    const clearing = store.clear(generation);
+    if (store.generation() !== generation)
+      lastExpiry = { from: generation, to: store.generation() };
+    if (!(await clearing)) return;
     queryClient?.clear();
     emitAuthLost();
   }
@@ -98,7 +106,8 @@ export function createApiClient({
     });
     if (response.ok) {
       const pair = await parseBody<TokenPair>(response);
-      return (await store.updateTokens(pair, generation)) ? pair.accessToken : null;
+      if (!(await store.updateTokens(pair, generation))) return null;
+      return store.generation() === generation ? pair.accessToken : null;
     }
     // Only a definitive rejection ends the session; network errors and 5xx keep it so a
     // later request can retry the refresh.
@@ -138,26 +147,54 @@ export function createApiClient({
       });
     };
 
+    const complete = async (response: Response): Promise<T> => {
+      if (!response.ok) throw await toApiError(response);
+      return parseBody<T>(response);
+    };
+
+    if (!auth) return complete(await run(undefined));
+
     const generation = store.generation();
-    const usedToken = auth ? store.get()?.accessToken : undefined;
-    let response = await run(usedToken);
+    const sessionChanged = () => store.generation() !== generation;
+    const sessionChangedError = () =>
+      new ApiError(401, SESSION_CHANGED, 'You were signed out while this request was running.');
 
-    if (response.status === 401 && auth && usedToken) {
-      const sessionChanged = () =>
-        new ApiError(401, SESSION_CHANGED, 'You were signed out while this request was running.');
-      if (store.generation() !== generation) throw sessionChanged();
-      // Another request may already have rotated the tokens while this one was in flight.
-      const current = store.get()?.accessToken;
-      const nextToken = current && current !== usedToken ? current : await refresh();
-      if (!nextToken) {
-        throw new ApiError(401, SESSION_EXPIRED, 'Your session has expired. Please sign in again.');
+    const protectedRequest = async (): Promise<T> => {
+      const usedToken = store.get()?.accessToken;
+      let response = await run(usedToken);
+      if (sessionChanged()) throw sessionChangedError();
+
+      if (response.status === 401 && usedToken) {
+        // Another request may already have rotated the tokens while this one was in flight.
+        const current = store.get()?.accessToken;
+        const nextToken = current && current !== usedToken ? current : await refresh();
+        if (!nextToken) {
+          const expired =
+            !sessionChanged() ||
+            (lastExpiry?.from === generation && lastExpiry.to === store.generation());
+          throw expired
+            ? new ApiError(401, SESSION_EXPIRED, 'Your session has expired. Please sign in again.')
+            : sessionChangedError();
+        }
+        if (sessionChanged()) throw sessionChangedError();
+        response = await run(nextToken);
       }
-      if (store.generation() !== generation) throw sessionChanged();
-      response = await run(nextToken);
-    }
+      return complete(response);
+    };
 
-    if (!response.ok) throw await toApiError(response);
-    return parseBody<T>(response);
+    // Every way out (data, error envelope, refresh failure, network error) is re-checked
+    // after its last await: a result produced for a replaced session must never reach the
+    // caller, which by now belongs to the new session.
+    let result: T;
+    try {
+      result = await protectedRequest();
+    } catch (err) {
+      const expired = err instanceof ApiError && err.code === SESSION_EXPIRED;
+      if (!expired && !signal?.aborted && sessionChanged()) throw sessionChangedError();
+      throw err;
+    }
+    if (sessionChanged()) throw sessionChangedError();
+    return result;
   }
 
   return {

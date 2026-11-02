@@ -247,4 +247,50 @@ describe('SessionProvider', () => {
     expect(data.has(SESSION_STORAGE_KEY)).toBe(false);
     expect(queryClient.clear).toHaveBeenCalledTimes(1);
   });
+
+  it('a login that completes while logout is still deleting storage keeps its session and cache', async () => {
+    const { storage, data } = memoryStorage({
+      [SESSION_STORAGE_KEY]: JSON.stringify(makeSession()),
+    });
+    const queryClient = { clear: jest.fn() };
+    const userB = { ...testUser, id: '00000000-0000-4000-8000-000000000002', username: 'dev-sam' };
+    const sessionB = makeSession({
+      accessToken: 'b-access',
+      refreshToken: 'b-refresh',
+      user: userB,
+    });
+    jest.mocked(requestDevSession).mockResolvedValue(sessionB);
+    const deletion = deferred<void>();
+    (storage.removeItem as jest.Mock).mockImplementationOnce(async (key: string) => {
+      await deletion.promise;
+      data.delete(key);
+    });
+
+    await render(
+      <SessionProvider
+        store={createSessionStore(storage)}
+        queryClient={queryClient}
+        registerPush={jest.fn(async () => null)}
+      >
+        <Probe />
+        <LoginProbe />
+      </SessionProvider>,
+    );
+    const [label] = await screen.findAllByText('authenticated:dev-alex');
+
+    await act(async () => {
+      label!.props.onPress();
+    });
+    expect(storage.removeItem).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      screen.getByText('dev').props.onPress();
+    });
+    await act(async () => {
+      deletion.resolve();
+    });
+
+    expect(screen.getAllByText('authenticated:dev-sam').length).toBeGreaterThan(0);
+    expect(JSON.parse(data.get(SESSION_STORAGE_KEY)!)).toEqual(sessionB);
+    expect(queryClient.clear).not.toHaveBeenCalled();
+  });
 });
