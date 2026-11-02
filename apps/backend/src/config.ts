@@ -12,6 +12,21 @@ export const envSchema = z.object({
   DEV_AUTH_SECRET: z.string().min(32),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_JWKS_URL: z.url().default('https://www.googleapis.com/oauth2/v3/certs'),
+  // An empty value (e.g. `GOOGLE_CLIENT_SECRET=` in .env) counts as unset.
+  GOOGLE_CLIENT_SECRET: z
+    .string()
+    .optional()
+    .transform((value) => value || undefined),
+  GOOGLE_TOKEN_URL: z.url().default('https://oauth2.googleapis.com/token'),
+  GOOGLE_REDIRECT_ALLOWLIST: z
+    .string()
+    .default('http://localhost:8081')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== ''),
+    ),
   PUSH_URL: z.url().default('https://exp.host/--/api/v2/push/send'),
 });
 

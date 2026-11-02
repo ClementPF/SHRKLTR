@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from '@fastify/type-provider-zod';
 import { issueSession } from '../auth/jwt.js';
+import type { GoogleCodeExchanger } from '../auth/google.code.js';
 import type { GoogleTokenVerifier } from '../auth/google.verify.js';
 import { ApiError, errorResponseSchema } from '../lib/errors.js';
 import { toUserDto, userDtoSchema } from '../lib/serializers.js';
@@ -14,6 +15,19 @@ const tokenRequestSchema = z
     idToken: z.string().min(1),
   })
   .meta({ id: 'TokenRequest' });
+
+// RFC 7636: 43-128 characters from the unreserved set.
+const codeExchangeRequestSchema = z
+  .object({
+    code: z.string().min(1).max(2048),
+    codeVerifier: z
+      .string()
+      .min(43)
+      .max(128)
+      .regex(/^[A-Za-z0-9\-._~]+$/),
+    redirectUri: z.string().min(1).max(2048),
+  })
+  .meta({ id: 'GoogleCodeExchangeRequest' });
 
 export const sessionResponseSchema = z
   .object({
@@ -47,9 +61,18 @@ function secretsMatch(provided: string | string[] | undefined, expected: string)
 
 export interface AuthRoutesOptions {
   verifyGoogleIdToken: GoogleTokenVerifier;
+  exchangeGoogleCode: GoogleCodeExchanger;
 }
 
 export const authRoutes: FastifyPluginAsyncZod<AuthRoutesOptions> = async (app, opts) => {
+  /** The single Google sign-in path: verify the ID token, provision/link the user, issue a session. */
+  async function sessionForGoogleIdToken(idToken: string) {
+    const identity = await opts.verifyGoogleIdToken(idToken);
+    const user = await upsertGoogleUser(app.db, identity);
+    const tokens = await issueSession(app, app.db, user.id);
+    return { ...tokens, user: toUserDto(user) };
+  }
+
   app.post(
     '/auth/token',
     {
@@ -64,12 +87,29 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRoutesOptions> = async (app, 
         },
       },
     },
-    async (request) => {
-      const identity = await opts.verifyGoogleIdToken(request.body.idToken);
-      const user = await upsertGoogleUser(app.db, identity);
-      const tokens = await issueSession(app, app.db, user.id);
-      return { ...tokens, user: toUserDto(user) };
+    async (request) => sessionForGoogleIdToken(request.body.idToken),
+  );
+
+  app.post(
+    '/auth/google/code',
+    {
+      schema: {
+        tags: ['auth'],
+        summary: 'Exchange a Google authorization code (PKCE) for a backend session',
+        description:
+          'The server redeems the code at Google with its client secret, then verifies the returned ID token exactly like POST /auth/token. redirectUri must match an allowlisted URI.',
+        body: codeExchangeRequestSchema,
+        response: {
+          200: sessionResponseSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          502: errorResponseSchema,
+          503: errorResponseSchema,
+        },
+      },
     },
+    async (request) =>
+      sessionForGoogleIdToken(await opts.exchangeGoogleCode(request.body, request.log)),
   );
 
   app.post(

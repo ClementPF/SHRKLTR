@@ -14,6 +14,7 @@ import type { AppConfig } from './config.js';
 import { createDb, type Database } from './db/client.js';
 import { frameworkErrorHandler, registerErrorHandling } from './lib/errors.js';
 import { buildLoggerOptions, type LogDestination } from './lib/logger.js';
+import { createGoogleCodeExchanger } from './auth/google.code.js';
 import { createGoogleVerifier } from './auth/google.verify.js';
 import { registerJwt } from './auth/jwt.js';
 import { authGuard } from './auth/guard.js';
@@ -97,6 +98,12 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     verifyGoogleIdToken: createGoogleVerifier({
       jwksUrl: config.GOOGLE_JWKS_URL,
       clientId: config.GOOGLE_CLIENT_ID,
+    }),
+    exchangeGoogleCode: createGoogleCodeExchanger({
+      tokenUrl: config.GOOGLE_TOKEN_URL,
+      clientId: config.GOOGLE_CLIENT_ID,
+      clientSecret: config.GOOGLE_CLIENT_SECRET,
+      redirectAllowlist: config.GOOGLE_REDIRECT_ALLOWLIST,
     }),
   });
   await app.register(userRoutes);
