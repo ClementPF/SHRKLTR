@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import type { Tournament } from '@/api/types';
 import { Button } from '@/components/button';
 import { showAlert } from '@/components/dropdown-alert';
+import { useErrorAlert } from '@/features/users/use-error-alert';
 import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
 
 import { useCreateTournament, useSports } from './queries';
@@ -11,6 +12,8 @@ import { useCreateTournament, useSports } from './queries';
 export function createdMessage(displayName: string): string {
   return `${displayName} has been successfully created, good luck !`;
 }
+
+export const SPORTS_LOAD_FAILED_TEXT = "Couldn't load sport suggestions.";
 
 export interface CreateTournamentScreenProps {
   onCreated(tournament: Tournament): void;
@@ -20,6 +23,7 @@ export function CreateTournamentScreen({ onCreated }: CreateTournamentScreenProp
   const [title, setTitle] = useState('');
   const [sport, setSport] = useState('');
   const sports = useSports();
+  useErrorAlert(sports.error, 'sports');
   const create = useCreateTournament();
   const displayName = title.trim();
   const sportName = sport.trim();
@@ -80,6 +84,20 @@ export function CreateTournamentScreen({ onCreated }: CreateTournamentScreenProp
           ))}
         </View>
       )}
+      {sports.isError && !sports.data?.length && (
+        <View testID="sports-load-error" style={styles.sportsError}>
+          <Text style={styles.sportsErrorText}>{SPORTS_LOAD_FAILED_TEXT}</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading sports"
+            onPress={() => void sports.refetch()}
+            disabled={sports.isFetching}
+            style={styles.chip}
+          >
+            <Text style={styles.chipText}>{sports.isFetching ? 'Retrying…' : 'Retry'}</Text>
+          </Pressable>
+        </View>
+      )}
       <Button
         title="Create Tournament"
         testID="create-tournament-submit"
@@ -114,5 +132,7 @@ const styles = StyleSheet.create({
   },
   chipSelected: { borderColor: Colors.accent },
   chipText: { ...Typography.caption, color: Colors.text },
+  sportsError: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  sportsErrorText: { ...Typography.caption, color: Colors.textMuted, flexShrink: 1 },
   submit: { marginTop: Spacing.md },
 });

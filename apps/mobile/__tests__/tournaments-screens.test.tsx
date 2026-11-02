@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import type { ReactElement } from 'react';
 
@@ -9,6 +9,7 @@ import type { Game, Stats, Tournament, User } from '@/api/types';
 import { DropdownAlert, useAlertStore } from '@/components/dropdown-alert';
 import {
   CreateTournamentScreen,
+  SPORTS_LOAD_FAILED_TEXT,
   createdMessage,
 } from '@/features/tournaments/create-tournament-screen';
 import { NO_GAMES_TEXT, TournamentScreen } from '@/features/tournaments/tournament-screen';
@@ -218,15 +219,19 @@ describe('CreateTournamentScreen', () => {
       sportName: 'babyfoot',
     });
     expect(onCreated).toHaveBeenCalledWith(babyfoot);
+    // Creation invalidates the sports query; let that refetch settle inside the test.
+    await waitFor(() => expect(api.listSports).toHaveBeenCalledTimes(2));
+    await screen.findByLabelText('Sport babyfoot');
   });
 
   it('alerts with the API message when creation fails', async () => {
-    api.listSports.mockResolvedValue([]);
+    api.listSports.mockResolvedValue([{ id: 's1', name: 'babyfoot' }]);
     api.createTournament.mockRejectedValue(
       new ApiError(400, 'DUPLICATE', 'Tournament officebabyfoot already exists'),
     );
     const onCreated = jest.fn();
     await renderWithClient(<CreateTournamentScreen onCreated={onCreated} />);
+    await screen.findByLabelText('Sport babyfoot');
     await fireEvent.changeText(screen.getByTestId('tournament-title-input'), 'Office Babyfoot');
     await fireEvent.changeText(screen.getByTestId('tournament-sport-input'), 'babyfoot');
     await fireEvent.press(screen.getByLabelText('Create Tournament'));
@@ -237,5 +242,32 @@ describe('CreateTournamentScreen', () => {
       ),
     ).toBeTruthy();
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a sports failure with an alert and a retry while manual entry and creation keep working', async () => {
+    api.listSports.mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Network request failed'));
+    api.createTournament.mockRejectedValue(new ApiError(500, 'INTERNAL', 'boom'));
+    const onCreated = jest.fn();
+    await renderWithClient(<CreateTournamentScreen onCreated={onCreated} />);
+
+    expect(await screen.findByText(SPORTS_LOAD_FAILED_TEXT)).toBeTruthy();
+    expect(screen.getByTestId('dropdown-alert')).toHaveTextContent(
+      'ErrorFailed to load sports: Network request failed',
+    );
+
+    await fireEvent.changeText(screen.getByTestId('tournament-title-input'), 'Office Babyfoot');
+    await fireEvent.changeText(screen.getByTestId('tournament-sport-input'), 'babyfoot');
+    expect(screen.getByLabelText('Create Tournament')).toBeEnabled();
+    await fireEvent.press(screen.getByLabelText('Create Tournament'));
+    expect(await screen.findByText('Failed to create tournament: boom')).toBeTruthy();
+    expect(api.createTournament).toHaveBeenCalledWith({
+      displayName: 'Office Babyfoot',
+      sportName: 'babyfoot',
+    });
+
+    api.listSports.mockResolvedValue([{ id: 's1', name: 'babyfoot' }]);
+    await fireEvent.press(screen.getByLabelText('Retry loading sports'));
+    expect(await screen.findByLabelText('Sport babyfoot')).toBeTruthy();
+    expect(screen.queryByText(SPORTS_LOAD_FAILED_TEXT)).toBeNull();
   });
 });
