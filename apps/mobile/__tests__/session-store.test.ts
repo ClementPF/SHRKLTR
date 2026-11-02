@@ -81,6 +81,77 @@ describe('session store generation isolation', () => {
     expect(JSON.parse(data.get(SESSION_STORAGE_KEY) ?? '')).toEqual(sessionB);
   });
 
+  it('clear runs the cache clear inside its transition, without auth-lost', async () => {
+    const { storage } = memoryStorage();
+    const queryClient = { clear: jest.fn() };
+    const onAuthLost = jest.fn();
+    const store = createSessionStore(storage, { queryClient, onAuthLost });
+    await store.set(makeSession());
+
+    await store.clear(store.generation());
+
+    expect(queryClient.clear).toHaveBeenCalledTimes(1);
+    expect(onAuthLost).not.toHaveBeenCalled();
+  });
+
+  it('skips cleanup effects when a session is installed while storage is being cleared', async () => {
+    const { storage } = memoryStorage();
+    const queryClient = { clear: jest.fn() };
+    const onAuthLost = jest.fn();
+    const store = createSessionStore(storage, { queryClient, onAuthLost });
+    await store.set(makeSession());
+    const generationA = store.generation();
+    const deletion = deferred<void>();
+    delayOnce(storage.removeItem as jest.Mock, deletion.promise);
+
+    const expiring = store.expire(generationA);
+    const installB = store.set(sessionB);
+    deletion.resolve();
+    await Promise.all([expiring, installB]);
+
+    expect(queryClient.clear).not.toHaveBeenCalled();
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(store.expiredFrom(generationA)).toBe(false);
+    expect(store.get()).toEqual(sessionB);
+  });
+
+  it('expire records the expiry only for a completed clear of the current session', async () => {
+    const { storage } = memoryStorage();
+    const queryClient = { clear: jest.fn() };
+    const onAuthLost = jest.fn();
+    const store = createSessionStore(storage, { queryClient, onAuthLost });
+    await store.set(makeSession());
+    const generationA = store.generation();
+
+    await store.expire(generationA);
+
+    expect(store.get()).toBeNull();
+    expect(queryClient.clear).toHaveBeenCalledTimes(1);
+    expect(onAuthLost).toHaveBeenCalledTimes(1);
+    expect(store.expiredFrom(generationA)).toBe(true);
+
+    // The recorded expiry stops being current once any other session state replaces it.
+    await store.set(sessionB);
+    expect(store.expiredFrom(generationA)).toBe(false);
+  });
+
+  it('a stale expire changes nothing and records no expiry', async () => {
+    const { storage } = memoryStorage();
+    const queryClient = { clear: jest.fn() };
+    const onAuthLost = jest.fn();
+    const store = createSessionStore(storage, { queryClient, onAuthLost });
+    await store.set(makeSession());
+    const generationA = store.generation();
+    await store.set(sessionB);
+
+    await store.expire(generationA);
+
+    expect(store.get()).toEqual(sessionB);
+    expect(queryClient.clear).not.toHaveBeenCalled();
+    expect(onAuthLost).not.toHaveBeenCalled();
+    expect(store.expiredFrom(generationA)).toBe(false);
+  });
+
   it('updateUser with a stale generation changes nothing', async () => {
     const { storage, data } = memoryStorage();
     const store = createSessionStore(storage);

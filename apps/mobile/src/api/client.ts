@@ -1,8 +1,4 @@
-import type { QueryClient } from '@tanstack/react-query';
-
-import { emitAuthLost } from '@/auth/auth-events';
 import { sessionStore, type SessionStore } from '@/auth/session-store';
-import { queryClient as defaultQueryClient } from '@/lib/query-client';
 
 import { API_URL } from './config';
 import { ApiError, NETWORK_ERROR, SESSION_CHANGED, SESSION_EXPIRED, toApiError } from './errors';
@@ -24,7 +20,6 @@ export interface RequestOptions {
 export interface ApiClientOptions {
   baseUrl: string;
   store: SessionStore;
-  queryClient?: Pick<QueryClient, 'clear'>;
   fetchFn?: typeof fetch;
 }
 
@@ -60,20 +55,12 @@ async function parseBody<T>(response: Response): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-export function createApiClient({
-  baseUrl,
-  store,
-  queryClient,
-  fetchFn,
-}: ApiClientOptions): ApiClient {
+export function createApiClient({ baseUrl, store, fetchFn }: ApiClientOptions): ApiClient {
   // Resolved per call so tests (and polyfills) that swap globalThis.fetch are honored.
   const doFetch = (input: string, init: RequestInit) => (fetchFn ?? globalThis.fetch)(input, init);
   // Keyed by session generation: a refresh started for a previous session must never be
   // shared with (or have its result applied to) the session that replaced it.
   let refreshInFlight: { generation: number; promise: Promise<string | null> } | null = null;
-  // The generation transition made by the last refresh rejection, so requests of the expired
-  // session report SESSION_EXPIRED rather than SESSION_CHANGED.
-  let lastExpiry: { from: number; to: number } | null = null;
 
   async function send(url: string, init: RequestInit): Promise<Response> {
     try {
@@ -83,17 +70,6 @@ export function createApiClient({
       const message = err instanceof Error ? err.message : 'Network request failed';
       throw new ApiError(0, NETWORK_ERROR, message);
     }
-  }
-
-  async function loseSession(generation: number): Promise<void> {
-    // clear() resolves false when this session was already replaced, or was replaced while
-    // storage was being cleared; the cache and auth-lost then belong to the new session.
-    const clearing = store.clear(generation);
-    if (store.generation() !== generation)
-      lastExpiry = { from: generation, to: store.generation() };
-    if (!(await clearing)) return;
-    queryClient?.clear();
-    emitAuthLost();
   }
 
   async function performRefresh(generation: number): Promise<string | null> {
@@ -112,7 +88,9 @@ export function createApiClient({
     // Only a definitive rejection ends the session; network errors and 5xx keep it so a
     // later request can retry the refresh.
     if (response.status >= 400 && response.status < 500) {
-      await loseSession(generation);
+      // The store clears the cache, reports auth-lost and records the expiry itself, and only
+      // if this session is still the current one when its storage is gone.
+      await store.expire(generation);
       return null;
     }
     throw await toApiError(response);
@@ -169,15 +147,15 @@ export function createApiClient({
         const current = store.get()?.accessToken;
         const nextToken = current && current !== usedToken ? current : await refresh();
         if (!nextToken) {
-          const expired =
-            !sessionChanged() ||
-            (lastExpiry?.from === generation && lastExpiry.to === store.generation());
+          const expired = !sessionChanged() || store.expiredFrom(generation);
           throw expired
             ? new ApiError(401, SESSION_EXPIRED, 'Your session has expired. Please sign in again.')
             : sessionChangedError();
         }
         if (sessionChanged()) throw sessionChangedError();
         response = await run(nextToken);
+        // Checked before the body is read: a stale body may be slow or never settle.
+        if (sessionChanged()) throw sessionChangedError();
       }
       return complete(response);
     };
@@ -189,7 +167,10 @@ export function createApiClient({
     try {
       result = await protectedRequest();
     } catch (err) {
-      const expired = err instanceof ApiError && err.code === SESSION_EXPIRED;
+      // SESSION_EXPIRED is exempt only while the store's recorded expiry of this session is
+      // still the current state; a rejection that raced a replacement is SESSION_CHANGED.
+      const expired =
+        err instanceof ApiError && err.code === SESSION_EXPIRED && store.expiredFrom(generation);
       if (!expired && !signal?.aborted && sessionChanged()) throw sessionChangedError();
       throw err;
     }
@@ -210,5 +191,4 @@ export function createApiClient({
 export const api = createApiClient({
   baseUrl: API_URL,
   store: sessionStore,
-  queryClient: defaultQueryClient,
 });

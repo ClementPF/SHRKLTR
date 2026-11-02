@@ -68,11 +68,7 @@ describe('SessionProvider', () => {
     const registerPush = jest.fn(async () => null);
 
     await render(
-      <SessionProvider
-        store={createSessionStore(storage)}
-        queryClient={{ clear: jest.fn() }}
-        registerPush={registerPush}
-      >
+      <SessionProvider store={createSessionStore(storage)} registerPush={registerPush}>
         <Probe />
       </SessionProvider>,
     );
@@ -92,7 +88,6 @@ describe('SessionProvider', () => {
     await render(
       <SessionProvider
         store={createSessionStore(memoryStorage().storage)}
-        queryClient={{ clear: jest.fn() }}
         registerPush={registerPush}
       >
         <Probe />
@@ -112,7 +107,6 @@ describe('SessionProvider', () => {
     await render(
       <SessionProvider
         store={createSessionStore(storage)}
-        queryClient={{ clear: jest.fn() }}
         registerPush={jest.fn(async () => null)}
         fetchCurrentUser={fetchCurrentUser}
       >
@@ -137,7 +131,6 @@ describe('SessionProvider', () => {
     await render(
       <SessionProvider
         store={store}
-        queryClient={{ clear: jest.fn() }}
         registerPush={jest.fn(async () => null)}
         fetchCurrentUser={fetchCurrentUser}
       >
@@ -155,7 +148,6 @@ describe('SessionProvider', () => {
     await render(
       <SessionProvider
         store={createSessionStore(storage)}
-        queryClient={{ clear: jest.fn() }}
         registerPush={jest.fn(async () => null)}
         fetchCurrentUser={jest.fn(async () => {
           throw new ApiError(0, 'NETWORK_ERROR', 'offline');
@@ -174,11 +166,7 @@ describe('SessionProvider', () => {
     jest.mocked(exchangeGoogleCode).mockResolvedValueOnce(session);
 
     await render(
-      <SessionProvider
-        store={createSessionStore(storage)}
-        queryClient={{ clear: jest.fn() }}
-        registerPush={jest.fn(async () => null)}
-      >
+      <SessionProvider store={createSessionStore(storage)} registerPush={jest.fn(async () => null)}>
         <LoginProbe />
       </SessionProvider>,
     );
@@ -201,11 +189,7 @@ describe('SessionProvider', () => {
     jest.mocked(requestDevSession).mockResolvedValueOnce(session);
 
     await render(
-      <SessionProvider
-        store={createSessionStore(storage)}
-        queryClient={{ clear: jest.fn() }}
-        registerPush={jest.fn(async () => null)}
-      >
+      <SessionProvider store={createSessionStore(storage)} registerPush={jest.fn(async () => null)}>
         <LoginProbe />
       </SessionProvider>,
     );
@@ -229,8 +213,7 @@ describe('SessionProvider', () => {
 
     await render(
       <SessionProvider
-        store={createSessionStore(storage)}
-        queryClient={queryClient}
+        store={createSessionStore(storage, { queryClient })}
         registerPush={jest.fn(async () => null)}
       >
         <Probe />
@@ -268,8 +251,7 @@ describe('SessionProvider', () => {
 
     await render(
       <SessionProvider
-        store={createSessionStore(storage)}
-        queryClient={queryClient}
+        store={createSessionStore(storage, { queryClient })}
         registerPush={jest.fn(async () => null)}
       >
         <Probe />
@@ -292,5 +274,64 @@ describe('SessionProvider', () => {
     expect(screen.getAllByText('authenticated:dev-sam').length).toBeGreaterThan(0);
     expect(JSON.parse(data.get(SESSION_STORAGE_KEY)!)).toEqual(sessionB);
     expect(queryClient.clear).not.toHaveBeenCalled();
+  });
+
+  it('logout never clears the cache after a login queued as its storage clear completes', async () => {
+    const userB = { ...testUser, id: '00000000-0000-4000-8000-000000000002', username: 'dev-sam' };
+    const sessionB = makeSession({
+      accessToken: 'b-access',
+      refreshToken: 'b-refresh',
+      user: userB,
+    });
+    // Installs B at every microtask offset after storage deletion finishes, covering the
+    // window between the clear transition's generation check and logout() resuming.
+    for (let hops = 0; hops <= 12; hops += 1) {
+      const { storage, data } = memoryStorage({
+        [SESSION_STORAGE_KEY]: JSON.stringify(makeSession()),
+      });
+      const events: string[] = [];
+      const queryClient = { clear: jest.fn(() => events.push('cache-clear')) };
+      const store = createSessionStore(storage, { queryClient });
+      const deletion = deferred<void>();
+      (storage.removeItem as jest.Mock).mockImplementationOnce(async (key: string) => {
+        await deletion.promise;
+        data.delete(key);
+      });
+      let logout: (() => Promise<void>) | null = null;
+      function Capture() {
+        logout = useSession().logout;
+        return null;
+      }
+
+      const view = await render(
+        <SessionProvider store={store} registerPush={jest.fn(async () => null)}>
+          <Capture />
+        </SessionProvider>,
+      );
+      expect(logout).not.toBeNull();
+
+      await act(async () => {
+        const signingOut = logout!();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(storage.removeItem).toHaveBeenCalledTimes(1);
+        deletion.resolve();
+        let installB: Promise<void> = Promise.resolve();
+        void (async () => {
+          for (let i = 0; i < hops; i += 1) await Promise.resolve();
+          events.push('install-B');
+          installB = store.set(sessionB);
+        })();
+        await signingOut;
+        await new Promise((r) => setTimeout(r, 0));
+        await installB;
+      });
+
+      const installedAt = events.indexOf('install-B');
+      expect(installedAt).toBeGreaterThanOrEqual(0);
+      expect(events.slice(installedAt + 1)).toEqual([]);
+      expect(store.get()).toEqual(sessionB);
+      expect(JSON.parse(data.get(SESSION_STORAGE_KEY)!)).toEqual(sessionB);
+      await view.unmount();
+    }
   });
 });

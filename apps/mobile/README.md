@@ -64,7 +64,9 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
   session + query cache cleared only when a refresh is definitively rejected (4xx; transient
   network/5xx failures keep the session for a later retry)), DTO types and per-route `endpoints.ts`.
 - `src/auth/` session layer: `storage.ts` (SecureStore on native, `localStorage` on web, one
-  JSON key `sharkulator.session`), `session.tsx` (`SessionProvider`/`useSession`, shows a loading
+  JSON key `sharkulator.session`), `session-store.ts` (the only owner of session side effects:
+  token persistence, sign-out/expiry cleanup of the query cache and auth-lost, all checked
+  against the session generation inside serialized transitions), `session.tsx` (`SessionProvider`/`useSession`, shows a loading
   view until stored tokens hydrate), `devSession.ts`.
 - `src/notifications/` push registration (native only; web is a no-op).
 - `src/features/` TanStack Query hooks,

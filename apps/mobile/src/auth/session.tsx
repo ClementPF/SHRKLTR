@@ -1,4 +1,3 @@
-import type { QueryClient } from '@tanstack/react-query';
 import {
   createContext,
   useCallback,
@@ -14,7 +13,6 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { api } from '@/api/client';
 import { exchangeGoogleCode, getMe, logoutSession } from '@/api/endpoints';
 import type { GoogleCodeExchangeRequest, User } from '@/api/types';
-import { queryClient as defaultQueryClient } from '@/lib/query-client';
 import { registerForPushNotifications } from '@/notifications/push-registration';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
 
@@ -41,8 +39,8 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 
 export interface SessionProviderProps {
   children: ReactNode;
+  /** Owns session cleanup (storage, query cache, auth-lost) for sign-out and expiry. */
   store?: SessionStore;
-  queryClient?: Pick<QueryClient, 'clear'>;
   refreshTokens?: () => Promise<string | null>;
   registerPush?: () => Promise<string | null>;
   /**
@@ -66,7 +64,6 @@ export function SessionLoading() {
 export function SessionProvider({
   children,
   store = sessionStore,
-  queryClient = defaultQueryClient,
   refreshTokens = api.refresh,
   registerPush = registerForPushNotifications,
   fetchCurrentUser = getMe,
@@ -134,9 +131,9 @@ export function SessionProvider({
       // Local sign-out must succeed even if the server cannot be reached.
       await logoutSession(refreshToken).catch(() => undefined);
     }
-    // A login that completed during sign-out owns the session and the cache from then on.
-    if (await store.clear(generation)) queryClient.clear();
-  }, [store, queryClient]);
+    // Skipped by the store if a login completed meanwhile; the store also clears the cache.
+    await store.clear(generation);
+  }, [store]);
 
   const refresh = useCallback(async () => (await refreshTokens()) !== null, [refreshTokens]);
 

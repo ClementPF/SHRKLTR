@@ -1,6 +1,6 @@
 import { onAuthLost } from '@/auth/auth-events';
 import { createApiClient } from '@/api/client';
-import { ApiError, SESSION_CHANGED } from '@/api/errors';
+import { ApiError, SESSION_CHANGED, SESSION_EXPIRED } from '@/api/errors';
 import { createSessionStore } from '@/auth/session-store';
 import { SESSION_STORAGE_KEY } from '@/auth/storage';
 
@@ -16,14 +16,13 @@ const BASE = 'http://api.test';
 
 async function setup(session = makeSession()) {
   const { storage, data } = memoryStorage();
-  const store = createSessionStore(storage);
-  await store.set(session);
   const queryClient = { clear: jest.fn() };
+  const store = createSessionStore(storage, { queryClient });
+  await store.set(session);
   const fetchFn = jest.fn<Promise<Response>, [string, RequestInit]>();
   const client = createApiClient({
     baseUrl: BASE,
     store,
-    queryClient,
     fetchFn: fetchFn as unknown as typeof fetch,
   });
   const authHeader = (call: number) =>
@@ -152,10 +151,12 @@ describe('api client', () => {
     const results = await Promise.allSettled([client.get('/users/me'), client.get('/sports')]);
 
     expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
-    expect((results[0] as PromiseRejectedResult).reason).toMatchObject({
-      status: 401,
-      code: 'SESSION_EXPIRED',
-    });
+    for (const result of results) {
+      expect((result as PromiseRejectedResult).reason).toMatchObject({
+        status: 401,
+        code: SESSION_EXPIRED,
+      });
+    }
     expect(refreshCalls()).toHaveLength(1);
     expect(store.get()).toBeNull();
     expect(data.has(SESSION_STORAGE_KEY)).toBe(false);
@@ -285,12 +286,38 @@ describe('api client', () => {
         jsonResponse(401, { error: { code: 'UNAUTHORIZED', message: 'revoked' } }),
       );
 
-      await expect(request).rejects.toBeInstanceOf(ApiError);
+      await expect(request).rejects.toMatchObject({ status: 401, code: SESSION_CHANGED });
       expect(store.get()).toEqual(sessionB);
       expect(JSON.parse(data.get(SESSION_STORAGE_KEY) ?? '')).toEqual(sessionB);
       expect(queryClient.clear).not.toHaveBeenCalled();
       expect(lost).not.toHaveBeenCalled();
+      expect(store.expiredFrom(store.generation())).toBe(false);
       unsubscribe();
+    });
+
+    it('a stale 4xx refresh rejection after a switch reports SESSION_CHANGED, never SESSION_EXPIRED', async () => {
+      const { client, store, fetchFn } = await setup();
+      const generationA = store.generation();
+      const refreshResponse = deferred<Response>();
+      fetchFn.mockImplementation(async (url) =>
+        url === `${BASE}/auth/refresh` ? refreshResponse.promise : jsonResponse(401),
+      );
+
+      const requests = [client.get('/users/me'), client.get('/sports')];
+      await flush();
+      await store.set(sessionB);
+      refreshResponse.resolve(jsonResponse(400, { error: { code: 'BAD', message: 'invalid' } }));
+
+      const results = await Promise.allSettled(requests);
+      for (const result of results) {
+        expect(result.status).toBe('rejected');
+        const reason = (result as PromiseRejectedResult).reason as ApiError;
+        expect(reason).toBeInstanceOf(ApiError);
+        expect(reason.status).toBe(401);
+        expect(reason.code).toBe(SESSION_CHANGED);
+      }
+      expect(store.expiredFrom(generationA)).toBe(false);
+      expect(store.get()).toEqual(sessionB);
     });
 
     it('does not refresh or replay a late 401 from the previous session', async () => {
@@ -319,12 +346,13 @@ describe('api client', () => {
       const request = client.get('/users/me');
       await flush();
       await store.clear();
+      expect(queryClient.clear).toHaveBeenCalledTimes(1);
       late.resolve(jsonResponse(401));
 
       await expect(request).rejects.toMatchObject({ status: 401 });
       expect(refreshCalls()).toHaveLength(0);
       expect(fetchFn).toHaveBeenCalledTimes(1);
-      expect(queryClient.clear).not.toHaveBeenCalled();
+      expect(queryClient.clear).toHaveBeenCalledTimes(1);
       expect(lost).not.toHaveBeenCalled();
       unsubscribe();
     });
@@ -449,6 +477,34 @@ describe('api client', () => {
       expect(store.get()).toEqual(sessionB);
     });
 
+    it('rejects a stale retry promptly without reading a body that never settles', async () => {
+      const { client, store, fetchFn } = await setup();
+      const retry = deferred<Response>();
+      const text = jest.fn(() => new Promise<string>(() => undefined));
+      fetchFn.mockImplementation(async (url, init) => {
+        if (url === `${BASE}/auth/refresh`) {
+          return jsonResponse(200, { accessToken: 'access-2', refreshToken: 'refresh-2' });
+        }
+        const auth = (init.headers as Record<string, string>).Authorization;
+        return auth === 'Bearer access-2' ? retry.promise : jsonResponse(401);
+      });
+
+      const request = client.get('/users/me');
+      await flush();
+      expect(fetchFn).toHaveBeenCalledTimes(3);
+      await store.set(sessionB);
+      retry.resolve({ ok: true, status: 200, text } as unknown as Response);
+
+      const timedOut = Symbol('timed out');
+      const outcome = await Promise.race([
+        request.catch((e: unknown) => e),
+        new Promise((r) => setTimeout(() => r(timedOut), 50)),
+      ]);
+      expect(outcome).not.toBe(timedOut);
+      expect(outcome).toMatchObject({ status: 401, code: SESSION_CHANGED });
+      expect(text).not.toHaveBeenCalled();
+    });
+
     it("does not surface the old session's error response after a switch", async () => {
       const { client, store, fetchFn } = await setup();
       const late = deferred<Response>();
@@ -506,6 +562,52 @@ describe('api client', () => {
       expect(queryClient.clear).not.toHaveBeenCalled();
       expect(lost).not.toHaveBeenCalled();
       unsubscribe();
+    });
+
+    it('never clears the cache or emits auth-lost after a replacement queued as the expiry clear completes', async () => {
+      // Installs B at every microtask offset after storage deletion finishes, covering the
+      // window between the clear transition's generation check and any later continuation.
+      for (let hops = 0; hops <= 12; hops += 1) {
+        const { client, store, storage, data, queryClient, fetchFn } = await setup();
+        const events: string[] = [];
+        queryClient.clear.mockImplementation(() => events.push('cache-clear'));
+        const unsubscribe = onAuthLost(() => events.push('auth-lost'));
+        const deletion = deferred<void>();
+        (storage.removeItem as jest.Mock).mockImplementationOnce(async (key: string) => {
+          await deletion.promise;
+          data.delete(key);
+        });
+        fetchFn.mockImplementation(async (url) =>
+          url === `${BASE}/auth/refresh`
+            ? jsonResponse(401, { error: { code: 'UNAUTHORIZED', message: 'revoked' } })
+            : jsonResponse(401),
+        );
+
+        const request = client.get('/users/me').catch((e: unknown) => e);
+        await flush();
+        expect(storage.removeItem).toHaveBeenCalledTimes(1);
+
+        deletion.resolve();
+        let installB: Promise<void> = Promise.resolve();
+        void (async () => {
+          for (let i = 0; i < hops; i += 1) await Promise.resolve();
+          events.push('install-B');
+          installB = store.set(sessionB);
+        })();
+
+        const error = await request;
+        await flush();
+        await installB;
+
+        expect(error).toBeInstanceOf(ApiError);
+        expect(events).toContain('install-B');
+        const installedAt = events.indexOf('install-B');
+        expect(events.slice(installedAt + 1)).toEqual([]);
+        expect(events.filter((e) => e === 'cache-clear').length).toBeLessThanOrEqual(1);
+        expect(store.get()).toEqual(sessionB);
+        expect(JSON.parse(data.get(SESSION_STORAGE_KEY) ?? '')).toEqual(sessionB);
+        unsubscribe();
+      }
     });
   });
 });
