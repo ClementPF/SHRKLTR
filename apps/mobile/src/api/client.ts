@@ -1,0 +1,163 @@
+import type { QueryClient } from '@tanstack/react-query';
+
+import { emitAuthLost } from '@/auth/auth-events';
+import { sessionStore, type SessionStore } from '@/auth/session-store';
+import { queryClient as defaultQueryClient } from '@/lib/query-client';
+
+import { API_URL } from './config';
+import { ApiError, NETWORK_ERROR, SESSION_EXPIRED, toApiError } from './errors';
+import type { TokenPair } from './types';
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+export type QueryValue = string | number | boolean | null | undefined;
+
+export interface RequestOptions {
+  method?: HttpMethod;
+  body?: unknown;
+  query?: Record<string, QueryValue>;
+  headers?: Record<string, string>;
+  /** Attach the Bearer token and recover from 401 via refresh. Defaults to true. */
+  auth?: boolean;
+  signal?: AbortSignal;
+}
+
+export interface ApiClientOptions {
+  baseUrl: string;
+  store: SessionStore;
+  queryClient?: Pick<QueryClient, 'clear'>;
+  fetchFn?: typeof fetch;
+}
+
+export interface ApiClient {
+  request<T>(path: string, options?: RequestOptions): Promise<T>;
+  get<T>(path: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<T>;
+  post<T>(
+    path: string,
+    body?: unknown,
+    options?: Omit<RequestOptions, 'method' | 'body'>,
+  ): Promise<T>;
+  put<T>(
+    path: string,
+    body?: unknown,
+    options?: Omit<RequestOptions, 'method' | 'body'>,
+  ): Promise<T>;
+  delete<T>(path: string, options?: Omit<RequestOptions, 'method' | 'body'>): Promise<T>;
+  /** Rotates the refresh token. Concurrent callers share one in-flight /auth/refresh. */
+  refresh(): Promise<string | null>;
+}
+
+function buildUrl(baseUrl: string, path: string, query?: Record<string, QueryValue>): string {
+  const base = baseUrl.replace(/\/+$/, '');
+  const params = Object.entries(query ?? {})
+    .filter((entry): entry is [string, string | number | boolean] => entry[1] != null)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  return `${base}${path}${params.length ? `?${params.join('&')}` : ''}`;
+}
+
+async function parseBody<T>(response: Response): Promise<T> {
+  if (response.status === 204) return undefined as T;
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
+export function createApiClient({
+  baseUrl,
+  store,
+  queryClient,
+  fetchFn,
+}: ApiClientOptions): ApiClient {
+  // Resolved per call so tests (and polyfills) that swap globalThis.fetch are honored.
+  const doFetch = (input: string, init: RequestInit) => (fetchFn ?? globalThis.fetch)(input, init);
+  let refreshInFlight: Promise<string | null> | null = null;
+
+  async function send(url: string, init: RequestInit): Promise<Response> {
+    try {
+      return await doFetch(url, init);
+    } catch (err) {
+      if (init.signal?.aborted) throw err;
+      const message = err instanceof Error ? err.message : 'Network request failed';
+      throw new ApiError(0, NETWORK_ERROR, message);
+    }
+  }
+
+  async function loseSession(): Promise<void> {
+    await store.clear();
+    queryClient?.clear();
+    emitAuthLost();
+  }
+
+  async function performRefresh(): Promise<string | null> {
+    const session = store.get();
+    if (!session) return null;
+    const response = await send(buildUrl(baseUrl, '/auth/refresh'), {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: session.refreshToken }),
+    });
+    if (response.ok) {
+      const pair = await parseBody<TokenPair>(response);
+      await store.updateTokens(pair);
+      return pair.accessToken;
+    }
+    if (response.status >= 400 && response.status < 500) {
+      await loseSession();
+      return null;
+    }
+    throw await toApiError(response);
+  }
+
+  function refresh(): Promise<string | null> {
+    refreshInFlight ??= performRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+    return refreshInFlight;
+  }
+
+  async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const { method = 'GET', body, query, headers = {}, auth = true, signal } = options;
+    const url = buildUrl(baseUrl, path, query);
+
+    const run = (accessToken: string | undefined) => {
+      const finalHeaders: Record<string, string> = { Accept: 'application/json', ...headers };
+      if (body !== undefined) finalHeaders['Content-Type'] = 'application/json';
+      if (auth && accessToken) finalHeaders.Authorization = `Bearer ${accessToken}`;
+      return send(url, {
+        method,
+        headers: finalHeaders,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
+      });
+    };
+
+    const usedToken = auth ? store.get()?.accessToken : undefined;
+    let response = await run(usedToken);
+
+    if (response.status === 401 && auth && usedToken) {
+      // Another request may already have rotated the tokens while this one was in flight.
+      const current = store.get()?.accessToken;
+      const nextToken = current && current !== usedToken ? current : await refresh();
+      if (!nextToken) {
+        throw new ApiError(401, SESSION_EXPIRED, 'Your session has expired. Please sign in again.');
+      }
+      response = await run(nextToken);
+    }
+
+    if (!response.ok) throw await toApiError(response);
+    return parseBody<T>(response);
+  }
+
+  return {
+    request,
+    refresh,
+    get: (path, options) => request(path, { ...options, method: 'GET' }),
+    post: (path, body, options) => request(path, { ...options, method: 'POST', body }),
+    put: (path, body, options) => request(path, { ...options, method: 'PUT', body }),
+    delete: (path, options) => request(path, { ...options, method: 'DELETE' }),
+  };
+}
+
+export const api = createApiClient({
+  baseUrl: API_URL,
+  store: sessionStore,
+  queryClient: defaultQueryClient,
+});

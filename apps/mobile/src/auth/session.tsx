@@ -1,0 +1,159 @@
+import type { QueryClient } from '@tanstack/react-query';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+
+import { api } from '@/api/client';
+import { exchangeGoogleIdToken, logoutSession } from '@/api/endpoints';
+import type { User } from '@/api/types';
+import { queryClient as defaultQueryClient } from '@/lib/query-client';
+import { registerForPushNotifications } from '@/notifications/push-registration';
+import { Colors, Palette, Spacing, Typography } from '@/theme';
+
+import { requestDevSession } from './devSession';
+import { sessionStore, type SessionStore } from './session-store';
+import type { StoredSession } from './storage';
+
+export type SessionStatus = 'loading' | 'authenticated' | 'unauthenticated';
+
+export interface SessionContextValue {
+  status: SessionStatus;
+  session: StoredSession | null;
+  user: User | null;
+  /** Exchanges a Google ID token for a backend session. */
+  login(idToken: string): Promise<void>;
+  /** Non-production only: signs in as a seeded user through /auth/dev-token. */
+  loginWithDevUser(username: string): Promise<void>;
+  logout(): Promise<void>;
+  /** Rotates tokens; resolves false when the session was lost. */
+  refresh(): Promise<boolean>;
+}
+
+const SessionContext = createContext<SessionContextValue | null>(null);
+
+export interface SessionProviderProps {
+  children: ReactNode;
+  store?: SessionStore;
+  queryClient?: Pick<QueryClient, 'clear'>;
+  refreshTokens?: () => Promise<string | null>;
+  registerPush?: () => Promise<string | null>;
+  /** Rendered while stored tokens hydrate, so the app never shows a blank screen. */
+  fallback?: ReactNode;
+}
+
+export function SessionLoading() {
+  return (
+    <View style={styles.loading} accessibilityLabel="Loading session">
+      <ActivityIndicator size="large" color={Colors.accent} />
+      <Text style={Typography.bodySecondary}>Loading…</Text>
+    </View>
+  );
+}
+
+export function SessionProvider({
+  children,
+  store = sessionStore,
+  queryClient = defaultQueryClient,
+  refreshTokens = api.refresh,
+  registerPush = registerForPushNotifications,
+  fallback,
+}: SessionProviderProps) {
+  const [hydrated, setHydrated] = useState(false);
+  const [session, setSession] = useState<StoredSession | null>(store.get());
+  const pushRegisteredFor = useRef<string | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = store.subscribe(setSession);
+    let active = true;
+    void store.hydrate().then((restored) => {
+      if (!active) return;
+      setSession(restored);
+      setHydrated(true);
+    });
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [store]);
+
+  const userId = session?.user.id ?? null;
+  useEffect(() => {
+    if (!userId) {
+      pushRegisteredFor.current = null;
+      return;
+    }
+    if (pushRegisteredFor.current === userId) return;
+    pushRegisteredFor.current = userId;
+    registerPush().catch((err: unknown) => {
+      console.warn('Push registration failed', err);
+    });
+  }, [userId, registerPush]);
+
+  const login = useCallback(
+    async (idToken: string) => {
+      await store.set(await exchangeGoogleIdToken(idToken));
+    },
+    [store],
+  );
+
+  const loginWithDevUser = useCallback(
+    async (username: string) => {
+      await store.set(await requestDevSession(username));
+    },
+    [store],
+  );
+
+  const logout = useCallback(async () => {
+    const refreshToken = store.get()?.refreshToken;
+    if (refreshToken) {
+      // Local sign-out must succeed even if the server cannot be reached.
+      await logoutSession(refreshToken).catch(() => undefined);
+    }
+    await store.clear();
+    queryClient.clear();
+  }, [store, queryClient]);
+
+  const refresh = useCallback(async () => (await refreshTokens()) !== null, [refreshTokens]);
+
+  const value = useMemo<SessionContextValue>(
+    () => ({
+      status: !hydrated ? 'loading' : session ? 'authenticated' : 'unauthenticated',
+      session,
+      user: session?.user ?? null,
+      login,
+      loginWithDevUser,
+      logout,
+      refresh,
+    }),
+    [hydrated, session, login, loginWithDevUser, logout, refresh],
+  );
+
+  return (
+    <SessionContext.Provider value={value}>
+      {hydrated ? children : (fallback ?? <SessionLoading />)}
+    </SessionContext.Provider>
+  );
+}
+
+export function useSession(): SessionContextValue {
+  const value = useContext(SessionContext);
+  if (!value) throw new Error('useSession must be used inside <SessionProvider>');
+  return value;
+}
+
+const styles = StyleSheet.create({
+  loading: {
+    ...Palette.screen,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.md,
+  },
+});

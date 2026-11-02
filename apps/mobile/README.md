@@ -16,6 +16,11 @@ docker compose up -d                            # db + api on :3100
 They are inlined into the bundle, so never put secrets there. On a physical device, set
 `EXPO_PUBLIC_API_URL` to the Mac's LAN address (for example `http://192.168.x.x:3100`).
 
+Dev sessions: in non-production builds (`EXPO_PUBLIC_ENV` other than `production`), set
+`EXPO_PUBLIC_DEV_AUTH` to the `DEV_AUTH_SECRET` from the repo-root `.env`. The app sends it as
+the `x-dev-auth` header to `POST /auth/dev-token` to sign in as a seeded user without Google.
+Leave it empty in production builds.
+
 ## Run
 
 ```bash
@@ -38,5 +43,11 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
 ## Layout
 
 - `src/app/` routes: `(app)/(tabs)/` holds the feed, me, add-game, tournaments, and settings tabs.
-- `src/api/` backend config and fetchers, `src/features/` TanStack Query hooks,
+- `src/api/` typed client (`client.ts`: Bearer auth, single-flight refresh on 401, one retry,
+  session + query cache cleared when refresh fails), DTO types and per-route `endpoints.ts`.
+- `src/auth/` session layer: `storage.ts` (SecureStore on native, `localStorage` on web, one
+  JSON key `sharkulator.session`), `session.tsx` (`SessionProvider`/`useSession`, shows a loading
+  view until stored tokens hydrate), `devSession.ts`.
+- `src/notifications/` push registration (native only; web is a no-op).
+- `src/features/` TanStack Query hooks,
   `src/components/` shared UI, `src/theme/` dark theme constants (accent `#CE2924`).

@@ -10,3 +10,6 @@ export function createQueryClient(): QueryClient {
     },
   });
 }
+
+/** App-wide client, shared with the API layer so a lost session can wipe cached data. */
+export const queryClient = createQueryClient();
