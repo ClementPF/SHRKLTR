@@ -75,5 +75,12 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
   The seeded `dev-alex` has more than 15 games (incl. the `Lunch Darts` tournament), so feed
   infinite scroll can be exercised against seed data. Failures surface through the in-app
   `DropdownAlert` banner (`showAlert`), because `Alert.alert` is a no-op on web.
+- Tournaments tab: `src/features/tournaments/` (searchable list filtered client-side by display
+  name, `@name` or sport; `/new-tournament` create form; `/tournament/[name]` detail with a
+  RANKING computed from `GET /tournaments/:name/stats` and a HISTORY infinite query of 10 per
+  page). Query keys are rooted at `tournaments`.
+- Refresh: tab and detail routes call `useInvalidateOnFocus` (`src/lib/`) so returning to a screen
+  refetches data changed elsewhere (e.g. a game submitted from another device); received or
+  opened push notifications invalidate every query (`src/notifications/`, wired in the root layout).
 - `src/features/` TanStack Query hooks,
   `src/components/` shared UI, `src/theme/` dark theme constants (accent `#CE2924`).

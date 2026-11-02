@@ -1,5 +1,8 @@
-import { ScreenPlaceholder } from '@/components/screen-placeholder';
+import { TournamentsScreen } from '@/features/tournaments/tournaments-screen';
+import { tournamentKeys } from '@/features/tournaments/queries';
+import { useInvalidateOnFocus } from '@/lib/use-invalidate-on-focus';
 
-export default function TournamentsScreen() {
-  return <ScreenPlaceholder title="Tournaments" />;
+export default function TournamentsRoute() {
+  useInvalidateOnFocus([tournamentKeys.all]);
+  return <TournamentsScreen />;
 }
