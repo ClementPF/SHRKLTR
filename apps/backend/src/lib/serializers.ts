@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import type { games, outcomes, sports, tournaments, users } from '../db/schema.js';
+import type {
+  games,
+  outcomes,
+  rivalryStats,
+  sports,
+  stats,
+  tournaments,
+  users,
+} from '../db/schema.js';
 
 export const userDtoSchema = z
   .object({
@@ -114,5 +122,114 @@ export function toGameDto(row: {
     date: row.game.date.toISOString(),
     tournament: toTournamentDto(row.tournament),
     outcomes: row.outcomes.map(toOutcomeDto),
+  };
+}
+
+const statFields = {
+  score: z.number(),
+  bestScore: z.number(),
+  worstScore: z.number(),
+  gameCount: z.int(),
+  winCount: z.int(),
+  loseCount: z.int(),
+  tieCount: z.int(),
+  winStreak: z.int(),
+  loseStreak: z.int(),
+  tieStreak: z.int(),
+  longestWinStreak: z.int(),
+  longestLoseStreak: z.int(),
+  longestTieStreak: z.int(),
+};
+
+type StatColumns = Pick<
+  typeof stats.$inferSelect,
+  | 'score'
+  | 'bestScore'
+  | 'worstScore'
+  | 'gameCount'
+  | 'winCount'
+  | 'loseCount'
+  | 'tieCount'
+  | 'winStreak'
+  | 'loseStreak'
+  | 'tieStreak'
+  | 'longuestWinStreak'
+  | 'longuestLoseStreak'
+  | 'longuestTieStreak'
+>;
+
+// The DB keeps the legacy "longuest" column spelling; it never reaches the wire.
+function toStatFields(row: StatColumns) {
+  return {
+    score: row.score,
+    bestScore: row.bestScore,
+    worstScore: row.worstScore,
+    gameCount: row.gameCount,
+    winCount: row.winCount,
+    loseCount: row.loseCount,
+    tieCount: row.tieCount,
+    winStreak: row.winStreak,
+    loseStreak: row.loseStreak,
+    tieStreak: row.tieStreak,
+    longestWinStreak: row.longuestWinStreak,
+    longestLoseStreak: row.longuestLoseStreak,
+    longestTieStreak: row.longuestTieStreak,
+  };
+}
+
+export const rivalryStatsDtoSchema = z
+  .object({
+    id: z.uuid(),
+    user: userDtoSchema,
+    rival: userDtoSchema,
+    tournament: tournamentDtoSchema,
+    ...statFields,
+  })
+  .meta({ id: 'RivalryStats' });
+
+export type RivalryStatsDto = z.infer<typeof rivalryStatsDtoSchema>;
+
+export function toRivalryStatsDto(row: {
+  rivalry: typeof rivalryStats.$inferSelect;
+  user: UserRow;
+  rival: UserRow;
+  tournament: Parameters<typeof toTournamentDto>[0];
+}): RivalryStatsDto {
+  return {
+    id: row.rivalry.id,
+    user: toUserDto(row.user),
+    rival: toUserDto(row.rival),
+    tournament: toTournamentDto(row.tournament),
+    ...toStatFields(row.rivalry),
+  };
+}
+
+export const statsDtoSchema = z
+  .object({
+    id: z.uuid(),
+    user: userDtoSchema,
+    tournament: tournamentDtoSchema,
+    ...statFields,
+    bestRivalry: rivalryStatsDtoSchema.nullable(),
+    worstRivalry: rivalryStatsDtoSchema.nullable(),
+  })
+  .meta({ id: 'Stats' });
+
+export type StatsDto = z.infer<typeof statsDtoSchema>;
+
+export function toStatsDto(row: {
+  stats: typeof stats.$inferSelect;
+  user: UserRow;
+  tournament: Parameters<typeof toTournamentDto>[0];
+  bestRivalry: Parameters<typeof toRivalryStatsDto>[0] | null;
+  worstRivalry: Parameters<typeof toRivalryStatsDto>[0] | null;
+}): StatsDto {
+  return {
+    id: row.stats.id,
+    user: toUserDto(row.user),
+    tournament: toTournamentDto(row.tournament),
+    ...toStatFields(row.stats),
+    bestRivalry: row.bestRivalry ? toRivalryStatsDto(row.bestRivalry) : null,
+    worstRivalry: row.worstRivalry ? toRivalryStatsDto(row.worstRivalry) : null,
   };
 }

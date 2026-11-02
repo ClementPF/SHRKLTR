@@ -1,8 +1,15 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
-import type { Database } from '../db/client.js';
-import { games, outcomes, stats, users } from '../db/schema.js';
-import { computeDeltas } from '../elo/elo.js';
+import { asc, eq, inArray } from 'drizzle-orm';
+import type { Database, Transaction } from '../db/client.js';
+import { games, outcomes, users } from '../db/schema.js';
+import { computeDeltas, DEFAULT_RATING } from '../elo/elo.js';
 import { ApiError } from '../lib/errors.js';
+import { applyRivalryResults } from './rivalry.service.js';
+import {
+  applyStatsResults,
+  lockParticipantStats,
+  refreshRivalrySelection,
+  type ParticipantResult,
+} from './stats.service.js';
 import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
 
 type GameRow = typeof games.$inferSelect;
@@ -50,6 +57,56 @@ function validateOutcomes(submitted: readonly SubmittedOutcome[]): DecisiveOutco
   return decisive;
 }
 
+export interface RecordGameInput {
+  tournamentId: string;
+  participants: readonly { userId: string; result: 'WIN' | 'LOSS' }[];
+  /** Defaults to the database's current time; only the seed replays historical dates. */
+  date?: Date;
+}
+
+/**
+ * Persists an already validated game inside the caller's transaction: game and outcome rows,
+ * participant stats, directional rivalries and best/worst rivalry selection. Returns the game id.
+ */
+export async function recordGame(tx: Transaction, input: RecordGameInput): Promise<string> {
+  const { tournamentId, participants } = input;
+  const userIds = participants.map((p) => p.userId);
+  const statsByUserId = await lockParticipantStats(tx, tournamentId, userIds);
+  const ratings = new Map(
+    userIds.map((id) => [id, statsByUserId.get(id)?.score ?? DEFAULT_RATING]),
+  );
+  const deltas = computeDeltas(
+    participants.map((p) => ({ username: p.userId, result: p.result })),
+    ratings,
+  );
+  const results: ParticipantResult[] = participants.map((p) => {
+    const delta = deltas.get(p.userId);
+    if (delta === undefined) throw new Error(`missing delta for ${p.userId}`);
+    return { ...p, delta };
+  });
+
+  const [game] = await tx
+    .insert(games)
+    .values({ tournamentId, ...(input.date ? { date: input.date } : {}) })
+    .returning({ id: games.id });
+  if (!game) throw new Error('game insert returned no row');
+  await tx.insert(outcomes).values(
+    results.map((r) => ({
+      gameId: game.id,
+      userId: r.userId,
+      result: r.result,
+      scoreValue: r.delta,
+    })),
+  );
+
+  await applyStatsResults(tx, statsByUserId, results);
+  await applyRivalryResults(tx, tournamentId, results);
+  for (const userId of userIds) {
+    await refreshRivalrySelection(tx, userId, tournamentId);
+  }
+  return game.id;
+}
+
 export interface SubmitGameInput {
   tournamentName: string;
   callerId: string;
@@ -80,40 +137,14 @@ export async function submitGame(db: Database, input: SubmitGameInput): Promise<
     throw ApiError.forbidden('Only a losing player can submit a game', 'CALLER_MUST_LOSE');
   }
 
-  const tournamentId = tournament.tournament.id;
-  const gameId = await db.transaction(async (tx) => {
-    const ratingRows = await tx
-      .select({ userId: stats.userId, score: stats.score })
-      .from(stats)
-      .where(
-        and(
-          eq(stats.tournamentId, tournamentId),
-          inArray(
-            stats.userId,
-            userRows.map((u) => u.id),
-          ),
-        ),
-      );
-    const ratingByUserId = new Map(ratingRows.map((r) => [r.userId, r.score]));
-    const ratings = new Map<string, number>();
-    for (const user of userRows) {
-      const score = ratingByUserId.get(user.id);
-      if (score !== undefined) ratings.set(user.username, score);
-    }
-    const deltas = computeDeltas(decisive, ratings);
-
-    const [game] = await tx.insert(games).values({ tournamentId }).returning({ id: games.id });
-    if (!game) throw new Error('game insert returned no row');
-    await tx.insert(outcomes).values(
-      decisive.map((o) => {
-        const user = userByName.get(o.username);
-        const delta = deltas.get(o.username);
-        if (!user || delta === undefined) throw new Error(`missing data for ${o.username}`);
-        return { gameId: game.id, userId: user.id, result: o.result, scoreValue: delta };
-      }),
-    );
-    return game.id;
+  const participants = decisive.map((o) => {
+    const user = userByName.get(o.username);
+    if (!user) throw new Error(`missing user ${o.username}`);
+    return { userId: user.id, result: o.result };
   });
+  const gameId = await db.transaction((tx) =>
+    recordGame(tx, { tournamentId: tournament.tournament.id, participants }),
+  );
 
   const [game] = await db.select().from(games).where(eq(games.id, gameId)).limit(1);
   if (!game) throw new Error('game disappeared after creation');

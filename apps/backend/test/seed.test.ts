@@ -82,6 +82,15 @@ describe('dev seed', () => {
         expect(reverse?.score).toBeCloseTo(-r.score, 9);
         expect(reverse?.gameCount).toBe(r.gameCount);
       }
+      for (const r of rows) {
+        const own = rivalries.filter((o) => o.userId === r.userId);
+        const best = own.find((o) => o.id === r.bestRivalryId);
+        const worst = own.find((o) => o.id === r.worstRivalryId);
+        const maxPositive = Math.max(0, ...own.map((o) => o.score));
+        const minNegative = Math.min(0, ...own.map((o) => o.score));
+        expect(best?.score ?? 0).toBe(maxPositive);
+        expect(worst?.score ?? 0).toBe(minNegative);
+      }
     }
   });
 

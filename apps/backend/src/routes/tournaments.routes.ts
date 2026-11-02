@@ -3,7 +3,9 @@ import type { FastifyPluginAsyncZod } from '@fastify/type-provider-zod';
 import { ApiError, errorResponseSchema } from '../lib/errors.js';
 import {
   gameDtoSchema,
+  statsDtoSchema,
   toGameDto,
+  toStatsDto,
   toTournamentDto,
   toUserDto,
   tournamentDtoSchema,
@@ -18,6 +20,7 @@ import {
   updateTournament,
 } from '../services/tournament.service.js';
 import { submitGame } from '../services/game.service.js';
+import { listTournamentStats } from '../services/stats.service.js';
 
 // Trimming before min(1) guarantees a non-empty slug once whitespace is stripped.
 const displayNameSchema = z.string().trim().min(1).max(100);
@@ -186,6 +189,24 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) => (await listTournamentUsers(app.db, request.params.name)).map(toUserDto),
+  );
+
+  app.get(
+    '/tournaments/:name/stats',
+    {
+      schema: {
+        tags: ['tournaments'],
+        summary: 'Tournament leaderboard, highest score first',
+        security,
+        params: nameParamsSchema,
+        response: {
+          200: z.array(statsDtoSchema),
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => (await listTournamentStats(app.db, request.params.name)).map(toStatsDto),
   );
 
   app.post(

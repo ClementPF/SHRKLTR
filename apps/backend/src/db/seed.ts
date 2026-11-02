@@ -1,11 +1,8 @@
 import { pathToFileURL } from 'node:url';
-import { randomUUID } from 'node:crypto';
 import { count, eq, inArray } from 'drizzle-orm';
-import { createDb, type Database } from './client.js';
-import { games, outcomes, rivalryStats, sports, stats, tournaments, users } from './schema.js';
-
-type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
-type DecisiveResult = 'WIN' | 'LOSS';
+import { recordGame } from '../services/game.service.js';
+import { createDb, type Database, type Transaction } from './client.js';
+import { games, sports, tournaments, users } from './schema.js';
 
 interface DemoUser {
   username: string;
@@ -89,83 +86,13 @@ export function tournamentSlug(displayName: string): string {
   return displayName.replace(/\s+/g, '').toLowerCase();
 }
 
-interface StatLine {
-  score: number;
-  bestScore: number;
-  worstScore: number;
-  gameCount: number;
-  winCount: number;
-  loseCount: number;
-  tieCount: number;
-  winStreak: number;
-  loseStreak: number;
-  tieStreak: number;
-  longuestWinStreak: number;
-  longuestLoseStreak: number;
-  longuestTieStreak: number;
-}
-
-function newStatLine(initialScore: number): StatLine {
-  return {
-    score: initialScore,
-    bestScore: initialScore,
-    worstScore: initialScore,
-    gameCount: 0,
-    winCount: 0,
-    loseCount: 0,
-    tieCount: 0,
-    winStreak: 0,
-    loseStreak: 0,
-    tieStreak: 0,
-    longuestWinStreak: 0,
-    longuestLoseStreak: 0,
-    longuestTieStreak: 0,
-  };
-}
-
-function applyOutcome(line: StatLine, result: DecisiveResult, delta: number): void {
-  line.score += delta;
-  line.bestScore = Math.max(line.bestScore, line.score);
-  line.worstScore = Math.min(line.worstScore, line.score);
-  line.gameCount += 1;
-  line.tieStreak = 0;
-  if (result === 'WIN') {
-    line.winCount += 1;
-    line.winStreak += 1;
-    line.loseStreak = 0;
-    line.longuestWinStreak = Math.max(line.longuestWinStreak, line.winStreak);
-  } else {
-    line.loseCount += 1;
-    line.loseStreak += 1;
-    line.winStreak = 0;
-    line.longuestLoseStreak = Math.max(line.longuestLoseStreak, line.loseStreak);
-  }
-}
-
-const mean = (values: number[]) => values.reduce((a, b) => a + b, 0) / values.length;
-
-/** Elo delta for the winning side (K=32, team ratings averaged, no rounding). */
-function winnerDelta(winnerRatings: number[], loserRatings: number[]): number {
-  const expected = 1 / (1 + 10 ** ((mean(loserRatings) - mean(winnerRatings)) / 400));
-  return 32 * (1 - expected);
-}
-
-function getOrCreate<K, V>(map: Map<K, V>, key: K, create: () => V): V {
-  let value = map.get(key);
-  if (value === undefined) {
-    value = create();
-    map.set(key, value);
-  }
-  return value;
-}
-
 function requireId(ids: Map<string, string>, key: string): string {
   const id = ids.get(key);
   if (!id) throw new Error(`seed references unknown key "${key}"`);
   return id;
 }
 
-/** Inserts the demo games of one tournament and the stats/rivalries they imply. */
+/** Replays the demo games of one tournament through the same path as submitted games. */
 async function seedTournamentGames(
   tx: Transaction,
   tournamentId: string,
@@ -173,98 +100,16 @@ async function seedTournamentGames(
   userIds: Map<string, string>,
   now: Date,
 ): Promise<void> {
-  const statLines = new Map<string, StatLine>();
-  const rivalryLines = new Map<string, { userId: string; rivalId: string; line: StatLine }>();
-
   for (const demo of demoGames) {
-    const winners = demo.winners.map((u) => requireId(userIds, u));
-    const losers = demo.losers.map((u) => requireId(userIds, u));
-    const lineFor = (userId: string) => getOrCreate(statLines, userId, () => newStatLine(1000));
-    const delta = winnerDelta(
-      winners.map((id) => lineFor(id).score),
-      losers.map((id) => lineFor(id).score),
-    );
-
-    const [gameRow] = await tx
-      .insert(games)
-      .values({ tournamentId, date: new Date(now.getTime() - demo.hoursAgo * 3_600_000) })
-      .returning({ id: games.id });
-    if (!gameRow) throw new Error('game insert returned no row');
-
-    const participants: {
-      userId: string;
-      result: DecisiveResult;
-      value: number;
-      rivals: string[];
-    }[] = [
-      ...winners.map((userId) => ({
-        userId,
-        result: 'WIN' as const,
-        value: delta,
-        rivals: losers,
-      })),
-      ...losers.map((userId) => ({
-        userId,
-        result: 'LOSS' as const,
-        value: -delta,
-        rivals: winners,
-      })),
-    ];
-
-    await tx.insert(outcomes).values(
-      participants.map((p) => ({
-        gameId: gameRow.id,
-        userId: p.userId,
-        result: p.result,
-        scoreValue: p.value,
-      })),
-    );
-
-    for (const p of participants) {
-      applyOutcome(lineFor(p.userId), p.result, p.value);
-      for (const rivalId of p.rivals) {
-        const rivalry = getOrCreate(rivalryLines, `${p.userId}:${rivalId}`, () => ({
-          userId: p.userId,
-          rivalId,
-          line: newStatLine(0),
-        }));
-        applyOutcome(rivalry.line, p.result, p.value);
-      }
-    }
-  }
-
-  const rivalryRows = [...rivalryLines.values()].map((r) => ({
-    id: randomUUID(),
-    tournamentId,
-    userId: r.userId,
-    rivalId: r.rivalId,
-    ...r.line,
-  }));
-  if (rivalryRows.length > 0) await tx.insert(rivalryStats).values(rivalryRows);
-
-  const statRows = [...statLines.entries()].map(([userId, line]) => {
-    const own = rivalryRows.filter((r) => r.userId === userId);
-    const best = own
-      .filter((r) => r.score > 0)
-      .reduce<(typeof own)[number] | null>(
-        (acc, r) => (acc && acc.score >= r.score ? acc : r),
-        null,
-      );
-    const worst = own
-      .filter((r) => r.score < 0)
-      .reduce<(typeof own)[number] | null>(
-        (acc, r) => (acc && acc.score <= r.score ? acc : r),
-        null,
-      );
-    return {
-      userId,
+    await recordGame(tx, {
       tournamentId,
-      ...line,
-      bestRivalryId: best?.id ?? null,
-      worstRivalryId: worst?.id ?? null,
-    };
-  });
-  if (statRows.length > 0) await tx.insert(stats).values(statRows);
+      date: new Date(now.getTime() - demo.hoursAgo * 3_600_000),
+      participants: [
+        ...demo.winners.map((u) => ({ userId: requireId(userIds, u), result: 'WIN' as const })),
+        ...demo.losers.map((u) => ({ userId: requireId(userIds, u), result: 'LOSS' as const })),
+      ],
+    });
+  }
 }
 
 export interface SeedSummary {
