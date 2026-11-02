@@ -30,10 +30,16 @@ npm install
 cp .env.example .env                       # then generate the three secrets (see below)
 cp apps/mobile/.env.example apps/mobile/.env
 docker compose up -d                       # db + api; migrations run on api boot
-curl localhost:3100/health                 # {"status":"ok","database":"up"}
-npm run seed -w apps/backend               # idempotent demo data
+i=0; until curl -sf localhost:3100/health; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "API not healthy after 60 s; run: docker compose logs api" >&2; break; fi; sleep 1; done; echo
+[ "$i" -lt 60 ] && npm run seed -w apps/backend   # idempotent demo data, only once the api is up
 cd apps/mobile && CI=true npx expo start --port 8081
 ```
+
+The wait line polls `/health` once a second for up to 60 seconds and prints
+`{"status":"ok","database":"up"}` when the api is ready. The api applies migrations before it
+answers, so seeding earlier can fail with "relation does not exist". If the wait gives up it prints
+`API not healthy after 60 s` and the seed line does nothing; check `docker compose logs api`, fix
+the cause, and run both lines again.
 
 Open http://localhost:8081, then use **DEV SIGN-IN** (for example `dev-alex`) to see the seeded
 feed. The first web compile takes 1-3 minutes.
@@ -54,12 +60,12 @@ leaves `EXPO_PUBLIC_DEV_AUTH` blank.
 ```sh
 docker compose down -v      # removes the containers and the sharkulator_pgdata volume
 docker compose up -d        # fresh db; the api applies every migration on boot
-npm run seed -w apps/backend
-curl localhost:3100/health
+i=0; until curl -sf localhost:3100/health; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "API not healthy after 60 s; run: docker compose logs api" >&2; break; fi; sleep 1; done; echo
+[ "$i" -lt 60 ] && npm run seed -w apps/backend
 ```
 
-The api usually answers `/health` within about 10 seconds; a few `curl` failures right after
-`up` are normal while it boots.
+The api usually answers `/health` within about 10 seconds. The wait line is the same bounded
+readiness check as in the quick start: never seed before it prints the healthy response.
 
 ## Day-to-day commands
 
@@ -142,7 +148,10 @@ app shows a sign-in error; dev sign-in keeps working.
 ## Troubleshooting
 
 - **`/health` fails right after `docker compose up -d`**: the api is still applying migrations.
-  Retry for about 10 seconds. If it keeps failing, check `docker compose logs api`.
+  Use the wait line from the quick start (up to 60 seconds). If it gives up, check
+  `docker compose logs api`.
+- **Seed fails with "relation ... does not exist"**: it ran before the api finished migrating.
+  Run the wait line, then seed again.
 - **A backend change is not picked up** (for example a new route returns 404): `tsx watch`
   sometimes misses bind-mount changes on macOS. Run `docker compose restart api`.
 - **`.env` change ignored by the api**: recreate it with `docker compose up -d --force-recreate api`.
@@ -160,4 +169,4 @@ app shows a sign-in error; dev sign-in keeps working.
 - **Phone shows network errors**: `EXPO_PUBLIC_API_URL` still points at `localhost`. See
   [Expo Go on a device](apps/mobile/README.md#expo-go-on-a-physical-device).
 - **Backend tests fail to connect**: start the database first with `docker compose up -d db`.
-- **Fresh start**: `docker compose down -v`, then follow the quick start again.
+- **Fresh start**: follow [Starting over from an empty database](#starting-over-from-an-empty-database).

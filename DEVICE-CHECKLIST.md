@@ -18,9 +18,14 @@ Never paste secrets, tokens, or `.env` contents into chat or screenshots.
 
    ```sh
    docker compose up -d
-   curl -s localhost:3100/health        # expect {"status":"ok","database":"up"}
-   npm run seed -w apps/backend         # idempotent
+   i=0; until curl -sf localhost:3100/health; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "API not healthy after 60 s; run: docker compose logs api" >&2; break; fi; sleep 1; done; echo
+   [ "$i" -lt 60 ] && npm run seed -w apps/backend   # idempotent; runs only once the api is up
    ```
+
+   The second line waits up to 60 seconds for `/health` and prints
+   `{"status":"ok","database":"up"}` when the api is ready (it applies migrations first). If it
+   prints `API not healthy after 60 s` instead, the seed is skipped: check
+   `docker compose logs api` and run both lines again.
 
 2. Check `apps/mobile/.env`: `EXPO_PUBLIC_DEV_AUTH` must equal `DEV_AUTH_SECRET` from the root
    `.env` (this enables **DEV SIGN-IN**). Without printing either value:
@@ -67,8 +72,10 @@ Prerequisites:
 
    ```sh
    docker compose up -d --force-recreate api
-   curl -s localhost:3100/health
+   i=0; until curl -sf localhost:3100/health; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "API not healthy after 60 s; run: docker compose logs api" >&2; break; fi; sleep 1; done; echo
    ```
+
+   Continue once it prints `{"status":"ok","database":"up"}`.
 
 Steps:
 
@@ -106,38 +113,69 @@ the iPhone.
 
 Steps:
 
-1. Note the starting state, so the change is visible afterwards:
+1. Record the starting state, so the change is visible afterwards. The commands mint a dev token
+   in a shell variable and never print it:
 
    ```sh
-   curl -s "localhost:3100/stats?userName=dev-sam&tournamentName=officebabyfoot" \
-     -H "authorization: Bearer $(curl -s -X POST localhost:3100/auth/dev-token -H 'content-type: application/json' -H "x-dev-auth: $(grep '^DEV_AUTH_SECRET=' .env | cut -d= -f2)" -d '{"username":"dev-sam"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')" \
+   TOKEN=$(curl -s -X POST localhost:3100/auth/dev-token -H 'content-type: application/json' -H "x-dev-auth: $(grep '^DEV_AUTH_SECRET=' .env | cut -d= -f2)" -d '{"username":"dev-sam"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
+   curl -s "localhost:3100/stats?userName=dev-sam&tournamentName=officebabyfoot" -H "authorization: Bearer $TOKEN" \
      | node -pe 'const s = JSON.parse(require("fs").readFileSync(0)); JSON.stringify({score: s.score, gameCount: s.gameCount})'
+   for pair in dev-alex:dev-sam dev-sam:dev-alex; do
+     curl -s "localhost:3100/rivalry?userName=${pair%%:*}&rivalName=${pair#*:}&tournamentName=officebabyfoot" -H "authorization: Bearer $TOKEN" \
+       | node -pe 'const r = JSON.parse(require("fs").readFileSync(0)); r.user ? JSON.stringify({user: r.user.username, rival: r.rival.username, score: r.score, gameCount: r.gameCount, winCount: r.winCount, loseCount: r.loseCount}) : JSON.stringify(r)'
+   done
    ```
 
-   Write down `score` and `gameCount` (no tokens are printed).
+   Write down dev-sam's `score` and `gameCount` (first line) and both rivalry lines:
+   `dev-alex → dev-sam` and `dev-sam → dev-alex`. The two rivalry `score` values are opposites
+   (for example `42` and `-42`) and share the same `gameCount`. If the token expires (15 minutes),
+   run the `TOKEN=` line again.
 
 2. **Mac browser** (http://localhost:8081): sign out if needed, then **DEV SIGN-IN** as `dev-alex`.
 3. **iPhone (Expo Go)**: **DEV SIGN-IN** as `dev-sam`. Open the **Feed** tab and leave it there
    for a moment so its data loads.
-4. Mac: open **Add Game** → **WON**. Press **EDIT** and pick **Office Babyfoot**. A QR code
+4. Baseline rivalry on both devices. On each device, in **YOUR HISTORY** on the **Feed** tab, tap
+   the most recent Office Babyfoot game between dev-alex and dev-sam to expand it. Its **RIVALRY**
+   section shows the signed-in user on the left: on the Mac `dev-alex` vs `dev-sam`, on the iPhone
+   `dev-sam` vs `dev-alex`. Note **Total Points** and **Game Count** on each device. They match the
+   step 1 rivalry lines for that direction (the Mac's left Total Points is dev-alex's `score`, the
+   iPhone's left Total Points is dev-sam's `score`). Tap the row again to collapse it.
+5. Mac: open **Add Game** → **WON**. Press **EDIT** and pick **Office Babyfoot**. A QR code
    appears.
-5. iPhone: open **Add Game** → **LOST**. Press **EDIT** and pick **Office Babyfoot** (both sides
+6. iPhone: open **Add Game** → **LOST**. Press **EDIT** and pick **Office Babyfoot** (both sides
    must use the same tournament, or the scan is rejected). Allow camera access when asked.
-6. iPhone: point the camera at the QR code on the Mac screen. `dev-alex` appears on the winner
+7. iPhone: point the camera at the QR code on the Mac screen. `dev-alex` appears on the winner
    side and `dev-sam` on the loser side.
-7. iPhone: tap **All good**. The dialog says "All Good ?" and "Games can't be deleted or edited
+8. iPhone: tap **All good**. The dialog says "All Good ?" and "Games can't be deleted or edited
    once submitted." Tap **Submit**.
-8. iPhone: the **RESULTS** screen shows the game with the Elo change. Tap **Back to feed**: the
-   new game is at the top of **YOUR HISTORY** and the Office Babyfoot card shows the new score.
-9. Mac: tap the **Feed** tab (or reload the page). The new game appears at the top of dev-alex's
-   history with the updated Office Babyfoot score.
+9. iPhone: the **RESULTS** screen shows the game with the Elo change (call it `x` points). Tap
+   **Back to feed**: the new game is at the top of **YOUR HISTORY** and the Office Babyfoot card
+   shows the new score. Tap the new game to expand its **RIVALRY** section (`dev-sam` vs
+   `dev-alex`): **Game Count** is one higher than in step 4 and the left **Total Points** is
+   `x` lower; the right column shows the same number with the opposite sign.
+10. Mac: the browser is still on the **Winner** screen, which has no tab bar. Open the Feed in one
+    of two ways:
+    - press the browser's **Back** button once to return to the **Add Game** tab (the tab bar is
+      visible again), then click the **Feed** tab; or
+    - type http://localhost:8081/feed in the address bar and press Enter.
+
+    Do not just reload: a reload stays on the Winner screen.
+
+    The new game appears at the top of dev-alex's **YOUR HISTORY** with the updated Office
+    Babyfoot score. Click the new game to expand its **RIVALRY** section (`dev-alex` vs
+    `dev-sam`): **Game Count** is one higher than in step 4 and the left **Total Points** is `x`
+    higher; the right column shows the same number with the opposite sign.
 
 Evidence to capture:
 
-- Your confirmation of steps 6-9 (optional screenshots of the iPhone result screen and both
-  feeds).
-- The changed stats (re-run the step 1 command: `gameCount` is one higher and `score` lower),
-  plus the latest game rows:
+- Your confirmation of steps 7-10, including the step 4 baseline and the step 9 and 10 RIVALRY
+  values on each device (optional screenshots of the iPhone result screen, both feeds, and both
+  expanded RIVALRY sections).
+- Re-run the step 1 commands (refresh `TOKEN` if more than 15 minutes have passed). Compared with
+  the baseline: dev-sam's `gameCount` is one higher and `score` lower; in both rivalry lines
+  `gameCount` is one higher; `dev-alex → dev-sam` has `score` up by `x` and `winCount` up by
+  one; `dev-sam → dev-alex` has `score` down by `x` and `loseCount` up by one; the two scores
+  are still opposites. Then the latest game rows:
 
   ```sh
   docker compose exec -T db psql -U sharkulator -d sharkulator_dev -c \
@@ -145,6 +183,8 @@ Evidence to capture:
   ```
 
   Expect two rows from a moment ago: `dev-alex WIN +x` and `dev-sam LOSS -x`.
+
+- Run `unset TOKEN` when you are done.
 
 If the scan does nothing: check that both screens show **Office Babyfoot**, raise the Mac screen
 brightness, and hold the phone 20-40 cm away. Non-production builds also print the payload under
@@ -187,6 +227,14 @@ Evidence to capture:
 
 - Set `EXPO_PUBLIC_API_URL` back to `http://localhost:3100` in `apps/mobile/.env` if you changed
   it, and stop the Expo dev server (Ctrl+C).
-- The games created here stay in the dev database. To start over: `docker compose down -v`,
-  `docker compose up -d`, `npm run seed -w apps/backend`.
+- The games created here stay in the dev database. To start over, wait for the api before
+  seeding:
+
+  ```sh
+  docker compose down -v
+  docker compose up -d
+  i=0; until curl -sf localhost:3100/health; do i=$((i+1)); if [ "$i" -ge 60 ]; then echo "API not healthy after 60 s; run: docker compose logs api" >&2; break; fi; sleep 1; done; echo
+  [ "$i" -lt 60 ] && npm run seed -w apps/backend
+  ```
+
 - `GOOGLE_CLIENT_SECRET` can stay in the root `.env` (it is gitignored); remove it if you prefer.
