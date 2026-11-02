@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { CameraView, useCameraPermissions, type PermissionResponse } from 'expo-camera';
 import { router } from 'expo-router';
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
+import { Platform } from 'react-native';
 
 import * as endpoints from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
@@ -124,6 +125,10 @@ beforeEach(() => {
   jest.mocked(CameraView.isAvailableAsync).mockResolvedValue(true);
   mockedPermissions.mockReturnValue([permission({}), requestPermission, jest.fn()]);
   api.getUserGames.mockResolvedValue([game('g-latest')]);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 describe('GameChoiceScreen', () => {
@@ -295,7 +300,36 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('qr-svg')).toBeNull();
   });
 
-  it('shows a camera-unavailable state when the device has no camera', async () => {
+  it('requests permission and mounts the camera on iOS without the web-only availability probe', async () => {
+    expect(Platform.OS).toBe('ios');
+    jest
+      .mocked(CameraView.isAvailableAsync)
+      .mockRejectedValue(
+        new Error('The method or property expo-camera.isAvailableAsync is not available on ios'),
+      );
+    mockedPermissions.mockImplementation(() => {
+      const [current, setCurrent] = useState(
+        permission({ status: 'undetermined' as PermissionResponse['status'], granted: false }),
+      );
+      const request = async () => {
+        requestPermission();
+        const granted = permission({});
+        setCurrent(granted);
+        return granted;
+      };
+      return [current, request, jest.fn()];
+    });
+
+    await renderScanner();
+    await waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1));
+    expect(await screen.findByTestId('scanner-camera')).toBeTruthy();
+    expect(mockedCamera).toHaveBeenCalled();
+    expect(CameraView.isAvailableAsync).not.toHaveBeenCalled();
+    expect(screen.queryByText(CAMERA_UNAVAILABLE_TEXT)).toBeNull();
+  });
+
+  it('shows a camera-unavailable state when the web browser has no camera', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
     jest.mocked(CameraView.isAvailableAsync).mockResolvedValue(false);
     await renderScanner();
     expect(await screen.findByText(CAMERA_UNAVAILABLE_TEXT)).toBeTruthy();
@@ -304,6 +338,7 @@ describe('ScannerScreen', () => {
   });
 
   it('shows a permission-denied state with a retry', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
     mockedPermissions.mockReturnValue([
       permission({ status: 'denied' as PermissionResponse['status'], granted: false }),
       requestPermission,

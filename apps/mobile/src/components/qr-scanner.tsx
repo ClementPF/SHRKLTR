@@ -11,8 +11,12 @@ export const CAMERA_DENIED_TEXT = 'No access to camera';
 export const CAMERA_PROMPT_TEXT = "Camera access is needed to scan the winner's QR code.";
 
 function useCameraAvailable(): boolean | null {
-  const [available, setAvailable] = useState<boolean | null>(null);
+  // expo-camera only implements isAvailableAsync on web (it rejects on iOS/Android); native
+  // availability is left to the permission request and CameraView's own mount handling.
+  const probes = Platform.OS === 'web';
+  const [available, setAvailable] = useState<boolean | null>(probes ? null : true);
   useEffect(() => {
+    if (!probes) return;
     let live = true;
     CameraView.isAvailableAsync().then(
       (value) => live && setAvailable(value),
@@ -21,7 +25,7 @@ function useCameraAvailable(): boolean | null {
     return () => {
       live = false;
     };
-  }, []);
+  }, [probes]);
   return available;
 }
 

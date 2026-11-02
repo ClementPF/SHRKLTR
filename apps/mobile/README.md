@@ -129,7 +129,8 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
   Winners open `/game-form/winner`, a QR code (react-native-qrcode-svg, 220px) of
   `{username, tournamentName, tournament: {name}, result: "WIN"}`. Losers open
   `/game-form/scanner`: an expo-camera `CameraView` scanning QR codes, with camera-unavailable
-  and permission-denied states (headless browsers show one of these) and a Get Scanned toggle that
+  and permission-denied states (headless browsers show one of these; the availability probe runs on
+  web only, native goes straight to the permission request) and a Get Scanned toggle that
   shows the loser's own `LOSS` code for team mates. Each scan is parsed and validated by the pure
   helpers in `src/lib/qr.ts` (required keys, same tournament, username dedupe, outcomes seeded with
   the scanner's own LOSS); the zustand draft (`store.ts`) holds the tournament and scanned outcomes.
