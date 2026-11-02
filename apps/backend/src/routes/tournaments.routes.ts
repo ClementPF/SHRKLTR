@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from '@fastify/type-provider-zod';
 import { ApiError, errorResponseSchema } from '../lib/errors.js';
+import { pageQuerySchema, parsePage } from '../lib/pagination.js';
 import {
   gameDtoSchema,
+  rivalryStatsDtoSchema,
   statsDtoSchema,
   toGameDto,
+  toRivalryStatsDto,
   toStatsDto,
   toTournamentDto,
   toUserDto,
@@ -20,7 +23,9 @@ import {
   updateTournament,
 } from '../services/tournament.service.js';
 import { submitGame } from '../services/game.service.js';
-import { listTournamentStats } from '../services/stats.service.js';
+import { listTournamentGames } from '../services/game-history.service.js';
+import { sendPostgamePushes } from '../services/postgame.service.js';
+import { listRivalries, listTournamentStats } from '../services/stats-query.service.js';
 
 // Trimming before min(1) guarantees a non-empty slug once whitespace is stripped.
 const displayNameSchema = z.string().trim().min(1).max(100);
@@ -59,6 +64,11 @@ const nameParamsSchema = z.object({ name: z.string().min(1) });
 
 const listQuerySchema = z.object({
   sport: z.string().optional().describe('Sport name filter; empty or absent returns all'),
+});
+
+const rivalriesQuerySchema = z.object({
+  userName: z.string().min(1).optional().describe('Only rivalries of this user'),
+  rivalName: z.string().min(1).optional().describe('Only rivalries against this user'),
 });
 
 const security = [{ bearerAuth: [] }];
@@ -209,6 +219,54 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
     async (request) => (await listTournamentStats(app.db, request.params.name)).map(toStatsDto),
   );
 
+  app.get(
+    '/tournaments/:name/rivalries',
+    {
+      schema: {
+        tags: ['stats'],
+        summary: 'Directional rivalries of the tournament, best score first',
+        security,
+        params: nameParamsSchema,
+        querystring: rivalriesQuerySchema,
+        response: {
+          200: z.array(rivalryStatsDtoSchema),
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) =>
+      (await listRivalries(app.db, { ...request.query, tournamentName: request.params.name })).map(
+        toRivalryStatsDto,
+      ),
+  );
+
+  app.get(
+    '/tournaments/:name/games',
+    {
+      schema: {
+        tags: ['games'],
+        summary: 'Games of the tournament, newest first',
+        description:
+          'Paginated with zero-based page (default 0) and pageSize (default 20, max 100).',
+        security,
+        params: nameParamsSchema,
+        querystring: pageQuerySchema,
+        response: {
+          200: z.array(gameDtoSchema),
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) =>
+      (await listTournamentGames(app.db, request.params.name, parsePage(request.query))).map(
+        toGameDto,
+      ),
+  );
+
   app.post(
     '/tournaments/:name/games',
     {
@@ -217,7 +275,8 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         summary: 'Record a game (submitted by a losing player)',
         description:
           'Needs as many winners as losers, no repeated player and no TIE. The caller must be ' +
-          'one of the losers. Date and outcome scores are computed by the server.',
+          'one of the losers. Date and outcome scores are computed by the server. Winners with ' +
+          'a push token are notified; push failures never fail the submission.',
         security,
         params: nameParamsSchema,
         body: submitGameSchema,
@@ -236,6 +295,7 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         callerId: request.user.id,
         outcomes: request.body.outcomes,
       });
+      await sendPostgamePushes({ pushUrl: app.config.PUSH_URL, log: request.log }, game);
       return reply.code(201).send(toGameDto(game));
     },
   );

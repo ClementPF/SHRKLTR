@@ -62,6 +62,9 @@ The api container bind-mounts `apps/backend` and restarts on file changes. Stop 
   `DATABASE_URL=postgres://sharkulator:sharkulator@localhost:5433/sharkulator_dev npm run db:generate -w apps/backend`
   and commit the new folder under `apps/backend/drizzle/`.
 - The api container applies pending migrations on every boot (`docker/api/entrypoint.sh`).
+  The server itself also runs the drizzle migrator against `apps/backend/drizzle` before
+  listening (`src/db/migrate.ts`), so the production image (`docker build --target prod`)
+  migrates its database on start. Already-applied migrations are skipped.
 - `npm run seed -w apps/backend` loads idempotent demo data into `sharkulator_dev` (host default
   `localhost:5433`, override with `DATABASE_URL`): users `dev-alex`, `dev-sam`, `dev-jordan`,
   `dev-taylor`, `dev-morgan`, three sports, three tournaments with games, stats, and rivalries.

@@ -1,7 +1,14 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from '@fastify/type-provider-zod';
 import { ApiError, errorResponseSchema } from '../lib/errors.js';
+import { pageQuerySchema, parsePage } from '../lib/pagination.js';
 import {
+  gameDtoSchema,
+  rivalryStatsDtoSchema,
+  statsDtoSchema,
+  toGameDto,
+  toRivalryStatsDto,
+  toStatsDto,
   toTournamentDto,
   toUserDto,
   tournamentDtoSchema,
@@ -16,6 +23,8 @@ import {
   updateUserProfile,
 } from '../services/user.service.js';
 import { challengeUser } from '../services/challenge.service.js';
+import { listUserGames } from '../services/game-history.service.js';
+import { listRivalries, listUserStats } from '../services/stats-query.service.js';
 
 // Strict: username, googleSub or any other unknown key is rejected with 400 instead of being
 // silently dropped, so clients learn those fields are immutable.
@@ -41,6 +50,10 @@ const challengeSchema = z
   .meta({ id: 'ChallengeRequest' });
 
 const usernameParamsSchema = z.object({ username: z.string().min(1) });
+
+const tournamentFilter = z.string().min(1).optional().describe('Only this tournament (by name)');
+
+const userGamesQuerySchema = pageQuerySchema.extend({ tournamentName: tournamentFilter });
 
 const security = [{ bearerAuth: [] }];
 
@@ -161,6 +174,82 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       const user = await findUserByUsername(app.db, request.params.username);
       if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
       return (await listTournamentsForUser(app.db, user.id)).map(toTournamentDto);
+    },
+  );
+
+  app.get(
+    '/users/:username/stats',
+    {
+      schema: {
+        tags: ['stats'],
+        summary: 'Stats of the user in every tournament played',
+        security,
+        params: usernameParamsSchema,
+        response: {
+          200: z.array(statsDtoSchema),
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => (await listUserStats(app.db, request.params.username)).map(toStatsDto),
+  );
+
+  app.get(
+    '/users/:username/rivalries',
+    {
+      schema: {
+        tags: ['stats'],
+        summary: 'Rivalries of the user, best score first',
+        security,
+        params: usernameParamsSchema,
+        querystring: z.object({ tournamentName: tournamentFilter }),
+        response: {
+          200: z.array(rivalryStatsDtoSchema),
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) =>
+      (
+        await listRivalries(app.db, {
+          userName: request.params.username,
+          tournamentName: request.query.tournamentName,
+        })
+      ).map(toRivalryStatsDto),
+  );
+
+  app.get(
+    '/users/:username/games',
+    {
+      schema: {
+        tags: ['games'],
+        summary: 'Games the user played, newest first',
+        description:
+          'Paginated with zero-based page (default 0) and pageSize (default 20, max 100). ' +
+          'An unknown tournamentName filter returns 404.',
+        security,
+        params: usernameParamsSchema,
+        querystring: userGamesQuerySchema,
+        response: {
+          200: z.array(gameDtoSchema),
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
+    async (request) => {
+      const { tournamentName, ...page } = request.query;
+      const found = await listUserGames(
+        app.db,
+        request.params.username,
+        { tournamentName },
+        parsePage(page),
+      );
+      return found.map(toGameDto);
     },
   );
 

@@ -1,7 +1,9 @@
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { runMigrations } from './db/migrate.js';
 
 const config = loadConfig();
+await runMigrations(config.DATABASE_URL);
 const app = await buildApp({ config });
 
 let shuttingDown = false;

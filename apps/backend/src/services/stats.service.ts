@@ -1,9 +1,7 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
-import type { Database, Transaction } from '../db/client.js';
-import { rivalryStats, stats, users } from '../db/schema.js';
+import { and, asc, eq, inArray } from 'drizzle-orm';
+import type { Transaction } from '../db/client.js';
+import { rivalryStats, stats } from '../db/schema.js';
 import { DEFAULT_RATING } from '../elo/elo.js';
-import { ApiError } from '../lib/errors.js';
-import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
 
 export type DecisiveResult = 'WIN' | 'LOSS';
 
@@ -185,65 +183,4 @@ export async function refreshRivalrySelection(
   if (bestRivalryId !== row.bestRivalryId || worstRivalryId !== row.worstRivalryId) {
     await tx.update(stats).set({ bestRivalryId, worstRivalryId }).where(eq(stats.id, row.id));
   }
-}
-
-type StatsRow = typeof stats.$inferSelect;
-type RivalryRow = typeof rivalryStats.$inferSelect;
-type UserRow = typeof users.$inferSelect;
-
-export interface RivalryWithRelations {
-  rivalry: RivalryRow;
-  user: UserRow;
-  rival: UserRow;
-  tournament: TournamentWithRelations;
-}
-
-export interface StatsWithRelations {
-  stats: StatsRow;
-  user: UserRow;
-  tournament: TournamentWithRelations;
-  bestRivalry: RivalryWithRelations | null;
-  worstRivalry: RivalryWithRelations | null;
-}
-
-/** Tournament leaderboard: stats rows sorted by score, highest first. */
-export async function listTournamentStats(
-  db: Database,
-  tournamentName: string,
-): Promise<StatsWithRelations[]> {
-  const tournament = await findTournamentByName(db, tournamentName);
-  if (!tournament) throw ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
-
-  const rows = await db
-    .select({ stats, user: users })
-    .from(stats)
-    .innerJoin(users, eq(stats.userId, users.id))
-    .where(eq(stats.tournamentId, tournament.tournament.id))
-    .orderBy(desc(stats.score), asc(users.username));
-
-  const rivalryIds = rows.flatMap((r) =>
-    [r.stats.bestRivalryId, r.stats.worstRivalryId].filter((id): id is string => id !== null),
-  );
-  const rivalryRows =
-    rivalryIds.length === 0
-      ? []
-      : await db.select().from(rivalryStats).where(inArray(rivalryStats.id, rivalryIds));
-  const userIds = [...new Set(rivalryRows.flatMap((r) => [r.userId, r.rivalId]))];
-  const rivalryUsers =
-    userIds.length === 0 ? [] : await db.select().from(users).where(inArray(users.id, userIds));
-  const userById = new Map(rivalryUsers.map((u) => [u.id, u]));
-  const rivalryById = new Map<string, RivalryWithRelations>();
-  for (const rivalry of rivalryRows) {
-    const user = userById.get(rivalry.userId);
-    const rival = userById.get(rivalry.rivalId);
-    if (user && rival) rivalryById.set(rivalry.id, { rivalry, user, rival, tournament });
-  }
-
-  return rows.map((r) => ({
-    stats: r.stats,
-    user: r.user,
-    tournament,
-    bestRivalry: (r.stats.bestRivalryId && rivalryById.get(r.stats.bestRivalryId)) || null,
-    worstRivalry: (r.stats.worstRivalryId && rivalryById.get(r.stats.worstRivalryId)) || null,
-  }));
 }

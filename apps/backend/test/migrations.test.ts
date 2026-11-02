@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Database } from '../src/db/client.js';
+import { runMigrations } from '../src/db/migrate.js';
 import { TEST_DATABASE_URL } from './test-env.js';
 
 const migrationsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../drizzle');
@@ -82,5 +83,59 @@ describe('committed migrations', () => {
       'longuest_tie_streak',
       'longuest_win_streak',
     ]);
+  });
+});
+
+describe('boot-time migrator (runMigrations)', () => {
+  const scratchName = `sharkulator_migrate_${process.pid}`;
+  const scratchUrl = (() => {
+    const url = new URL(TEST_DATABASE_URL);
+    url.pathname = `/${scratchName}`;
+    return url.toString();
+  })();
+  let admin: Database;
+
+  beforeAll(async () => {
+    admin = createDb(TEST_DATABASE_URL);
+    await admin.execute(sql.raw(`DROP DATABASE IF EXISTS "${scratchName}"`));
+    await admin.execute(sql.raw(`CREATE DATABASE "${scratchName}"`));
+  });
+
+  afterAll(async () => {
+    await admin.execute(sql.raw(`DROP DATABASE IF EXISTS "${scratchName}" WITH (FORCE)`));
+    await admin.$client.end({ timeout: 5 });
+  });
+
+  const journal = async (url: string) => {
+    const db = createDb(url);
+    try {
+      const rows = await db.execute<{ name: string }>(
+        sql`select name from drizzle.__drizzle_migrations order by id`,
+      );
+      const tables = await db.execute<{ tablename: string }>(
+        sql`select tablename from pg_tables where schemaname = 'public'`,
+      );
+      return { names: rows.map((r) => r.name), tables: tables.length };
+    } finally {
+      await db.$client.end({ timeout: 5 });
+    }
+  };
+
+  it('migrates a fresh database from the committed folder', async () => {
+    await runMigrations(scratchUrl);
+    const { names, tables } = await journal(scratchUrl);
+    expect(names).toEqual(migrationFolders.map((d) => d.name).sort());
+    expect(tables).toBe(8);
+  });
+
+  it('is a no-op when every migration is already applied', async () => {
+    await runMigrations(scratchUrl);
+    expect((await journal(scratchUrl)).names).toHaveLength(migrationFolders.length);
+  });
+
+  it('accepts a database migrated by drizzle-kit migrate', async () => {
+    const before = await journal(TEST_DATABASE_URL);
+    await runMigrations(TEST_DATABASE_URL);
+    expect(await journal(TEST_DATABASE_URL)).toEqual(before);
   });
 });
