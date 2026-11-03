@@ -1,0 +1,2079 @@
+{
+  "type": "base",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "d9c6ddba-20f0-4dca-9030-adab17b138b5",
+  "prevIds": [
+    "00000000-0000-0000-0000-000000000000"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "game_result"
+      ],
+      "writes": [
+        "s|enum|public.game_result",
+        "n|enum|public.game_result",
+        "e|enum|public.game_result",
+        "n|type|public.game_result"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "games"
+      ],
+      "writes": [
+        "s|tbl|public.games",
+        "n|tbl|public.games",
+        "e|tbl|public.games",
+        "n|rel|public.games",
+        "n|type|public.games",
+        "n|rel|public.games_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "outcomes"
+      ],
+      "writes": [
+        "s|tbl|public.outcomes",
+        "n|tbl|public.outcomes",
+        "e|tbl|public.outcomes",
+        "n|rel|public.outcomes",
+        "n|type|public.outcomes",
+        "n|rel|public.outcomes_pkey"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.game_result"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "refresh_tokens"
+      ],
+      "writes": [
+        "s|tbl|public.refresh_tokens",
+        "n|tbl|public.refresh_tokens",
+        "e|tbl|public.refresh_tokens",
+        "n|rel|public.refresh_tokens",
+        "n|type|public.refresh_tokens",
+        "n|rel|public.refresh_tokens_pkey",
+        "n|rel|public.refresh_tokens_jti_unique"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "rivalry_stats"
+      ],
+      "writes": [
+        "s|tbl|public.rivalry_stats",
+        "n|tbl|public.rivalry_stats",
+        "e|tbl|public.rivalry_stats",
+        "n|rel|public.rivalry_stats",
+        "n|type|public.rivalry_stats",
+        "n|rel|public.rivalry_stats_pkey",
+        "n|rel|public.rivalry_stats_user_rival_tournament_unique"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "sports"
+      ],
+      "writes": [
+        "s|tbl|public.sports",
+        "n|tbl|public.sports",
+        "e|tbl|public.sports",
+        "n|rel|public.sports",
+        "n|type|public.sports",
+        "n|rel|public.sports_pkey",
+        "n|rel|public.sports_name_key"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "stats"
+      ],
+      "writes": [
+        "s|tbl|public.stats",
+        "n|tbl|public.stats",
+        "e|tbl|public.stats",
+        "n|rel|public.stats",
+        "n|type|public.stats",
+        "n|rel|public.stats_pkey",
+        "n|rel|public.stats_user_tournament_unique"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "tournaments"
+      ],
+      "writes": [
+        "s|tbl|public.tournaments",
+        "n|tbl|public.tournaments",
+        "e|tbl|public.tournaments",
+        "n|rel|public.tournaments",
+        "n|type|public.tournaments",
+        "n|rel|public.tournaments_pkey",
+        "n|rel|public.tournaments_name_key"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "users"
+      ],
+      "writes": [
+        "s|tbl|public.users",
+        "n|tbl|public.users",
+        "e|tbl|public.users",
+        "n|rel|public.users",
+        "n|type|public.users",
+        "n|rel|public.users_pkey",
+        "n|rel|public.users_google_sub_key",
+        "n|rel|public.users_username_key"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "games",
+        "games_tournament_date_idx"
+      ],
+      "writes": [
+        "s|idx|public.games_tournament_date_idx",
+        "n|idx|public.games_tournament_date_idx",
+        "e|idx|public.games_tournament_date_idx",
+        "n|rel|public.games_tournament_date_idx"
+      ],
+      "reads": [
+        "n|tbl|public.games",
+        "n|sch|public",
+        "n|col|public.games.tournament_id",
+        "n|col|public.games.date"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "outcomes",
+        "outcomes_game_idx"
+      ],
+      "writes": [
+        "s|idx|public.outcomes_game_idx",
+        "n|idx|public.outcomes_game_idx",
+        "e|idx|public.outcomes_game_idx",
+        "n|rel|public.outcomes_game_idx"
+      ],
+      "reads": [
+        "n|tbl|public.outcomes",
+        "n|sch|public",
+        "n|col|public.outcomes.game_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "outcomes",
+        "outcomes_user_idx"
+      ],
+      "writes": [
+        "s|idx|public.outcomes_user_idx",
+        "n|idx|public.outcomes_user_idx",
+        "e|idx|public.outcomes_user_idx",
+        "n|rel|public.outcomes_user_idx"
+      ],
+      "reads": [
+        "n|tbl|public.outcomes",
+        "n|sch|public",
+        "n|col|public.outcomes.user_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "refresh_tokens",
+        "refresh_tokens_family_idx"
+      ],
+      "writes": [
+        "s|idx|public.refresh_tokens_family_idx",
+        "n|idx|public.refresh_tokens_family_idx",
+        "e|idx|public.refresh_tokens_family_idx",
+        "n|rel|public.refresh_tokens_family_idx"
+      ],
+      "reads": [
+        "n|tbl|public.refresh_tokens",
+        "n|sch|public",
+        "n|col|public.refresh_tokens.family_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "rivalry_stats",
+        "rivalry_stats_tournament_idx"
+      ],
+      "writes": [
+        "s|idx|public.rivalry_stats_tournament_idx",
+        "n|idx|public.rivalry_stats_tournament_idx",
+        "e|idx|public.rivalry_stats_tournament_idx",
+        "n|rel|public.rivalry_stats_tournament_idx"
+      ],
+      "reads": [
+        "n|tbl|public.rivalry_stats",
+        "n|sch|public",
+        "n|col|public.rivalry_stats.tournament_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "stats",
+        "stats_tournament_idx"
+      ],
+      "writes": [
+        "s|idx|public.stats_tournament_idx",
+        "n|idx|public.stats_tournament_idx",
+        "e|idx|public.stats_tournament_idx",
+        "n|rel|public.stats_tournament_idx"
+      ],
+      "reads": [
+        "n|tbl|public.stats",
+        "n|sch|public",
+        "n|col|public.stats.tournament_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "tournaments",
+        "tournaments_sport_idx"
+      ],
+      "writes": [
+        "s|idx|public.tournaments_sport_idx",
+        "n|idx|public.tournaments_sport_idx",
+        "e|idx|public.tournaments_sport_idx",
+        "n|rel|public.tournaments_sport_idx"
+      ],
+      "reads": [
+        "n|tbl|public.tournaments",
+        "n|sch|public",
+        "n|col|public.tournaments.sport_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "games"
+      ],
+      "writes": [
+        "s|fk|public.games.games_tournament_id_tournaments_id_fkey",
+        "n|fk|public.games.games_tournament_id_tournaments_id_fkey",
+        "e|fk|public.games.games_tournament_id_tournaments_id_fkey",
+        "n|con|public.games.games_tournament_id_tournaments_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.games",
+        "n|sch|public",
+        "n|tbl|public.tournaments",
+        "n|sch|public",
+        "n|col|public.games.tournament_id",
+        "n|col|public.tournaments.id",
+        "e|uniqueness|public.tournaments.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "outcomes"
+      ],
+      "writes": [
+        "s|fk|public.outcomes.outcomes_game_id_games_id_fkey",
+        "n|fk|public.outcomes.outcomes_game_id_games_id_fkey",
+        "e|fk|public.outcomes.outcomes_game_id_games_id_fkey",
+        "n|con|public.outcomes.outcomes_game_id_games_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.outcomes",
+        "n|sch|public",
+        "n|tbl|public.games",
+        "n|sch|public",
+        "n|col|public.outcomes.game_id",
+        "n|col|public.games.id",
+        "e|uniqueness|public.games.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "outcomes"
+      ],
+      "writes": [
+        "s|fk|public.outcomes.outcomes_user_id_users_id_fkey",
+        "n|fk|public.outcomes.outcomes_user_id_users_id_fkey",
+        "e|fk|public.outcomes.outcomes_user_id_users_id_fkey",
+        "n|con|public.outcomes.outcomes_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.outcomes",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.outcomes.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "refresh_tokens"
+      ],
+      "writes": [
+        "s|fk|public.refresh_tokens.refresh_tokens_user_id_users_id_fkey",
+        "n|fk|public.refresh_tokens.refresh_tokens_user_id_users_id_fkey",
+        "e|fk|public.refresh_tokens.refresh_tokens_user_id_users_id_fkey",
+        "n|con|public.refresh_tokens.refresh_tokens_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.refresh_tokens",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.refresh_tokens.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "rivalry_stats"
+      ],
+      "writes": [
+        "s|fk|public.rivalry_stats.rivalry_stats_user_id_users_id_fkey",
+        "n|fk|public.rivalry_stats.rivalry_stats_user_id_users_id_fkey",
+        "e|fk|public.rivalry_stats.rivalry_stats_user_id_users_id_fkey",
+        "n|con|public.rivalry_stats.rivalry_stats_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.rivalry_stats",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.rivalry_stats.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "rivalry_stats"
+      ],
+      "writes": [
+        "s|fk|public.rivalry_stats.rivalry_stats_rival_id_users_id_fkey",
+        "n|fk|public.rivalry_stats.rivalry_stats_rival_id_users_id_fkey",
+        "e|fk|public.rivalry_stats.rivalry_stats_rival_id_users_id_fkey",
+        "n|con|public.rivalry_stats.rivalry_stats_rival_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.rivalry_stats",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.rivalry_stats.rival_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "rivalry_stats"
+      ],
+      "writes": [
+        "s|fk|public.rivalry_stats.rivalry_stats_tournament_id_tournaments_id_fkey",
+        "n|fk|public.rivalry_stats.rivalry_stats_tournament_id_tournaments_id_fkey",
+        "e|fk|public.rivalry_stats.rivalry_stats_tournament_id_tournaments_id_fkey",
+        "n|con|public.rivalry_stats.rivalry_stats_tournament_id_tournaments_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.rivalry_stats",
+        "n|sch|public",
+        "n|tbl|public.tournaments",
+        "n|sch|public",
+        "n|col|public.rivalry_stats.tournament_id",
+        "n|col|public.tournaments.id",
+        "e|uniqueness|public.tournaments.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "stats"
+      ],
+      "writes": [
+        "s|fk|public.stats.stats_user_id_users_id_fkey",
+        "n|fk|public.stats.stats_user_id_users_id_fkey",
+        "e|fk|public.stats.stats_user_id_users_id_fkey",
+        "n|con|public.stats.stats_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.stats",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.stats.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "stats"
+      ],
+      "writes": [
+        "s|fk|public.stats.stats_tournament_id_tournaments_id_fkey",
+        "n|fk|public.stats.stats_tournament_id_tournaments_id_fkey",
+        "e|fk|public.stats.stats_tournament_id_tournaments_id_fkey",
+        "n|con|public.stats.stats_tournament_id_tournaments_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.stats",
+        "n|sch|public",
+        "n|tbl|public.tournaments",
+        "n|sch|public",
+        "n|col|public.stats.tournament_id",
+        "n|col|public.tournaments.id",
+        "e|uniqueness|public.tournaments.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "tournaments"
+      ],
+      "writes": [
+        "s|fk|public.tournaments.tournaments_sport_id_sports_id_fkey",
+        "n|fk|public.tournaments.tournaments_sport_id_sports_id_fkey",
+        "e|fk|public.tournaments.tournaments_sport_id_sports_id_fkey",
+        "n|con|public.tournaments.tournaments_sport_id_sports_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.tournaments",
+        "n|sch|public",
+        "n|tbl|public.sports",
+        "n|sch|public",
+        "n|col|public.tournaments.sport_id",
+        "n|col|public.sports.id",
+        "e|uniqueness|public.sports.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "tournaments"
+      ],
+      "writes": [
+        "s|fk|public.tournaments.tournaments_owner_user_id_users_id_fkey",
+        "n|fk|public.tournaments.tournaments_owner_user_id_users_id_fkey",
+        "e|fk|public.tournaments.tournaments_owner_user_id_users_id_fkey",
+        "n|con|public.tournaments.tournaments_owner_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.tournaments",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.tournaments.owner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    }
+  ],
+  "ddl": [
+    {
+      "schema": "public",
+      "name": "games",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "outcomes",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "refresh_tokens",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "rivalry_stats",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "sports",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "stats",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "tournaments",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "users",
+      "isRlsEnabled": false,
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "name": "game_result",
+      "values": [
+        "WIN",
+        "TIE",
+        "LOSS"
+      ],
+      "entityType": "enums"
+    },
+    {
+      "schema": "public",
+      "table": "games",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "games",
+      "name": "tournament_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "games",
+      "name": "date",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "games",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "game_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "user_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "result",
+      "type": "game_result",
+      "typeSchema": "public",
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "score_value",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "user_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "family_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "jti",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "expires_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "revoked_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "user_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "rival_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "tournament_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "score",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "best_score",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "worst_score",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "game_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "win_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "lose_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "tie_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "win_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "lose_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "tie_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "longuest_win_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "longuest_lose_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "longuest_tie_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "sports",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "sports",
+      "name": "name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "user_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "tournament_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "score",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "best_score",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "worst_score",
+      "type": "double precision",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "game_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "win_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "lose_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "tie_count",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "win_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "lose_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "tie_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "longuest_win_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "longuest_lose_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "longuest_tie_streak",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "best_rivalry_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "worst_rivalry_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "display_name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "is_over",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "sport_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "owner_user_id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "id",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "google_sub",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "email",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "email_verified",
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "first_name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "last_name",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "username",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "picture_url",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "locale",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "push_token",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "created_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "updated_at",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "games",
+      "name": "games_tournament_date_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "tournament_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "date",
+          "isExpression": false,
+          "asc": false,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "outcomes_game_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "game_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "outcomes_user_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "user_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "refresh_tokens_family_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "family_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "rivalry_stats_tournament_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "tournament_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "stats_tournament_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "tournament_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "tournaments_sport_idx",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "sport_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "games",
+      "name": "games_tournament_id_tournaments_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "tournament_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "tournaments",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "outcomes_game_id_games_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "game_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "games",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "outcomes_user_id_users_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "refresh_tokens_user_id_users_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "rivalry_stats_user_id_users_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "rivalry_stats_rival_id_users_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "rival_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "rivalry_stats_tournament_id_tournaments_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "tournament_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "tournaments",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "stats_user_id_users_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "stats_tournament_id_tournaments_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "tournament_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "tournaments",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "tournaments_sport_id_sports_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "sport_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "sports",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "tournaments_owner_user_id_users_id_fkey",
+      "nameExplicit": false,
+      "columns": [
+        "owner_user_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "games",
+      "name": "games_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "outcomes",
+      "name": "outcomes_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "refresh_tokens_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "rivalry_stats_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "sports",
+      "name": "sports_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "stats_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "tournaments_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "users_pkey",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "refresh_tokens",
+      "name": "refresh_tokens_jti_unique",
+      "nameExplicit": true,
+      "columns": [
+        "jti"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "rivalry_stats",
+      "name": "rivalry_stats_user_rival_tournament_unique",
+      "nameExplicit": true,
+      "columns": [
+        "user_id",
+        "rival_id",
+        "tournament_id"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "stats",
+      "name": "stats_user_tournament_unique",
+      "nameExplicit": true,
+      "columns": [
+        "user_id",
+        "tournament_id"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "sports",
+      "name": "sports_name_key",
+      "nameExplicit": false,
+      "columns": [
+        "name"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "tournaments",
+      "name": "tournaments_name_key",
+      "nameExplicit": false,
+      "columns": [
+        "name"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "users_google_sub_key",
+      "nameExplicit": false,
+      "columns": [
+        "google_sub"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "table": "users",
+      "name": "users_username_key",
+      "nameExplicit": false,
+      "columns": [
+        "username"
+      ],
+      "nullsNotDistinct": false,
+      "entityType": "uniques"
+    }
+  ]
+}

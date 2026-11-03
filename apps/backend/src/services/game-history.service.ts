@@ -1,0 +1,94 @@
+import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
+import type { Database } from '../db/client.js';
+import { games, outcomes, sports, tournaments, users } from '../db/schema.js';
+import { ApiError } from '../lib/errors.js';
+import type { PageWindow } from '../lib/pagination.js';
+import type { GameWithRelations } from './game.service.js';
+import { findTournamentByName } from './tournament.service.js';
+import { findUserByUsername } from './user.service.js';
+
+const owners = alias(users, 'owner');
+
+/** One page of games matching `where`, newest first, with tournaments and outcomes loaded. */
+async function listGames(
+  db: Database,
+  where: SQL | undefined,
+  page: PageWindow,
+): Promise<GameWithRelations[]> {
+  const rows = await db
+    .select({ game: games, tournament: tournaments, sport: sports, owner: owners })
+    .from(games)
+    .innerJoin(tournaments, eq(games.tournamentId, tournaments.id))
+    .innerJoin(sports, eq(tournaments.sportId, sports.id))
+    .leftJoin(owners, eq(tournaments.ownerUserId, owners.id))
+    .where(where)
+    // createdAt and id break ties between games sharing a date so pages never overlap.
+    .orderBy(desc(games.date), desc(games.createdAt), desc(games.id))
+    .limit(page.limit)
+    .offset(page.offset);
+  if (rows.length === 0) return [];
+
+  const outcomeRows = await db
+    .select({ outcome: outcomes, user: users })
+    .from(outcomes)
+    .innerJoin(users, eq(outcomes.userId, users.id))
+    .where(
+      inArray(
+        outcomes.gameId,
+        rows.map((r) => r.game.id),
+      ),
+    )
+    .orderBy(asc(outcomes.result), asc(users.username));
+  const outcomesByGame = new Map<string, GameWithRelations['outcomes']>();
+  for (const row of outcomeRows) {
+    const list = outcomesByGame.get(row.outcome.gameId) ?? [];
+    list.push(row);
+    outcomesByGame.set(row.outcome.gameId, list);
+  }
+
+  return rows.map(({ game, tournament, sport, owner }) => ({
+    game,
+    tournament: { tournament, sport, owner },
+    outcomes: outcomesByGame.get(game.id) ?? [],
+  }));
+}
+
+function tournamentNotFound(): ApiError {
+  return ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
+}
+
+/** Games of a tournament, newest first. Unknown tournament → 404. */
+export async function listTournamentGames(
+  db: Database,
+  tournamentName: string,
+  page: PageWindow,
+): Promise<GameWithRelations[]> {
+  const found = await findTournamentByName(db, tournamentName);
+  if (!found) throw tournamentNotFound();
+  return listGames(db, eq(games.tournamentId, found.tournament.id), page);
+}
+
+/** Games the user took part in, newest first, optionally within one tournament. */
+export async function listUserGames(
+  db: Database,
+  username: string,
+  filter: { tournamentName?: string | undefined },
+  page: PageWindow,
+): Promise<GameWithRelations[]> {
+  const user = await findUserByUsername(db, username);
+  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+
+  const conditions: SQL[] = [
+    inArray(
+      games.id,
+      db.select({ id: outcomes.gameId }).from(outcomes).where(eq(outcomes.userId, user.id)),
+    ),
+  ];
+  if (filter.tournamentName !== undefined) {
+    const found = await findTournamentByName(db, filter.tournamentName);
+    if (!found) throw tournamentNotFound();
+    conditions.push(eq(games.tournamentId, found.tournament.id));
+  }
+  return listGames(db, and(...conditions), page);
+}

@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.expo
+.git
+.env
+.env.*
+SHRKLTR-BCKND
+elo
+legacy
+apps/mobile

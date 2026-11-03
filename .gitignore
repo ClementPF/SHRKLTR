@@ -1,13 +1,14 @@
+# Legacy reference repos (read-only, separate git repos)
+/SHRKLTR-BCKND/
+/elo/
 
-.gradle/*
-.idea/*
-build/*
-.mvn/*
-
-*.lst
-/build
-target/*
-
-src/main/resources/application.properties
-
-src/test/resources/application.properties
+node_modules/
+dist/
+.expo/
+.env
+.env.*
+!.env.example
+!.env.production.example
+*.log
+.DS_Store
+coverage/
