@@ -39,6 +39,37 @@ describe('GET /health', () => {
   });
 });
 
+describe('CORS_ORIGINS', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildTestApp({
+      env: { CORS_ORIGINS: 'https://app.example.com, https://other.example.com' },
+    });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it.each(['https://app.example.com', 'https://other.example.com'])(
+    'allows the configured origin %s',
+    async (origin) => {
+      const res = await app.inject({ method: 'GET', url: '/health', headers: { origin } });
+      expect(res.headers['access-control-allow-origin']).toBe(origin);
+    },
+  );
+
+  it('drops the localhost default once origins are configured', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/health',
+      headers: { origin: 'http://localhost:8081' },
+    });
+    expect(res.headers['access-control-allow-origin']).toBeUndefined();
+  });
+});
+
 describe('GET /health with the database down', () => {
   let app: FastifyInstance;
 

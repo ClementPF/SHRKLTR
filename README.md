@@ -10,6 +10,8 @@ read-only, gitignored references.
 - `apps/mobile`: Expo SDK 58 app for iOS, Android, and web ([README](apps/mobile/README.md))
 - `docker-compose.yml`: `db` (Postgres, host port 5433) and `api` (hot reload, port 3100)
 - `Dockerfile`: `dev` target for compose, `prod` target for a slim production image
+- `docker-compose.prod.yml` + `docker/web/`: production stack (api, static web app, Cloudflare
+  Tunnel); see [SELF-HOSTING.md](SELF-HOSTING.md)
 - `DEVICE-CHECKLIST.md`: manual checks for real Google login, the two-device QR flow, and
   native pull-to-refresh
 
@@ -112,6 +114,7 @@ readiness check as in the quick start: never seed before it prints the healthy r
 | `GOOGLE_JWKS_URL`           | no               | `https://www.googleapis.com/oauth2/v3/certs`                         | Overridden in tests.                                                           |
 | `GOOGLE_TOKEN_URL`          | no               | `https://oauth2.googleapis.com/token`                                | Overridden in tests.                                                           |
 | `GOOGLE_REDIRECT_ALLOWLIST` | no               | `http://localhost:8081`                                              | Comma-separated exact redirect URIs accepted by `POST /auth/google/code`.      |
+| `CORS_ORIGINS`              | no               | `http://localhost:8081`                                              | Comma-separated exact browser origins allowed to call the API.                 |
 | `PUSH_URL`                  | no               | `https://exp.host/--/api/v2/push/send`                               | Expo push API; point at a local collector when testing.                        |
 | `LOG_LEVEL`                 | no               | `info`                                                               |                                                                                |
 

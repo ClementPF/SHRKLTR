@@ -109,8 +109,8 @@ client secret. Helpers live in `test/helpers.ts` (`buildTestApp`, `truncateAll`,
 
 ## Layout
 
-- `src/app.ts`: `buildApp()` (config, CORS for `http://localhost:8081`, helmet, swagger, error
-  handler, JWT namespaces, routes)
+- `src/app.ts`: `buildApp()` (config, CORS from `CORS_ORIGINS`, helmet, swagger, error handler,
+  JWT namespaces, routes)
 - `src/routes/`: auth, users, sports, tournaments, stats, health
 - `src/services/`: game submission (one transaction), stats/rivalry updates, push, sessions
 - `src/elo/elo.ts`: pure Elo engine

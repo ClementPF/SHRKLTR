@@ -1,0 +1,13 @@
+# Build context for docker/web/Dockerfile (BuildKit uses this instead of the root .dockerignore).
+**/node_modules
+**/dist
+**/.expo
+# Local env files would override the production EXPO_PUBLIC_* build args.
+**/.env
+**/.env.*
+.git
+SHRKLTR-BCKND
+elo
+apps/backend
+apps/mobile/__tests__
+apps/mobile/test-utils

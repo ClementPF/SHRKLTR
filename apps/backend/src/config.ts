@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+const commaList = (fallback: string) =>
+  z
+    .string()
+    .default(fallback)
+    .transform((value) =>
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== ''),
+    );
+
 export const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3100),
   HOST: z.string().min(1).default('0.0.0.0'),
@@ -18,15 +29,9 @@ export const envSchema = z.object({
     .optional()
     .transform((value) => value || undefined),
   GOOGLE_TOKEN_URL: z.url().default('https://oauth2.googleapis.com/token'),
-  GOOGLE_REDIRECT_ALLOWLIST: z
-    .string()
-    .default('http://localhost:8081')
-    .transform((value) =>
-      value
-        .split(',')
-        .map((entry) => entry.trim())
-        .filter((entry) => entry !== ''),
-    ),
+  GOOGLE_REDIRECT_ALLOWLIST: commaList('http://localhost:8081'),
+  /** Browser origins allowed by CORS, comma-separated exact matches (e.g. the hosted web app). */
+  CORS_ORIGINS: commaList('http://localhost:8081'),
   PUSH_URL: z.url().default('https://exp.host/--/api/v2/push/send'),
 });
 

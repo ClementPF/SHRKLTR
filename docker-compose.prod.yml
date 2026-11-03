@@ -1,0 +1,76 @@
+# Production stack for a single host: Postgres, the API, the static web app and a Cloudflare
+# Tunnel. Nothing is published on the host; cloudflared reaches api and web over the compose
+# network. Run through `npm run prod -- <compose args>` so .env.production feeds interpolation.
+name: sharkulator-prod
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sharkulator
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: sharkulator
+    volumes:
+      - sharkulator_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U sharkulator -d sharkulator']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      target: prod
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      APP_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3100
+      DATABASE_URL: postgres://sharkulator:${POSTGRES_PASSWORD}@db:5432/sharkulator
+      CORS_ORIGINS: https://${APP_HOSTNAME:?Set APP_HOSTNAME in .env.production}
+      GOOGLE_REDIRECT_ALLOWLIST: https://${APP_HOSTNAME}
+    init: true
+    stop_grace_period: 10s
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3100/health >/dev/null || exit 1']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web/Dockerfile
+      args:
+        EXPO_PUBLIC_API_URL: https://${API_HOSTNAME:?Set API_HOSTNAME in .env.production}
+        EXPO_PUBLIC_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?Set GOOGLE_CLIENT_ID in .env.production}
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/healthz >/dev/null || exit 1']
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: ['tunnel', '--no-autoupdate', 'run']
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env.production}
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
+volumes:
+  sharkulator_prod_pgdata:
+    name: sharkulator_prod_pgdata

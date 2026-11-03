@@ -32,8 +32,6 @@ declare module 'fastify' {
   }
 }
 
-export const CORS_ORIGINS = ['http://localhost:8081'];
-
 // Tournament slugs come from displayNames of up to 100 chars, and lowercasing can double a
 // char's UTF-16 length (U+0130 → "i" + U+0307), so decoded path params may reach 200 units.
 export const MAX_PARAM_LENGTH = 200;
@@ -70,7 +68,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   await app.register(helmet);
   await app.register(cors, {
-    origin: CORS_ORIGINS,
+    origin: config.CORS_ORIGINS,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 

@@ -38,8 +38,14 @@ describe('Google auth request', () => {
     });
   });
 
-  it('redirects back to http://localhost:8081 on web', () => {
-    expect(googleRedirectUri('web')).toBe('http://localhost:8081');
+  it('redirects back to the origin serving the web app', () => {
+    expect(googleRedirectUri('web', 'https://app.example.com')).toBe('https://app.example.com');
+    expect(googleRedirectUri('web', 'http://localhost:8081')).toBe('http://localhost:8081');
+  });
+
+  it('falls back to http://localhost:8081 on web when the origin is unknown', () => {
+    expect(googleRedirectUri('web', undefined)).toBe('http://localhost:8081');
+    expect(googleRedirectUri('web', 'null')).toBe('http://localhost:8081');
   });
 
   it("targets Google's authorization endpoint and exposes no token endpoint", () => {

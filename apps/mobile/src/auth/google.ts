@@ -21,14 +21,25 @@ export const GOOGLE_DISCOVERY: DiscoveryDocument = {
 
 export const GOOGLE_SCOPES = ['openid', 'email', 'profile'];
 
-/** Must match the authorized redirect URI registered for the Google web client. */
+/** Local dev web origin; it must be an authorized redirect URI of the Google web client. */
 export const GOOGLE_WEB_REDIRECT_URI = 'http://localhost:8081';
 export const GOOGLE_NATIVE_REDIRECT_URI = 'com.elo.sharkulator:/oauthredirect';
 
-export function googleRedirectUri(os: string = Platform.OS): string {
-  return os === 'web'
-    ? GOOGLE_WEB_REDIRECT_URI
-    : makeRedirectUri({ native: GOOGLE_NATIVE_REDIRECT_URI });
+function currentWebOrigin(): string | undefined {
+  return typeof window !== 'undefined' ? window.location?.origin : undefined;
+}
+
+/**
+ * On web, Google redirects back to the origin serving the app (the hosted app or the local dev
+ * server); each origin must be registered on the Google client and in the backend's
+ * GOOGLE_REDIRECT_ALLOWLIST.
+ */
+export function googleRedirectUri(
+  os: string = Platform.OS,
+  webOrigin: string | undefined = currentWebOrigin(),
+): string {
+  if (os !== 'web') return makeRedirectUri({ native: GOOGLE_NATIVE_REDIRECT_URI });
+  return webOrigin && webOrigin !== 'null' ? webOrigin : GOOGLE_WEB_REDIRECT_URI;
 }
 
 export function googleAuthRequestConfig(clientId: string, redirectUri: string): AuthRequestConfig {
