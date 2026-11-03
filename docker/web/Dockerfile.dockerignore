@@ -8,6 +8,7 @@
 .git
 SHRKLTR-BCKND
 elo
+legacy
 apps/backend
 apps/mobile/__tests__
 apps/mobile/test-utils

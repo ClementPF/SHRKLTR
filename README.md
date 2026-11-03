@@ -12,6 +12,7 @@ read-only, gitignored references.
 - `Dockerfile`: `dev` target for compose, `prod` target for a slim production image
 - `docker-compose.prod.yml` + `docker/web/`: production stack (api, static web app, Cloudflare
   Tunnel); see [SELF-HOSTING.md](SELF-HOSTING.md)
+- `legacy/SHRKLTR-BCKND`: the original Spring Boot backend, kept for history (not built or run)
 - `DEVICE-CHECKLIST.md`: manual checks for real Google login, the two-device QR flow, and
   native pull-to-refresh
 

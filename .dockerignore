@@ -6,4 +6,5 @@
 .env.*
 SHRKLTR-BCKND
 elo
+legacy
 apps/mobile

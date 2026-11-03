@@ -10,6 +10,7 @@ export default tseslint.config(
       '**/expo-env.d.ts',
       'SHRKLTR-BCKND/**',
       'elo/**',
+      'legacy/**',
       'apps/backend/drizzle/**',
     ],
   },
