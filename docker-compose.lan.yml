@@ -1,0 +1,10 @@
+# Two-machine setup: publishes the api and web app on this host's network so a reverse proxy on
+# another machine (fronted by its own Cloudflare Tunnel) can reach them. Use with
+# `npm run prod:lan -- <compose args>`. Postgres stays unpublished.
+services:
+  api:
+    ports:
+      - '3100:3100'
+  web:
+    ports:
+      - '8080:80'
