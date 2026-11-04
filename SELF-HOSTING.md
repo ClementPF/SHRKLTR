@@ -68,7 +68,9 @@ port is taken, set `API_PORT` / `WEB_PORT` in `.env.production` and use those in
 Ports 3100 and 8080 are open to the whole local network; restrict them to the proxy's address in
 the server's firewall if that matters.
 
-Either way, Cloudflare terminates HTTPS, so both hostnames are served over `https://`.
+Either way, Cloudflare terminates HTTPS, so both hostnames are served over `https://`. Cloudflare's
+free certificate only covers one subdomain level (`*.<your-domain>`): use names like
+`app.<your-domain>`, not `app.sub.<your-domain>`, which fail the TLS handshake.
 
 ## 2. Google OAuth client
 
