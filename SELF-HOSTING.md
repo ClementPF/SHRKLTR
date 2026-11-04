@@ -36,7 +36,8 @@ Pick the option that matches your network.
 ### Option B: existing tunnel and reverse proxy on another machine
 
 `docker-compose.lan.yml` publishes the api on port `3100` and the web app on port `8080` of the
-server, and the `cloudflared` service stays off. Leave `CLOUDFLARE_TUNNEL_TOKEN` empty.
+server, and the `cloudflared` service stays off. Leave `CLOUDFLARE_TUNNEL_TOKEN` empty. If either
+port is taken, set `API_PORT` / `WEB_PORT` in `.env.production` and use those in the proxy.
 
 1. On the proxy machine, route both hostnames to the server (`<server-ip>` below). With nginx:
 
