@@ -1,6 +1,8 @@
-# Production stack for a single host: Postgres, the API, the static web app and a Cloudflare
-# Tunnel. Nothing is published on the host; cloudflared reaches api and web over the compose
-# network. Run through `npm run prod -- <compose args>` so .env.production feeds interpolation.
+# Production stack for a single host: Postgres, the API, the static web app and an optional
+# Cloudflare Tunnel (`--profile tunnel`). Nothing is published on the host; cloudflared reaches
+# api and web over the compose network. With a reverse proxy on another machine, add
+# docker-compose.lan.yml instead. Run through `npm run prod -- <compose args>` (or prod:lan) so
+# .env.production feeds interpolation.
 name: sharkulator-prod
 
 services:
@@ -61,10 +63,11 @@ services:
 
   cloudflared:
     image: cloudflare/cloudflared:latest
+    profiles: ['tunnel']
     restart: unless-stopped
     command: ['tunnel', '--no-autoupdate', 'run']
     environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env.production}
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
       api:
         condition: service_healthy

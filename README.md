@@ -10,8 +10,9 @@ read-only, gitignored references.
 - `apps/mobile`: Expo SDK 58 app for iOS, Android, and web ([README](apps/mobile/README.md))
 - `docker-compose.yml`: `db` (Postgres, host port 5433) and `api` (hot reload, port 3100)
 - `Dockerfile`: `dev` target for compose, `prod` target for a slim production image
-- `docker-compose.prod.yml` + `docker/web/`: production stack (api, static web app, Cloudflare
-  Tunnel); see [SELF-HOSTING.md](SELF-HOSTING.md)
+- `docker-compose.prod.yml` + `docker/web/`: production stack (api, static web app, optional
+  Cloudflare Tunnel); `docker-compose.lan.yml` for a reverse proxy on another machine; see
+  [SELF-HOSTING.md](SELF-HOSTING.md)
 - `legacy/SHRKLTR-BCKND`: the original Spring Boot backend, kept for history (not built or run)
 - `DEVICE-CHECKLIST.md`: manual checks for real Google login, the two-device QR flow, and
   native pull-to-refresh
