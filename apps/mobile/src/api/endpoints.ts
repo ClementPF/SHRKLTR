@@ -4,11 +4,20 @@ import type {
   AppInvite,
   AppInvitePreview,
   ClaimPreview,
+  CreateGroupInviteRequest,
   CreatePlaceholderRequest,
   CreateTournamentRequest,
   Game,
   GoogleCodeExchangeRequest,
+  Group,
+  GroupInvite,
+  GroupInvitePreview,
+  GroupJoinResult,
+  GroupMember,
+  GroupPlayer,
   InboxNotification,
+  IssuedGroupInvite,
+  JoinGroupRequest,
   InvitedPlayer,
   NotificationPreferences,
   PageParams,
@@ -139,3 +148,35 @@ export const getUserAchievements = (username: string) =>
   api.get<UserAchievement[]>(`/users/${seg(username)}/achievements`);
 export const getRecentAchievements = (params: PageParams = {}) =>
   api.get<AchievementUnlock[]>('/achievements/recent', { query: { ...params } });
+
+// Groups
+export const listGroups = () => api.get<Group[]>('/groups');
+export const createGroup = (name: string) => api.post<Group>('/groups', { name });
+export const getGroup = (id: string) => api.get<Group>(`/groups/${seg(id)}`);
+export const renameGroup = (id: string, name: string) =>
+  api.put<Group>(`/groups/${seg(id)}`, { name });
+export const listGroupMembers = (id: string, params: PageParams = {}) =>
+  api.get<GroupMember[]>(`/groups/${seg(id)}/members`, { query: { ...params } });
+export const setGroupMemberRole = (id: string, userId: string, role: 'ADMIN' | 'MEMBER') =>
+  api.put<GroupMember>(`/groups/${seg(id)}/members/${seg(userId)}`, { role });
+export const removeGroupMember = (id: string, userId: string) =>
+  api.delete<void>(`/groups/${seg(id)}/members/${seg(userId)}`);
+export const transferGroupOwnership = (id: string, userId: string) =>
+  api.post<Group>(`/groups/${seg(id)}/transfer-owner`, { userId });
+export const leaveGroup = (id: string) => api.post<void>(`/groups/${seg(id)}/leave`, {});
+export const listGroupTournaments = (id: string) =>
+  api.get<Tournament[]>(`/groups/${seg(id)}/tournaments`);
+export const listGroupPlayers = (id: string) =>
+  api.get<GroupPlayer[]>(`/groups/${seg(id)}/players`);
+export const addGroupPlayer = (id: string, placeholderUserId: string) =>
+  api.post<GroupPlayer>(`/groups/${seg(id)}/players`, { placeholderUserId });
+export const listGroupInvites = (id: string) =>
+  api.get<GroupInvite[]>(`/groups/${seg(id)}/invites`);
+export const createGroupInvite = (id: string, body: CreateGroupInviteRequest = {}) =>
+  api.post<IssuedGroupInvite>(`/groups/${seg(id)}/invites`, body);
+export const revokeGroupInvite = (id: string, inviteId: string) =>
+  api.delete<void>(`/groups/${seg(id)}/invites/${seg(inviteId)}`);
+export const getGroupInvitePreview = (token: string) =>
+  api.get<GroupInvitePreview>(`/invites/group/${seg(token)}`, { auth: false });
+export const joinGroup = (body: JoinGroupRequest) =>
+  api.post<GroupJoinResult>('/groups/join', body);

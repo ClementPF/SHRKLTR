@@ -12,6 +12,7 @@ jest.mock('@/auth/session', () => ({
   SessionProvider: ({ children }: { children: ReactNode }) => children,
   useSession: () => ({ session: mockSession }),
 }));
+jest.mock('@/features/groups/pending-join', () => ({ usePendingJoinResume: jest.fn() }));
 jest.mock('@/theme/navigation', () => ({ NavigationTheme: {} }));
 jest.mock('expo-web-browser', () => ({ maybeCompleteAuthSession: jest.fn() }));
 jest.mock('expo-router', () => {

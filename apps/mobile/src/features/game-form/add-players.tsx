@@ -5,8 +5,9 @@ import type { User } from '@/api/types';
 import { Button } from '@/components/button';
 import { showAlert } from '@/components/dropdown-alert';
 import { UnclaimedBadge } from '@/components/unclaimed-badge';
+import { useGroupMembers, useGroupPlayers } from '@/features/groups/queries';
 import { useCreatePlaceholder } from '@/features/invites/queries';
-import { useUsers } from '@/features/users/queries';
+import { flattenPages, useUsers } from '@/features/users/queries';
 import type { QrResult } from '@/lib/qr';
 import { displayName, isPlaceholder } from '@/lib/users';
 import { Colors, Radius, Spacing, Typography } from '@/theme';
@@ -61,11 +62,33 @@ function matches(user: User, query: string): boolean {
   return user.username.toLowerCase().includes(q) || displayName(user).toLowerCase().includes(q);
 }
 
-function PlayerPicker({ side }: { side: QrResult }) {
+/**
+ * Who can play in the draft's tournament: everyone for an open tournament; for a group's
+ * tournament only its members and its unclaimed players.
+ */
+function useCandidates(groupId: string | undefined, enabled: boolean) {
+  const users = useUsers(enabled && !groupId);
+  const members = useGroupMembers(groupId ?? '', enabled && !!groupId);
+  const players = useGroupPlayers(groupId ?? '', enabled && !!groupId);
+  if (!groupId) return users;
+  const error = members.error ?? players.error;
+  return {
+    data:
+      members.isSuccess && players.isSuccess
+        ? [...flattenPages(members.data).map((m) => m.user), ...players.data.map((p) => p.user)]
+        : undefined,
+    isPending: members.isPending || players.isPending,
+    isSuccess: members.isSuccess && players.isSuccess,
+    isError: !!error,
+    error,
+  };
+}
+
+function PlayerPicker({ side, groupId }: { side: QrResult; groupId: string | undefined }) {
   const [query, setQuery] = useState('');
   const outcomes = useGameFormStore((s) => s.outcomes);
   const search = query.trim();
-  const users = useUsers(search.length > 0);
+  const users = useCandidates(groupId, search.length > 0);
   const taken = new Set(outcomes.map((o) => o.username));
   const found = (users.data ?? [])
     .filter((u) => !taken.has(u.username) && matches(u, search))
@@ -93,10 +116,14 @@ function PlayerPicker({ side }: { side: QrResult }) {
       />
       {search.length > 0 && users.isPending && <Text style={styles.caption}>Searching…</Text>}
       {search.length > 0 && users.isError && (
-        <Text style={styles.caption}>Couldn't load players: {users.error.message}</Text>
+        <Text style={styles.caption}>Couldn't load players: {users.error?.message}</Text>
       )}
       {search.length > 0 && users.isSuccess && found.length === 0 && (
-        <Text style={styles.caption}>No player matches “{search}”.</Text>
+        <Text style={styles.caption}>
+          {groupId
+            ? `No member or unclaimed player of this group matches “${search}”.`
+            : `No player matches “${search}”.`}
+        </Text>
       )}
       {found.map((user) => (
         <Pressable
@@ -119,10 +146,18 @@ function PlayerPicker({ side }: { side: QrResult }) {
   );
 }
 
-function AddByName({ side, ownerId }: { side: QrResult; ownerId: string | undefined }) {
+function AddByName({
+  side,
+  ownerId,
+  groupId,
+}: {
+  side: QrResult;
+  ownerId: string | undefined;
+  groupId: string | undefined;
+}) {
   const [name, setName] = useState('');
   const [failure, setFailure] = useState<string | null>(null);
-  const create = useCreatePlaceholder(ownerId);
+  const create = useCreatePlaceholder(ownerId, groupId);
   const trimmed = name.trim();
 
   const submit = () => {
@@ -187,12 +222,25 @@ function AddByName({ side, ownerId }: { side: QrResult; ownerId: string | undefi
 /** Adds players to the draft without scanning: an existing player, or a new one by name. */
 export function AddPlayers({ ownerId }: { ownerId: string | undefined }) {
   const [side, setSide] = useState<QrResult>('WIN');
+  const group = useGameFormStore((s) => s.tournament?.group ?? null);
+  const groupId = group?.id;
   return (
     <View style={styles.container} testID="add-players">
       <Text style={styles.title}>NO QR CODE?</Text>
+      {group && (
+        <Text style={styles.caption} testID="add-players-group">
+          {group.name} tournament: pick a member or unclaimed player. New players added by name join
+          the group's unclaimed players.
+        </Text>
+      )}
       <SideChoice side={side} onChange={setSide} />
-      <PlayerPicker side={side} />
-      <AddByName side={side} ownerId={ownerId} />
+      <PlayerPicker key={`picker-${groupId ?? 'open'}`} side={side} groupId={groupId} />
+      <AddByName
+        key={`name-${groupId ?? 'open'}`}
+        side={side}
+        ownerId={ownerId}
+        groupId={groupId}
+      />
     </View>
   );
 }

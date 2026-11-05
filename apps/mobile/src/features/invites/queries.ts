@@ -11,6 +11,7 @@ import {
 } from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
 import type { PlaceholderClaimLink } from '@/api/types';
+import { groupKeys } from '@/features/groups/queries';
 import { userKeys } from '@/features/users/queries';
 
 import { forgetClaimLink, rememberAppInvite, rememberClaimLink } from './issued-links';
@@ -62,15 +63,20 @@ function rememberIssued(ownerId: string, issued: PlaceholderClaimLink) {
   });
 }
 
-/** "Add player by name": creates a placeholder and keeps its one-time claim link on this device. */
-export function useCreatePlaceholder(ownerId: string | undefined) {
+/**
+ * "Add player by name": creates a placeholder and keeps its one-time claim link on this device.
+ * With a group, the placeholder joins that group's unclaimed players.
+ */
+export function useCreatePlaceholder(ownerId: string | undefined, groupId?: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (displayName: string) => createPlaceholder({ displayName }),
+    mutationFn: (displayName: string) =>
+      createPlaceholder(groupId ? { displayName, groupId } : { displayName }),
     onSuccess: (issued) => {
       if (ownerId) rememberIssued(ownerId, issued);
       void queryClient.invalidateQueries({ queryKey: inviteKeys.invitedPlayers(ownerId ?? '') });
       void queryClient.invalidateQueries({ queryKey: userKeys.list() });
+      if (groupId) void queryClient.invalidateQueries({ queryKey: groupKeys.players(groupId) });
     },
   });
 }

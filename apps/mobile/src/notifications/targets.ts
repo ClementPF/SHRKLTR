@@ -48,8 +48,9 @@ export function notificationTargetHref(target: NotificationTarget): Href | null 
       return { pathname: '/achievements/[username]', params: { username: target.username } };
     case 'user':
       return { pathname: '/user/[username]', params: { username: target.username } };
-    case 'challenge':
     case 'group':
+      return { pathname: '/groups/[id]', params: { id: target.groupId } };
+    case 'challenge':
       return null;
   }
 }

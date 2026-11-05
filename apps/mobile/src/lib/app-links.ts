@@ -15,3 +15,7 @@ export function claimInviteAppUrl(token: string): AppSchemeUrl {
 export function appInviteAppUrl(token: string): AppSchemeUrl {
   return appSchemeUrl(`/invite/app/${encodeURIComponent(token)}`);
 }
+
+export function joinGroupAppUrl(token: string): AppSchemeUrl {
+  return appSchemeUrl(`/join/${encodeURIComponent(token)}`);
+}

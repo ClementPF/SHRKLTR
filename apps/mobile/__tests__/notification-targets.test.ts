@@ -12,6 +12,7 @@ import {
 const GAME_ID = '11111111-1111-4111-8111-111111111111';
 const CHALLENGE_ID = '22222222-2222-4222-8222-222222222222';
 const NOTIFICATION_ID = '33333333-3333-4333-8333-333333333333';
+const GROUP_ID = '44444444-4444-4444-8444-444444444444';
 
 function tap(
   identifier: string,
@@ -28,6 +29,13 @@ function setup() {
 }
 
 describe('notification target mapper', () => {
+  it('maps group targets to the group page', () => {
+    expect(notificationTargetHref({ type: 'group', groupId: GROUP_ID })).toEqual({
+      pathname: '/groups/[id]',
+      params: { id: GROUP_ID },
+    });
+  });
+
   it('maps game, achievements and user targets to their screens', () => {
     expect(notificationTargetHref({ type: 'game', gameId: GAME_ID })).toEqual({
       pathname: '/games/[id]',
@@ -48,6 +56,8 @@ describe('notification target mapper', () => {
     ['a URL string', 'https://evil.example/phish'],
     ['an unknown type', { type: 'url', url: 'https://evil.example' }],
     ['a game without a UUID', { type: 'game', gameId: '../../settings' }],
+    ['a group without a UUID', { type: 'group', groupId: '../invite' }],
+    ['a group without an id', { type: 'group' }],
     ['a user with a path', { type: 'user', username: 'dev-sam/../../login' }],
     ['a user with a scheme', { type: 'achievements', username: 'javascript:alert(1)' }],
     ['null', null],
@@ -136,6 +146,16 @@ describe('notification tap router', () => {
 
     expect(navigate).not.toHaveBeenCalled();
     expect(markRead).not.toHaveBeenCalled();
+  });
+
+  it('opens the group page for a group target', () => {
+    const { router, navigate, markRead } = setup();
+    router.setReady(true);
+    router.handle(
+      tap('g', { notificationId: NOTIFICATION_ID, target: { type: 'group', groupId: GROUP_ID } }),
+    );
+    expect(navigate).toHaveBeenCalledWith({ pathname: '/groups/[id]', params: { id: GROUP_ID } });
+    expect(markRead).toHaveBeenCalledWith(NOTIFICATION_ID);
   });
 
   it('opens the inbox for a valid target that has no screen of its own', () => {

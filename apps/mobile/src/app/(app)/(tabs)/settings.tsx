@@ -25,6 +25,12 @@ export default function SettingsScreen() {
       <View style={styles.content}>
         {user && <Text style={Typography.bodySecondary}>Signed in as {user.username}</Text>}
         <Button
+          title="Groups"
+          variant="secondary"
+          onPress={() => router.push('/groups')}
+          style={styles.button}
+        />
+        <Button
           title="Notifications"
           variant="secondary"
           onPress={() => router.push('/settings/notifications')}

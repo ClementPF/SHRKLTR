@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
-import type { ColorValue } from 'react-native';
+import { StyleSheet, View, type ColorValue } from 'react-native';
 
 import { HeaderButton } from '@/components/header-button';
 import { NotificationBell } from '@/features/notifications/notification-bell';
@@ -59,7 +59,10 @@ export default function TabsLayout() {
           title: 'Tournaments',
           headerTitle: 'Explore Tournaments',
           headerRight: () => (
-            <HeaderButton title="Add" onPress={() => router.push('/new-tournament')} />
+            <View style={styles.headerButtons}>
+              <HeaderButton title="Groups" onPress={() => router.push('/groups')} />
+              <HeaderButton title="Add" onPress={() => router.push('/new-tournament')} />
+            </View>
           ),
           tabBarIcon: tabIcon({ ios: 'trophy.fill', android: 'emoji_events', web: 'emoji_events' }),
         }}
@@ -74,3 +77,7 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  headerButtons: { flexDirection: 'row', alignItems: 'center' },
+});

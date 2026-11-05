@@ -6,12 +6,14 @@ import { router } from 'expo-router';
 import { Button } from '@/components/button';
 import { DEV_USERNAMES, isDevSessionEnabled } from '@/auth/devSession';
 import type { PendingClaim } from '@/auth/pending-claim';
+import type { PendingJoin } from '@/auth/pending-join';
 import { useSession } from '@/auth/session';
 import {
   NEW_ACCOUNT_ONLY_TEXT,
   useClaimSignIn,
   usePendingClaim,
 } from '@/features/invites/claim-sign-in';
+import { usePendingJoin } from '@/features/groups/use-pending-join';
 import { versionLabel } from '@/lib/app-info';
 import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
 
@@ -118,6 +120,20 @@ function PendingClaimBanner({ claim, onCancel }: { claim: PendingClaim; onCancel
   );
 }
 
+function PendingJoinBanner({ join, onCancel }: { join: PendingJoin; onCancel(): void }) {
+  return (
+    <View style={styles.claim} testID="pending-join">
+      <Text style={styles.devTitle}>JOINING A GROUP</Text>
+      <Text style={Typography.body}>
+        {'token' in join
+          ? `Sign in to join ${join.groupName}. You'll confirm before joining.`
+          : "Sign in to join the group with your invite code. You'll confirm before joining."}
+      </Text>
+      <Button title="Cancel joining" variant="secondary" onPress={onCancel} />
+    </View>
+  );
+}
+
 export function LoginScreen({
   devSignInEnabled = isDevSessionEnabled(),
   ordinarySignIn = false,
@@ -125,6 +141,7 @@ export function LoginScreen({
   const pendingClaim = usePendingClaim(!ordinarySignIn);
   const { pending, discard } = pendingClaim;
   const google = useClaimSignIn(pendingClaim);
+  const pendingJoin = usePendingJoin();
   const googleTitle = pending ? 'Claim with Google' : 'Continue with Google';
 
   return (
@@ -136,6 +153,9 @@ export function LoginScreen({
       </View>
 
       {pending && <PendingClaimBanner claim={pending} onCancel={discard} />}
+      {!pending && pendingJoin.pending && (
+        <PendingJoinBanner join={pendingJoin.pending} onCancel={pendingJoin.discard} />
+      )}
 
       <View style={styles.actions}>
         <Button

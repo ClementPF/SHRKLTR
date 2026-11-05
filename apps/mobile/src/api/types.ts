@@ -122,6 +122,8 @@ export interface UpdateMeRequest {
 export interface CreateTournamentRequest {
   displayName: string;
   sportName: string;
+  /** Creates a members-only tournament in this group; requires OWNER or ADMIN. */
+  groupId?: string;
 }
 
 export interface UpdateTournamentRequest {
@@ -135,6 +137,8 @@ export interface SubmitGameRequest {
 
 export interface CreatePlaceholderRequest {
   displayName: string;
+  /** Adds the placeholder to this group's unclaimed players; requires membership. */
+  groupId?: string;
 }
 
 /** POST /players/placeholders and POST /players/:id/claim-link. claimUrl is only ever issued here. */
@@ -274,4 +278,74 @@ export interface AchievementUnlock {
   achievement: Achievement;
   unlockedAt: string;
   source: AchievementSource;
+}
+
+export type GroupRole = 'OWNER' | 'ADMIN' | 'MEMBER';
+
+/** GET /groups row and GET /groups/:id: a group with the caller's role. */
+export interface Group {
+  id: string;
+  name: string;
+  /** Your role in the group. */
+  role: GroupRole;
+  memberCount: number;
+  createdAt: string;
+}
+
+export interface GroupMember {
+  user: User;
+  role: GroupRole;
+  joinedAt: string;
+}
+
+/** Unclaimed player on a group roster (a placeholder); never a member. */
+export interface GroupPlayer {
+  user: User;
+  addedBy: User | null;
+  addedAt: string;
+}
+
+/** POST /groups/:id/invites: url and code are returned only in this response. */
+export interface IssuedGroupInvite {
+  id: string;
+  /** Join link, also the QR payload. */
+  url: string;
+  /** 10-character short code, case-insensitive. */
+  code: string;
+  /** Null when the invite never expires. */
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export type GroupInviteStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED';
+
+/** GET /groups/:id/invites row: metadata only, the link and code cannot be recovered. */
+export interface GroupInvite {
+  id: string;
+  status: GroupInviteStatus;
+  createdBy: User | null;
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+}
+
+/** Public GET /invites/group/:token. */
+export interface GroupInvitePreview {
+  groupName: string;
+  expiresAt: string | null;
+}
+
+/** POST /groups/join: exactly one of token or code. */
+export type JoinGroupRequest = { token: string } | { code: string };
+
+export interface GroupJoinResult {
+  group: Group;
+  role: GroupRole;
+  /** False when you were already a member; your role is unchanged. */
+  joined: boolean;
+}
+
+export interface CreateGroupInviteRequest {
+  /** Omit for the default (30 days), null for no expiry. */
+  expiresAt?: string | null;
 }
