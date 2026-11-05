@@ -12,6 +12,7 @@ import type {
   CreatePlaceholderRequest,
   CreateTournamentRequest,
   Game,
+  GameShare,
   GoogleCodeExchangeRequest,
   Group,
   GroupInvite,
@@ -120,6 +121,10 @@ export const submitGame = (name: string, body: SubmitGameRequest) =>
 // Games
 export const getGame = (id: string, signal?: AbortSignal) =>
   api.get<Game>(`/games/${seg(id)}`, { signal });
+export const issueGameShare = (gameId: string) =>
+  api.post<GameShare>(`/games/${seg(gameId)}/share`, {});
+export const revokeGameShare = (gameId: string, shareId: string) =>
+  api.delete<void>(`/games/${seg(gameId)}/share/${seg(shareId)}`);
 
 // Stats lookups
 export const getStats = (userName: string, tournamentName: string) =>

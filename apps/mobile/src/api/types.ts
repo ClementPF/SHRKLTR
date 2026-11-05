@@ -54,6 +54,15 @@ export interface Game {
   outcomes: Outcome[];
 }
 
+/** My public link for a game (POST /games/:id/share returns the active one or issues it). */
+export interface GameShare {
+  shareId: string;
+  /** Public result page: PUBLIC_API_URL/s/<token>. */
+  url: string;
+  /** 1200×630 PNG card: PUBLIC_API_URL/s/<token>.png. */
+  imageUrl: string;
+}
+
 export interface StatFields {
   score: number;
   bestScore: number;
