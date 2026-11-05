@@ -12,11 +12,13 @@ const secureStore: KeyValueStorage = {
 
 let storage: KeyValueStorage = secureStore;
 let cached: string | null = null;
+let initializing: Promise<string> | null = null;
 
 /** Tests swap the backing store; null restores SecureStore. */
 export function setInstallationIdStorage(next: KeyValueStorage | null): void {
   storage = next ?? secureStore;
   cached = null;
+  initializing = null;
 }
 
 // Identifies the installation, not a secret: it only has to be unique per device.
@@ -32,16 +34,41 @@ function randomId(): string {
 /** The stored installation ID, or null if this installation never registered for push. */
 export async function readInstallationId(): Promise<string | null> {
   if (cached) return cached;
-  cached = await storage.getItem(INSTALLATION_ID_KEY);
+  const backing = storage;
+  const stored = await backing.getItem(INSTALLATION_ID_KEY);
+  if (backing !== storage) return stored;
+  if (stored && !cached) cached = stored;
   return cached;
 }
 
-/** Stable across launches and accounts, so the server keeps one device row per installation. */
-export async function getOrCreateInstallationId(): Promise<string> {
-  const existing = await readInstallationId();
-  if (existing) return existing;
+async function loadOrPersistId(backing: KeyValueStorage): Promise<string> {
+  const stored = await backing.getItem(INSTALLATION_ID_KEY);
+  if (stored) return stored;
   const created = randomId();
-  await storage.setItem(INSTALLATION_ID_KEY, created);
-  cached = created;
+  await backing.setItem(INSTALLATION_ID_KEY, created);
   return created;
+}
+
+/**
+ * Stable across launches and accounts, so the server keeps one device row per installation.
+ * Overlapping callers (sign-in registration and the token-listener event it triggers on iOS)
+ * share one read/create/persist; otherwise each could see empty storage and register its own ID.
+ */
+export function getOrCreateInstallationId(): Promise<string> {
+  if (cached) return Promise.resolve(cached);
+  if (initializing) return initializing;
+  const attempt = loadOrPersistId(storage);
+  initializing = attempt;
+  // Registered before any caller's continuation, so callers resolve with the cache already set.
+  attempt.then(
+    (id) => {
+      if (initializing !== attempt) return;
+      cached = id;
+      initializing = null;
+    },
+    () => {
+      if (initializing === attempt) initializing = null;
+    },
+  );
+  return attempt;
 }
