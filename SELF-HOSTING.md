@@ -136,6 +136,153 @@ npm run prod -- --profile tunnel up -d --build   # option B: npm run prod:lan --
 The web image inlines `APP_HOSTNAME`/`API_HOSTNAME`/`GOOGLE_CLIENT_ID` at build time, so rebuild
 (`--build`) after changing them.
 
+## Automatic updates with host-side polling
+
+`scripts/deploy.py` polls `origin/master` and deploys new commits with Docker Compose. It needs
+Python 3.9+, Git, Docker Compose v2 with `up --wait`, and an **already running production stack**,
+including Postgres. It does not provision the initial stack. No Node installation, inbound
+webhook, GitHub runner, or third-party Python packages are required on the host.
+
+Use a dedicated production clone checked out on `master`. Give its user read access to the Git
+remote (for a private repo, prefer a read-only deploy key), access to Docker, and ownership of
+the state/backup directories. Confirm Git authentication works without a password prompt.
+Only trusted code should merge to the deployment branch: it executes on the production host.
+
+### First run
+
+After this script is merged, update the production checkout manually once. From the host,
+replace the paths below with absolute paths for that machine:
+
+```sh
+python3 /path/to/sharkulator/scripts/deploy.py \
+  --repo /path/to/sharkulator \
+  --state-dir /path/to/sharkulator-deploy-state
+```
+
+Keep the state and backup directories **outside the checkout**. By default, backups go into
+`<state-dir>/backups`; use `--backup-dir /path/on/another/disk` to store them elsewhere.
+Keep `.env.production` in the production checkout; it remains gitignored.
+
+If using the separate-machine reverse-proxy setup, pass both Compose files on every run
+(after the LAN configuration has also been merged):
+
+```sh
+python3 /path/to/sharkulator/scripts/deploy.py \
+  --repo /path/to/sharkulator \
+  --state-dir /path/to/sharkulator-deploy-state \
+  --compose-file docker-compose.prod.yml \
+  --compose-file docker-compose.lan.yml
+```
+
+The script:
+
+1. Takes an exclusive OS-managed lock. Overlapping polls skip; exiting or crashing releases
+   the lock automatically. Always use the same state directory for a given production stack.
+2. Refuses tracked changes, staged changes, untracked files, a different checked-out branch,
+   or history that cannot fast-forward to the remote. It never resets, stashes, or cleans.
+   Gitignored files such as `.env.production` are allowed.
+3. Fetches the remote and compares its commit to `deployed-commit` in the state directory,
+   **not** to checkout HEAD. A failed deployment still retries even if Git already advanced.
+4. Fast-forwards to the fetched commit and builds both images while existing containers run.
+5. Creates a private, timestamped Postgres custom-format backup and checks that it is nonempty
+   and readable by `pg_restore --list`. A failed backup stops deployment before any restart.
+   Every deployment gets a backup, including retries; existing backups are never overwritten.
+6. Runs `up -d --no-deps --no-build --wait` for **only `api` and `web`**. Postgres and the tunnel
+   are not restarted. Both containers must explicitly report `healthy`.
+7. Atomically records the commit only after both health checks pass. Failures exit nonzero,
+   leave the successful-commit marker unchanged, and retry on the next scheduled poll.
+
+The first run has no marker, so it also backs up and redeploys the current commit. The default
+health timeout is 180 seconds; adjust it with `--health-timeout 300`. Use `--branch main` only
+if the repository's deployment branch is actually renamed to `main`.
+
+Build output, deployment stages, and failures are recorded in `<state-dir>/deploy.log` and
+stderr. The log rotates at approximately 5 MB, keeping three older files. State, logs, and
+backups are created with private permissions. Backups contain production data: restrict access,
+keep an off-host copy, monitor disk space, and set your own retention policy. No backups are
+automatically deleted. Archive-list validation is not a substitute for periodic test restores.
+
+Do not edit the production clone or run manual deployments while polling is active. This is
+not zero-downtime deployment or automatic rollback: failed migrations/health checks can leave
+the app unavailable. Fix forward or perform a deliberate database restore using the preserved
+pre-deployment backup. A Git rollback alone cannot undo a database migration. The marker only
+tracks code commits, so environment-only changes still require a manual rebuild/redeploy.
+
+### macOS: run every minute with launchd
+
+Run as the same logged-in user that runs Docker Desktop. Create
+`~/Library/LaunchAgents/com.sharkulator.deploy.plist` with the following content. Replace every
+`/Users/YOU` and repository path; replace `/usr/bin/python3` with the output of `command -v python3`
+if needed. Paths in a plist must be absolute: `~` and shell variables are not expanded.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.sharkulator.deploy</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/bin/python3</string>
+      <string>/Users/YOU/sharkulator/scripts/deploy.py</string>
+      <string>--repo</string>
+      <string>/Users/YOU/sharkulator</string>
+      <string>--state-dir</string>
+      <string>/Users/YOU/.local/state/sharkulator-deploy</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>/Applications/Docker.app/Contents/Resources/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+    <key>StartInterval</key>
+    <integer>60</integer>
+    <key>RunAtLoad</key>
+    <true />
+    <key>StandardOutPath</key>
+    <string>/Users/YOU/Library/Logs/sharkulator-deploy-launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOU/Library/Logs/sharkulator-deploy-launchd.log</string>
+  </dict>
+</plist>
+```
+
+Add the two `--compose-file` arguments and their values to `ProgramArguments` if using the LAN
+override. Ensure `~/Library/LaunchAgents` and `~/Library/Logs` exist, then load the agent:
+
+```sh
+plutil -lint ~/Library/LaunchAgents/com.sharkulator.deploy.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.sharkulator.deploy.plist
+```
+
+The first poll runs immediately. If Docker Desktop is still starting, the failure is logged
+and the next poll retries. Inspect the rotating `deploy.log` in the state directory for results.
+The separate launchd log also captures interpreter/startup errors; manage its retention yourself.
+Docker Desktop still requires a logged-in session, as described below.
+
+### Linux: run every minute with cron
+
+Create a state directory owned by the deployment user outside the checkout. Add this entry
+to **that user's** crontab, adjusting paths (and adding Compose overrides if needed):
+
+```cron
+PATH=/usr/local/bin:/usr/bin:/bin
+* * * * * /usr/bin/python3 /srv/sharkulator/scripts/deploy.py --repo /srv/sharkulator --state-dir /home/deploy/.local/state/sharkulator-deploy
+```
+
+The same lock prevents overlapping runs if a build takes longer than a minute. Logs go into
+the state directory; cron can also send stderr through its configured local mail delivery.
+
+### Test the deployment script
+
+These tests mock deployment operations and use a temporary Git repository for checkout checks.
+They do not touch the running production stack:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -v
+```
+
 ## Keeping a MacBook server up
 
 - Docker Desktop: **Settings → General → Start Docker Desktop when you sign in**. Docker Desktop
