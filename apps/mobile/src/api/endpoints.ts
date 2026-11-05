@@ -101,6 +101,10 @@ export const getTournamentGames = (name: string, params: PageParams = {}) =>
 export const submitGame = (name: string, body: SubmitGameRequest) =>
   api.post<Game>(`/tournaments/${seg(name)}/games`, body);
 
+// Games
+export const getGame = (id: string, signal?: AbortSignal) =>
+  api.get<Game>(`/games/${seg(id)}`, { signal });
+
 // Stats lookups
 export const getStats = (userName: string, tournamentName: string) =>
   api.get<Stats>('/stats', { query: { userName, tournamentName } });

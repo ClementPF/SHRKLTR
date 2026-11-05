@@ -9,6 +9,15 @@ export function formatPoints(value: number): string {
   return Math.round(value).toFixed(0);
 }
 
+/** Signed Elo change with one decimal, e.g. "+15.7". */
+export function signedElo(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(1)}`;
+}
+
+export function gameDate(isoDate: string): string {
+  return dayjs(isoDate).format('ddd D MMM YYYY, HH:mm');
+}
+
 export function fromNow(isoDate: string, now: Date = new Date()): string {
   return dayjs(isoDate).from(now);
 }

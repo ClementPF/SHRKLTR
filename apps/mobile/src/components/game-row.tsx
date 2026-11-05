@@ -46,11 +46,24 @@ export function rivalryPairs(game: Game, viewer: string | undefined) {
     .map((o) => ({ username: subject.user.username, rivalName: o.user.username }));
 }
 
+/** Live rivalries between the subject of {@link rivalryPairs} and each opponent. */
+export function GameRivalries({ game, viewer }: { game: Game; viewer: string | undefined }) {
+  return rivalryPairs(game, viewer).map((pair) => (
+    <LiveRivalry
+      key={`${pair.username}-${pair.rivalName}`}
+      tournamentName={game.tournament.name}
+      {...pair}
+    />
+  ));
+}
+
 export interface GameRowProps {
   game: Game;
   viewer?: string;
   /** Tapping reveals live rivalries, which need a session; public pages turn it off. */
   expandable?: boolean;
+  /** Replaces the rivalry toggle, e.g. to open the game's own screen. */
+  onPress?(): void;
 }
 
 const toMember = (o: Game['outcomes'][number]) => ({
@@ -58,7 +71,7 @@ const toMember = (o: Game['outcomes'][number]) => ({
   unclaimed: isPlaceholder(o.user),
 });
 
-export function GameRow({ game, viewer, expandable = true }: GameRowProps) {
+export function GameRow({ game, viewer, expandable = true, onPress }: GameRowProps) {
   const [expanded, setExpanded] = useState(false);
   const winners = game.outcomes.filter((o) => o.result === 'WIN');
   const losers = game.outcomes.filter((o) => o.result === 'LOSS');
@@ -67,10 +80,11 @@ export function GameRow({ game, viewer, expandable = true }: GameRowProps) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ expanded }}
+      accessibilityState={onPress ? undefined : { expanded }}
+      accessibilityHint={onPress ? 'Opens the game' : undefined}
       testID={`game-row-${game.id}`}
-      disabled={!expandable}
-      onPress={() => setExpanded((v) => !v)}
+      disabled={!onPress && !expandable}
+      onPress={onPress ?? (() => setExpanded((v) => !v))}
       style={styles.card}
     >
       <View style={styles.ghost} pointerEvents="none">
@@ -88,13 +102,7 @@ export function GameRow({ game, viewer, expandable = true }: GameRowProps) {
       {expanded && (
         <View style={styles.rivalry} testID="game-rivalry">
           <Text style={styles.rivalryTitle}>RIVALRY</Text>
-          {rivalryPairs(game, viewer).map((pair) => (
-            <LiveRivalry
-              key={`${pair.username}-${pair.rivalName}`}
-              tournamentName={game.tournament.name}
-              {...pair}
-            />
-          ))}
+          <GameRivalries game={game} viewer={viewer} />
         </View>
       )}
     </Pressable>

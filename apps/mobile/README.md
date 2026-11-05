@@ -137,9 +137,14 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
   Both screens default to the tournament of the player's latest game and re-pick it through EDIT
   (`/game-form/tournament`: recent + all tournaments, searchable). "All good" stays disabled until
   the teams are complete, then asks for confirmation, POSTs `/tournaments/:name/games`, opens
-  `/game-form/result?id=` and invalidates the `users`, `stats` and `tournaments` queries so mounted
+  `/game-form/result?id=` (the game detail screen plus next-step buttons, pre-filled from the
+  submission response) and invalidates the `users`, `stats` and `tournaments` queries so mounted
   feed/history lists refetch immediately. Non-production builds print the QR payload under each
   code and offer a "paste a QR code payload" field on the scanner, so the flow can be driven
   without a camera (copy the winner's payload into the loser's field).
+- Game detail: `/games/[id]` (`src/features/games/`) reads `GET /games/:id` under the
+  `['games', 'detail', id]` key, so it survives reloads and deep links (the `(app)` stack anchors
+  on `(tabs)` to keep a back button). Feed, profile and tournament history rows open it; the
+  live rivalry that rows used to expand now shows on this screen.
 - `src/features/` TanStack Query hooks,
   `src/components/` shared UI, `src/theme/` dark theme constants (accent `#CE2924`).

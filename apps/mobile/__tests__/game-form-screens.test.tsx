@@ -11,12 +11,11 @@ import type { Game, Tournament, User } from '@/api/types';
 import { DropdownAlert, useAlertStore } from '@/components/dropdown-alert';
 import { CAMERA_DENIED_TEXT, CAMERA_UNAVAILABLE_TEXT } from '@/components/qr-scanner';
 import { GAME_OVER_TEXT, GameChoiceScreen } from '@/features/game-form/choice-screen';
-import { gameKeys } from '@/features/game-form/queries';
-import { GameResultScreen, RESULT_MISSING_TEXT } from '@/features/game-form/result-screen';
 import { CONFIRM_MESSAGE, ScannerScreen } from '@/features/game-form/scanner-screen';
 import { useGameFormStore } from '@/features/game-form/store';
 import { TournamentPickerScreen } from '@/features/game-form/tournament-picker-screen';
 import { WinnerScreen } from '@/features/game-form/winner-screen';
+import { gameKeys } from '@/features/games/queries';
 import { statsKeys, userKeys } from '@/features/users/queries';
 import { buildQrPayload, encodeQrPayload, WRONG_TOURNAMENT_MESSAGE } from '@/lib/qr';
 
@@ -349,22 +348,5 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText(CAMERA_DENIED_TEXT)).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Try again'));
     expect(requestPermission).toHaveBeenCalled();
-  });
-});
-
-describe('GameResultScreen', () => {
-  it('renders the submitted game row with the outcome columns', async () => {
-    const created = game('g-new');
-    await renderWithClient(<GameResultScreen id="g-new" viewer="dev-sam" />);
-    client.setQueryData(gameKeys.detail('g-new'), created);
-    expect(await screen.findByText('RESULTS')).toBeTruthy();
-    expect(screen.getByTestId('game-row-g-new')).toBeTruthy();
-    expect(screen.getByTestId('result-outcomes-winners')).toHaveTextContent('dev-alex +16.0');
-    expect(screen.getByTestId('result-outcomes-losers')).toHaveTextContent('dev-sam -16.0');
-  });
-
-  it('explains when the result is no longer cached', async () => {
-    await renderWithClient(<GameResultScreen id="unknown" />);
-    expect(screen.getByText(RESULT_MISSING_TEXT)).toBeTruthy();
   });
 });
