@@ -117,7 +117,10 @@ export function useNotificationPreferences() {
 
 const UPDATE_PREFERENCES_KEY = ['notification-preferences', 'update'] as const;
 
-/** Saves one or more toggles; the switches move immediately and roll back if saving fails. */
+/**
+ * Saves one or more toggles; the switches move immediately and roll back if saving fails. When the
+ * last overlapping save settles, the preferences are refetched from the server.
+ */
 export function useUpdateNotificationPreferences() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -148,10 +151,12 @@ export function useUpdateNotificationPreferences() {
         data ? { ...data, ...restored } : previous,
       );
     },
-    onSuccess: (saved) => {
-      // An older response must not undo a toggle whose request is still in flight.
+    onSettled: () => {
+      // Responses can arrive out of commit order, so none of their full snapshots is trusted over
+      // the optimistic values. Not awaited: a save that starts during the refetch must count as
+      // the last one and reconcile again. (onSettled runs while this save still counts.)
       if (queryClient.isMutating({ mutationKey: UPDATE_PREFERENCES_KEY }) <= 1) {
-        queryClient.setQueryData(notificationKeys.preferences(), saved);
+        void queryClient.invalidateQueries({ queryKey: notificationKeys.preferences() });
       }
     },
   });

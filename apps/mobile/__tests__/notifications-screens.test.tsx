@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import type { ReactElement } from 'react';
 import { Platform } from 'react-native';
@@ -264,16 +264,93 @@ describe('NotificationSettingsScreen', () => {
     expect(screen.queryByText(WEB_PUSH_TEXT)).toBeNull();
   });
 
+  const switchValue = (key: string) => screen.getByTestId(`push-toggle-${key}`).props.value;
+
   it('saves one category at a time and keeps the saved value', async () => {
-    api.getNotificationPreferences.mockResolvedValue(allOn);
-    api.updateNotificationPreferences.mockResolvedValue({ ...allOn, games: false });
+    let saved = { ...allOn };
+    api.getNotificationPreferences.mockImplementation(async () => ({ ...saved }));
+    api.updateNotificationPreferences.mockImplementation(async (change) => {
+      saved = { ...saved, ...change };
+      return { ...saved };
+    });
     await renderWithClient(<NotificationSettingsScreen />);
 
     await fireEvent(await screen.findByTestId('push-toggle-games'), 'valueChange', false);
 
     expect(api.updateNotificationPreferences).toHaveBeenCalledWith({ games: false });
-    await waitFor(() => expect(screen.getByTestId('push-toggle-games').props.value).toBe(false));
-    expect(screen.getByTestId('push-toggle-challenges').props.value).toBe(true);
+    await waitFor(() => expect(switchValue('games')).toBe(false));
+    expect(switchValue('challenges')).toBe(true);
+    await waitFor(() => expect(api.getNotificationPreferences).toHaveBeenCalledTimes(2));
+    expect(switchValue('games')).toBe(false);
+  });
+
+  it('converges on the saved settings when overlapping saves answer in reverse order', async () => {
+    let saved = { ...allOn };
+    api.getNotificationPreferences.mockImplementation(async () => ({ ...saved }));
+    const responses: (() => void)[] = [];
+    api.updateNotificationPreferences.mockImplementation((change) => {
+      // The server commits in send order; each answer is the snapshot at its commit.
+      saved = { ...saved, ...change };
+      const snapshot = { ...saved };
+      const answer = deferred<NotificationPreferences>();
+      responses.push(() => answer.resolve(snapshot));
+      return answer.promise;
+    });
+    await renderWithClient(<NotificationSettingsScreen />);
+
+    await fireEvent(await screen.findByTestId('push-toggle-games'), 'valueChange', false);
+    await fireEvent(screen.getByTestId('push-toggle-claims'), 'valueChange', false);
+    await waitFor(() => expect(api.updateNotificationPreferences).toHaveBeenCalledTimes(2));
+    // Both switches move before either save answers.
+    await waitFor(() => expect(switchValue('claims')).toBe(false));
+    expect(switchValue('games')).toBe(false);
+
+    // The newer save answers first; the older one answers last with games=false, claims=true.
+    await act(async () => responses[1]!());
+    await act(async () => responses[0]!());
+    await waitFor(() => expect(client.isMutating()).toBe(0));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+
+    expect(saved).toEqual({ ...allOn, games: false, claims: false });
+    expect(switchValue('claims')).toBe(false);
+    expect(switchValue('games')).toBe(false);
+    // The last save to settle reconciles with the server instead of trusting its own snapshot.
+    await waitFor(() => expect(api.getNotificationPreferences).toHaveBeenCalledTimes(2));
+    expect(switchValue('claims')).toBe(false);
+    expect(switchValue('games')).toBe(false);
+  });
+
+  it('rolls back only the failed toggle while another save succeeds', async () => {
+    let saved = { ...allOn };
+    api.getNotificationPreferences.mockImplementation(async () => ({ ...saved }));
+    const responses: (() => void)[] = [];
+    api.updateNotificationPreferences.mockImplementation((change) => {
+      const answer = deferred<NotificationPreferences>();
+      if ('groups' in change) {
+        responses.push(() => answer.reject(new ApiError(500, 'INTERNAL', 'boom')));
+      } else {
+        saved = { ...saved, ...change };
+        const snapshot = { ...saved };
+        responses.push(() => answer.resolve(snapshot));
+      }
+      return answer.promise;
+    });
+    await renderWithClient(<NotificationSettingsScreen />);
+
+    await fireEvent(await screen.findByTestId('push-toggle-games'), 'valueChange', false);
+    await fireEvent(screen.getByTestId('push-toggle-groups'), 'valueChange', false);
+    await waitFor(() => expect(api.updateNotificationPreferences).toHaveBeenCalledTimes(2));
+
+    await waitFor(() => expect(switchValue('groups')).toBe(false));
+    await act(async () => responses[1]!());
+    expect(await screen.findByText(/Couldn't save your notification settings/)).toBeTruthy();
+    await waitFor(() => expect(switchValue('groups')).toBe(true));
+    expect(switchValue('games')).toBe(false);
+
+    await act(async () => responses[0]!());
+    await waitFor(() => expect(api.getNotificationPreferences).toHaveBeenCalledTimes(2));
+    expect(switchValue('games')).toBe(false);
+    expect(switchValue('groups')).toBe(true);
   });
 
   it('rolls the switch back and reports when saving fails', async () => {

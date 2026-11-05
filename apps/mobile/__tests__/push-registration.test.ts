@@ -10,7 +10,16 @@ import {
 } from '@/notifications/push-registration';
 import * as webRegistration from '@/notifications/push-registration.web';
 
-import { memoryStorage } from '../test-utils/session';
+import { deferred, memoryStorage } from '../test-utils/session';
+
+async function flushMicrotasks() {
+  for (let i = 0; i < 20; i += 1) await Promise.resolve();
+}
+
+async function waitForCall(fn: { mock: { calls: unknown[] } }) {
+  for (let i = 0; i < 50 && fn.mock.calls.length === 0; i += 1) await Promise.resolve();
+  expect(fn).toHaveBeenCalled();
+}
 
 jest.mock('expo-notifications', () => ({
   AndroidImportance: { DEFAULT: 3 },
@@ -149,7 +158,7 @@ describe('push registration', () => {
     expect(unregisterPushDevice).not.toHaveBeenCalled();
   });
 
-  it('re-registers when the OS rotates the push token', () => {
+  it('passes the rotated device token to the watcher', () => {
     Platform.OS = 'ios';
     const remove = jest.fn();
     mocked.addPushTokenListener.mockReturnValue({ remove });
@@ -158,8 +167,83 @@ describe('push registration', () => {
     const stop = watchPushTokenChanges(onChange);
     mocked.addPushTokenListener.mock.calls[0]![0]({ type: 'ios', data: 'device-token' });
     expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ type: 'ios', data: 'device-token' });
     stop();
     expect(remove).toHaveBeenCalled();
+  });
+
+  it('exchanges a rotated device token without asking the OS again (no listener loop)', async () => {
+    Platform.OS = 'ios';
+    mocked.getPermissionsAsync.mockResolvedValue(permission('granted'));
+    let listener: ((token: Notifications.DevicePushToken) => void) | null = null;
+    mocked.addPushTokenListener.mockImplementation((l) => {
+      listener = l;
+      return { remove: jest.fn() };
+    });
+    const registrations: Promise<unknown>[] = [];
+    watchPushTokenChanges((token) => {
+      registrations.push(registerForPushNotifications({ devicePushToken: token }));
+    });
+    // Mirrors the SDK: without a supplied device token, getExpoPushTokenAsync asks the OS for one,
+    // and on iOS that registration completes by firing the token listener again (capped here).
+    let reacquired = 0;
+    mocked.getExpoPushTokenAsync.mockImplementation(async (options) => {
+      if (!options?.devicePushToken && reacquired < 5) {
+        reacquired += 1;
+        listener!({ type: 'ios', data: 'device-token' });
+      }
+      return { type: 'expo', data: 'ExponentPushToken[rotated]' };
+    });
+
+    listener!({ type: 'ios', data: 'rotated-device-token' });
+    for (let settled = 0; settled < registrations.length;) {
+      settled = registrations.length;
+      await Promise.all(registrations);
+    }
+
+    expect(reacquired).toBe(0);
+    expect(mocked.getExpoPushTokenAsync).toHaveBeenCalledTimes(1);
+    expect(mocked.getExpoPushTokenAsync).toHaveBeenCalledWith({
+      projectId: 'project-123',
+      devicePushToken: { type: 'ios', data: 'rotated-device-token' },
+    });
+    expect(registerPushDevice).toHaveBeenCalledTimes(1);
+    expect(registerPushDevice).toHaveBeenCalledWith(
+      expect.objectContaining({ expoToken: 'ExponentPushToken[rotated]' }),
+    );
+  });
+
+  it('stops without registering when cancelled while the token is being fetched', async () => {
+    Platform.OS = 'ios';
+    mocked.getPermissionsAsync.mockResolvedValue(permission('granted'));
+    const token = deferred<Notifications.ExpoPushToken>();
+    mocked.getExpoPushTokenAsync.mockReturnValue(token.promise);
+    const controller = new AbortController();
+
+    let settled = false;
+    const pending = registerForPushNotifications({ signal: controller.signal }).finally(() => {
+      settled = true;
+    });
+    await waitForCall(mocked.getExpoPushTokenAsync);
+    controller.abort();
+    await flushMicrotasks();
+    // Settles right away, without waiting for the token that may never come.
+    expect(settled).toBe(true);
+    await expect(pending).resolves.toBeNull();
+
+    token.resolve({ type: 'expo', data: 'ExponentPushToken[late]' });
+    await flushMicrotasks();
+    expect(registerPushDevice).not.toHaveBeenCalled();
+  });
+
+  it('does not start a registration that was cancelled before it began', async () => {
+    Platform.OS = 'ios';
+    mocked.getPermissionsAsync.mockResolvedValue(permission('granted'));
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(registerForPushNotifications({ signal: controller.signal })).resolves.toBeNull();
+    expect(registerPushDevice).not.toHaveBeenCalled();
   });
 
   it('on web: registration, unregistration and token watching are no-ops', async () => {

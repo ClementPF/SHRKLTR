@@ -8,6 +8,7 @@ import { requestDevSession } from '@/auth/devSession';
 import { SESSION_STORAGE_KEY } from '@/auth/storage';
 
 import { ApiError, SESSION_EXPIRED } from '@/api/errors';
+import type { DevicePushToken, PushRegistrationOptions } from '@/notifications/push-types';
 
 import { deferred, makeSession, memoryStorage, testUser } from '../test-utils/session';
 
@@ -341,10 +342,12 @@ describe('SessionProvider', () => {
 describe('SessionProvider push lifecycle', () => {
   beforeEach(() => jest.clearAllMocks());
 
+  const ROTATED: DevicePushToken = { type: 'ios', data: 'rotated-device-token' };
+
   async function renderSignedIn(props: {
     unregisterPush: () => Promise<void>;
-    watchPushToken?: (onChange: () => void) => () => void;
-    registerPush?: () => Promise<string | null>;
+    watchPushToken?: (onChange: (token: DevicePushToken) => void) => () => void;
+    registerPush?: (options?: PushRegistrationOptions) => Promise<string | null>;
   }) {
     const { storage } = memoryStorage({ [SESSION_STORAGE_KEY]: JSON.stringify(makeSession()) });
     await render(
@@ -412,14 +415,16 @@ describe('SessionProvider push lifecycle', () => {
     }
   });
 
-  it('re-registers on token rotation while signed in and stops watching on sign-out', async () => {
+  it('re-registers with the rotated device token while signed in and stops watching on sign-out', async () => {
     const stop = jest.fn();
-    let onRotate: (() => void) | null = null;
-    const watchPushToken = jest.fn((onChange: () => void) => {
+    let onRotate: ((token: DevicePushToken) => void) | null = null;
+    const watchPushToken = jest.fn((onChange: (token: DevicePushToken) => void) => {
       onRotate = onChange;
       return stop;
     });
-    const registerPush = jest.fn(async () => null);
+    const registerPush = jest.fn<Promise<string | null>, [PushRegistrationOptions?]>(
+      async () => null,
+    );
     const label = await renderSignedIn({
       unregisterPush: jest.fn(async () => undefined),
       watchPushToken,
@@ -427,13 +432,176 @@ describe('SessionProvider push lifecycle', () => {
     });
     expect(registerPush).toHaveBeenCalledTimes(1);
 
-    await act(async () => onRotate!());
+    await act(async () => onRotate!(ROTATED));
     expect(registerPush).toHaveBeenCalledTimes(2);
+    expect(registerPush.mock.calls[1]![0]).toEqual(
+      expect.objectContaining({ devicePushToken: ROTATED }),
+    );
 
     await act(async () => {
       label.props.onPress();
     });
     expect(await screen.findByText('unauthenticated:none')).toBeTruthy();
     expect(stop).toHaveBeenCalled();
+  });
+
+  it('stops watching and ignores rotations as soon as logout starts', async () => {
+    const stop = jest.fn();
+    let onRotate: ((token: DevicePushToken) => void) | null = null;
+    const watchPushToken = jest.fn((onChange: (token: DevicePushToken) => void) => {
+      onRotate = onChange;
+      return stop;
+    });
+    const registerPush = jest.fn<Promise<string | null>, [PushRegistrationOptions?]>(
+      async () => null,
+    );
+    const unregistering = deferred<void>();
+    const label = await renderSignedIn({
+      unregisterPush: jest.fn(() => unregistering.promise),
+      watchPushToken,
+      registerPush,
+    });
+    expect(registerPush).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      label.props.onPress();
+    });
+    // Logout is still waiting for the server, yet the watcher is already gone.
+    expect(screen.getByText('authenticated:dev-alex')).toBeTruthy();
+    expect(stop).toHaveBeenCalled();
+    await act(async () => onRotate!(ROTATED));
+    expect(registerPush).toHaveBeenCalledTimes(1);
+
+    await act(async () => unregistering.resolve());
+    expect(await screen.findByText('unauthenticated:none')).toBeTruthy();
+    expect(registerPush).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers again when the same user signs back in after logout', async () => {
+    const { storage } = memoryStorage({ [SESSION_STORAGE_KEY]: JSON.stringify(makeSession()) });
+    jest
+      .mocked(requestDevSession)
+      .mockResolvedValueOnce(makeSession({ refreshToken: 'refresh-2' }));
+    const registerPush = jest.fn<Promise<string | null>, [PushRegistrationOptions?]>(
+      async () => null,
+    );
+    await render(
+      <SessionProvider
+        store={createSessionStore(storage)}
+        registerPush={registerPush}
+        unregisterPush={jest.fn(async () => undefined)}
+        watchPushToken={() => () => undefined}
+      >
+        <Probe />
+        <LoginProbe />
+      </SessionProvider>,
+    );
+    const [label] = await screen.findAllByText('authenticated:dev-alex');
+    expect(registerPush).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      label!.props.onPress();
+    });
+    expect((await screen.findAllByText('unauthenticated:none')).length).toBeGreaterThan(0);
+    await act(async () => {
+      screen.getByText('dev').props.onPress();
+    });
+
+    expect((await screen.findAllByText('authenticated:dev-alex')).length).toBeGreaterThan(0);
+    expect(registerPush).toHaveBeenCalledTimes(2);
+    expect(registerPush.mock.calls[1]![0]!.signal!.aborted).toBe(false);
+  });
+
+  /**
+   * A stand-in for registerForPushNotifications against a fake server: the token fetch and the
+   * POST are separately controllable, and every server write is recorded in order.
+   */
+  function fakePushServer() {
+    const events: string[] = [];
+    const tokenFetch = deferred<void>();
+    const write = deferred<void>();
+    const registered = new Set<string>();
+    const registerPush = jest.fn(async (options?: PushRegistrationOptions) => {
+      await new Promise<void>((resolve) => {
+        void tokenFetch.promise.then(resolve);
+        options?.signal?.addEventListener('abort', () => resolve());
+      });
+      if (options?.signal?.aborted) return null;
+      events.push('register-sent');
+      await write.promise;
+      registered.add('install-1');
+      events.push('register-saved');
+      return 'ExponentPushToken[abc]';
+    });
+    const unregisterPush = jest.fn(async () => {
+      registered.delete('install-1');
+      events.push('unregister');
+    });
+    jest.mocked(logoutSession).mockImplementationOnce(async () => {
+      events.push('logout');
+    });
+    return { events, tokenFetch, write, registered, registerPush, unregisterPush };
+  }
+
+  it('cancels a registration still fetching its token, so it never writes after logout', async () => {
+    const server = fakePushServer();
+    const label = await renderSignedIn(server);
+    expect(server.registerPush).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      label.props.onPress();
+    });
+    expect(await screen.findByText('unauthenticated:none')).toBeTruthy();
+
+    await act(async () => {
+      server.tokenFetch.resolve();
+      server.write.resolve();
+    });
+    expect(server.events).toEqual(['unregister', 'logout']);
+    expect(server.registered.size).toBe(0);
+  });
+
+  it('runs the final unregister only after an in-flight registration write lands', async () => {
+    const server = fakePushServer();
+    server.tokenFetch.resolve();
+    const label = await renderSignedIn(server);
+    await act(async () => undefined);
+    expect(server.events).toEqual(['register-sent']);
+
+    await act(async () => {
+      label.props.onPress();
+    });
+    expect(server.unregisterPush).not.toHaveBeenCalled();
+
+    await act(async () => server.write.resolve());
+    expect(await screen.findByText('unauthenticated:none')).toBeTruthy();
+    expect(server.events).toEqual(['register-sent', 'register-saved', 'unregister', 'logout']);
+    expect(server.registered.size).toBe(0);
+  });
+
+  it('still signs out within the time limit when a registration write never finishes', async () => {
+    jest.useFakeTimers();
+    try {
+      const server = fakePushServer();
+      server.tokenFetch.resolve();
+      const label = await renderSignedIn(server);
+      await act(async () => undefined);
+      expect(server.events).toEqual(['register-sent']);
+
+      await act(async () => {
+        label.props.onPress();
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(screen.getByText('unauthenticated:none')).toBeTruthy();
+      expect(logoutSession).toHaveBeenCalledWith('refresh-1');
+      // The unregister that was skipped for time must not fire later without a session.
+      await act(async () => server.write.resolve());
+      expect(server.unregisterPush).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });
