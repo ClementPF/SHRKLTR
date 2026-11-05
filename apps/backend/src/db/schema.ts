@@ -1,11 +1,13 @@
 import { sql } from 'drizzle-orm';
 import { ACHIEVEMENT_CODES } from '../achievements/catalog.js';
+import type { ShareSnapshot } from '../lib/share-snapshot.js';
 import {
   boolean,
   check,
   doublePrecision,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -511,5 +513,37 @@ export const pushDevices = pgTable(
       'push_devices_installation_id_length_check',
       sql`char_length(${t.installationId}) between 1 and 200`,
     ),
+  ],
+);
+
+/**
+ * Public result links. Unlike claim and invite credentials the token is stored as is, because the
+ * issuer can retrieve their reusable link again. The snapshot is fixed at issuance.
+ */
+export const gameShares = pgTable(
+  'game_shares',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    gameId: uuid('game_id')
+      .notNull()
+      .references(() => games.id, { onDelete: 'cascade' }),
+    createdByUserId: uuid('created_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    token: text('token').notNull().unique(),
+    snapshot: jsonb('snapshot').$type<ShareSnapshot>().notNull(),
+    templateVersion: integer('template_version').notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('game_shares_game_creator_created_idx').on(
+      t.gameId,
+      t.createdByUserId,
+      t.createdAt.desc(),
+    ),
+    uniqueIndex('game_shares_active_issuer_unique')
+      .on(t.gameId, t.createdByUserId)
+      .where(sql`${t.revokedAt} is null`),
   ],
 );

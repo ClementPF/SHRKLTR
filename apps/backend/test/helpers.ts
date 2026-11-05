@@ -21,6 +21,7 @@ import {
 } from '../src/db/schema.js';
 import { generateCapabilityToken, hashCapabilityToken } from '../src/lib/capability-token.js';
 import type { LogDestination } from '../src/lib/logger.js';
+import type { ShareSnapshot } from '../src/lib/share-snapshot.js';
 import { TEST_DATABASE_URL } from './test-env.js';
 
 export const testEnv: Record<string, string> = {
@@ -45,6 +46,7 @@ export interface BuildTestAppOptions {
   env?: Record<string, string>;
   logger?: false | LogDestination;
   clock?: () => Date;
+  renderShareCard?: (snapshot: ShareSnapshot) => Promise<Buffer>;
 }
 
 /** Returns an app that is not yet ready, so tests may still register extra routes. */
@@ -53,6 +55,7 @@ export async function buildTestApp(opts: BuildTestAppOptions = {}): Promise<Fast
     config: testConfig(opts.env),
     logger: opts.logger ?? false,
     ...(opts.clock ? { clock: opts.clock } : {}),
+    ...(opts.renderShareCard ? { renderShareCard: opts.renderShareCard } : {}),
   });
 }
 

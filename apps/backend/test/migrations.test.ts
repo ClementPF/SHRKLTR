@@ -26,13 +26,14 @@ describe('committed migrations', () => {
     await db.$client.end({ timeout: 5 });
   });
 
-  it('create all 19 tables', async () => {
+  it('create all 20 tables', async () => {
     const rows = await db.execute<{ tablename: string }>(
       sql`select tablename from pg_tables where schemaname = 'public' order by tablename`,
     );
     expect(rows.map((r) => r.tablename)).toEqual([
       'app_invites',
       'challenges',
+      'game_shares',
       'games',
       'group_invites',
       'group_members',
@@ -396,6 +397,56 @@ describe('committed migrations', () => {
     ]);
   });
 
+  it('add game_shares with unique tokens, one active link per issuer and cascading references', async () => {
+    const indexes = await db.execute<{ indexname: string; indexdef: string }>(
+      sql`select indexname, indexdef from pg_indexes where schemaname = 'public' and tablename = 'game_shares'`,
+    );
+    const defs = new Map(indexes.map((r) => [r.indexname, r.indexdef]));
+    expect(defs.get('game_shares_active_issuer_unique')).toContain(
+      'UNIQUE INDEX game_shares_active_issuer_unique ON public.game_shares USING btree (game_id, created_by_user_id) WHERE (revoked_at IS NULL)',
+    );
+    expect(defs.get('game_shares_game_creator_created_idx')).toContain(
+      '(game_id, created_by_user_id, created_at DESC',
+    );
+    expect(
+      [...defs.values()].some((d) =>
+        d.startsWith(
+          'CREATE UNIQUE INDEX game_shares_token_key ON public.game_shares USING btree (token)',
+        ),
+      ),
+    ).toBe(true);
+
+    const columns = await db.execute<{
+      column_name: string;
+      data_type: string;
+      is_nullable: string;
+    }>(
+      sql`select column_name, data_type, is_nullable from information_schema.columns
+          where table_schema = 'public' and table_name = 'game_shares' order by column_name`,
+    );
+    expect(columns).toEqual([
+      { column_name: 'created_at', data_type: 'timestamp with time zone', is_nullable: 'NO' },
+      { column_name: 'created_by_user_id', data_type: 'uuid', is_nullable: 'NO' },
+      { column_name: 'game_id', data_type: 'uuid', is_nullable: 'NO' },
+      { column_name: 'id', data_type: 'uuid', is_nullable: 'NO' },
+      { column_name: 'revoked_at', data_type: 'timestamp with time zone', is_nullable: 'YES' },
+      { column_name: 'snapshot', data_type: 'jsonb', is_nullable: 'NO' },
+      { column_name: 'template_version', data_type: 'integer', is_nullable: 'NO' },
+      { column_name: 'token', data_type: 'text', is_nullable: 'NO' },
+    ]);
+
+    const fks = await db.execute<{ column: string; on_delete: string }>(
+      sql`select kcu.column_name as column, rc.delete_rule as on_delete
+          from information_schema.referential_constraints rc
+          join information_schema.key_column_usage kcu on kcu.constraint_name = rc.constraint_name
+          where kcu.table_name = 'game_shares' order by kcu.column_name`,
+    );
+    expect(fks).toEqual([
+      { column: 'created_by_user_id', on_delete: 'CASCADE' },
+      { column: 'game_id', on_delete: 'CASCADE' },
+    ]);
+  });
+
   it('keep the legacy longuest_* column spelling', async () => {
     const rows = await db.execute<{ column_name: string }>(
       sql`select column_name from information_schema.columns
@@ -449,7 +500,7 @@ describe('boot-time migrator (runMigrations)', () => {
     await runMigrations(scratchUrl);
     const { names, tables } = await journal(scratchUrl);
     expect(names).toEqual(migrationFolders.map((d) => d.name).sort());
-    expect(tables).toBe(19);
+    expect(tables).toBe(20);
   });
 
   it('is a no-op when every migration is already applied', async () => {

@@ -126,6 +126,10 @@ describe('API docs', () => {
         '/groups/{id}/invites',
         '/groups/{id}/invites/{inviteId}',
         '/invites/group/{token}',
+        '/games/{id}/share',
+        '/games/{id}/share/{shareId}',
+        '/s/{token}',
+        '/s/{token}.png',
       ]),
     );
     const games = doc.paths['/tournaments/{name}/games'];
@@ -219,6 +223,7 @@ describe('API docs', () => {
       'ChallengeStatus',
       'CreateChallengeRequest',
       'ChallengeResponseRequest',
+      'GameShare',
     ]) {
       expect(doc.components.schemas[schema]).toBeDefined();
     }
@@ -241,9 +246,17 @@ describe('API docs', () => {
         'achievements',
         'groups',
         'challenges',
+        'shares',
       ]),
     );
     expect(doc.paths['/invites/group/{token}'].get.security).toBeUndefined();
+    expect(doc.paths['/s/{token}'].get.security).toBeUndefined();
+    expect(doc.paths['/s/{token}.png'].get.security).toBeUndefined();
+    expect(doc.paths['/games/{id}/share'].post.security).toEqual([{ bearerAuth: [] }]);
+    expect(doc.paths['/games/{id}/share/{shareId}'].delete.security).toEqual([{ bearerAuth: [] }]);
+    expect(
+      doc.paths['/games/{id}/share'].post.responses['201'].content['application/json'].schema.$ref,
+    ).toBe('#/components/schemas/GameShare');
     expect(doc.paths['/groups/join'].post.security).toEqual([{ bearerAuth: [] }]);
     expect(doc.components.schemas.GroupInvite.properties.url).toBeUndefined();
     expect(doc.components.schemas.GroupInvite.properties.code).toBeUndefined();
