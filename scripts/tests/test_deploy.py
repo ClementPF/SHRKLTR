@@ -1,8 +1,10 @@
 import fcntl
 import importlib.util
 import logging
+import os
 from pathlib import Path
 import plistlib
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -225,6 +227,23 @@ class DeployTests(unittest.TestCase):
         with patch.object(deploy.Deployer, "deploy") as run:
             self.assertEqual(deploy.main(self.argv), 0)
             run.assert_called_once()
+
+    def test_main_keeps_process_umask_and_state_stays_private(self):
+        previous = os.umask(0o022)
+        self.addCleanup(os.umask, previous)
+        with patch.object(deploy.Deployer, "deploy"):
+            self.assertEqual(deploy.main(self.argv), 0)
+        current = os.umask(0o022)
+        self.assertEqual(current, 0o022)
+        self.assertEqual(stat.S_IMODE(self.state.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((self.state / "deploy.log").stat().st_mode), 0o600)
+
+    def test_backups_are_private(self):
+        self.deployer.deploy()
+        backups = self.state / "backups"
+        self.assertEqual(stat.S_IMODE(backups.stat().st_mode), 0o700)
+        for dump in backups.glob("*.dump"):
+            self.assertEqual(stat.S_IMODE(dump.stat().st_mode), 0o600)
 
     def test_command_failure_logs_output(self):
         with patch("subprocess.run") as run:
