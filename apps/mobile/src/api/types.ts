@@ -92,6 +92,8 @@ export interface GoogleCodeExchangeRequest {
   code: string;
   codeVerifier: string;
   redirectUri: string;
+  /** Claims a placeholder; only accepted for a Google account that is new to Sharkulator. */
+  claimToken?: string;
 }
 
 export interface ErrorEnvelope {
@@ -122,4 +124,48 @@ export interface UpdateTournamentRequest {
 
 export interface SubmitGameRequest {
   outcomes: { username: string; result: GameResult }[];
+}
+
+export interface CreatePlaceholderRequest {
+  displayName: string;
+}
+
+/** POST /players/placeholders and POST /players/:id/claim-link. claimUrl is only ever issued here. */
+export interface PlaceholderClaimLink {
+  user: User;
+  claimUrl: string;
+  /** ISO-8601 UTC timestamp. */
+  claimExpiresAt: string;
+}
+
+export type InvitedPlayerStatus = 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'CLAIMED';
+
+/** GET /players/invited row: lifecycle metadata only, never the claim token. */
+export interface InvitedPlayer {
+  user: User;
+  status: InvitedPlayerStatus;
+  claimExpiresAt: string;
+  claimRevokedAt: string | null;
+  claimedAt: string | null;
+}
+
+/** Public GET /invites/claim/:token. */
+export interface ClaimPreview {
+  player: User;
+  invitedBy: User | null;
+  expiresAt: string;
+  /** Games played in open tournaments. */
+  gamesCount: number;
+  recentGames: Game[];
+  stats: Stats[];
+}
+
+/** POST /invites/app: the caller's reusable invitation link, returned only when issued. */
+export interface AppInvite {
+  url: string;
+}
+
+/** Public GET /invites/app/:token. */
+export interface AppInvitePreview {
+  invitedBy: User;
 }

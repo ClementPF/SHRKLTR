@@ -19,6 +19,9 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      {/* Public capability links: reachable signed in or out. */}
+      <Stack.Screen name="invite/claim/[token]" />
+      <Stack.Screen name="invite/app/[token]" />
       <Stack.Protected guard={!!session}>
         <Stack.Screen name="(app)" />
       </Stack.Protected>

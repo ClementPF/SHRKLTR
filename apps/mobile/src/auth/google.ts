@@ -10,7 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
-import { GOOGLE_CLIENT_ID } from '@/api/config';
+import { GOOGLE_CLIENT_ID, WEB_URL } from '@/api/config';
 import type { GoogleCodeExchangeRequest } from '@/api/types';
 
 // Authorization endpoint only: the code is redeemed by the backend (POST /auth/google/code),
@@ -21,8 +21,11 @@ export const GOOGLE_DISCOVERY: DiscoveryDocument = {
 
 export const GOOGLE_SCOPES = ['openid', 'email', 'profile'];
 
-/** Must match the authorized redirect URI registered for the Google web client. */
-export const GOOGLE_WEB_REDIRECT_URI = 'http://localhost:8081';
+/**
+ * Must match an authorized redirect URI of the Google web client (and the backend allowlist).
+ * Derived from EXPO_PUBLIC_WEB_URL so a deployed web app redirects to its own origin.
+ */
+export const GOOGLE_WEB_REDIRECT_URI = WEB_URL;
 export const GOOGLE_NATIVE_REDIRECT_URI = 'com.elo.sharkulator:/oauthredirect';
 
 export function googleRedirectUri(os: string = Platform.OS): string {

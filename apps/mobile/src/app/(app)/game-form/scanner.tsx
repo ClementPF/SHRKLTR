@@ -5,7 +5,7 @@ import { ScannerScreen } from '@/features/game-form/scanner-screen';
 import { Colors } from '@/theme';
 
 export default function ScannerRoute() {
-  const username = useSession().user?.username;
+  const user = useSession().user;
   return (
     <>
       <Stack.Screen
@@ -16,7 +16,7 @@ export default function ScannerRoute() {
           headerTintColor: Colors.text,
         }}
       />
-      <ScannerScreen username={username} />
+      <ScannerScreen username={user?.username} userId={user?.id} />
     </>
   );
 }

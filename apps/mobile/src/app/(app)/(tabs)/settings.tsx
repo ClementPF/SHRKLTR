@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -23,6 +24,18 @@ export default function SettingsScreen() {
     <View style={styles.container}>
       <View style={styles.content}>
         {user && <Text style={Typography.bodySecondary}>Signed in as {user.username}</Text>}
+        <Button
+          title="Invite to Sharkulator"
+          variant="secondary"
+          onPress={() => router.push('/settings/invite')}
+          style={styles.button}
+        />
+        <Button
+          title="Invited players"
+          variant="secondary"
+          onPress={() => router.push('/settings/invited-players')}
+          style={styles.button}
+        />
         <Button
           title="LOGOUT"
           loading={pending}

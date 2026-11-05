@@ -13,6 +13,7 @@ import {
 import { flattenPages } from '@/features/users/queries';
 import { useErrorAlert } from '@/features/users/use-error-alert';
 import { rankStats } from '@/lib/tournaments';
+import { isPlaceholder } from '@/lib/users';
 import { Colors, Palette, Spacing } from '@/theme';
 
 import { useTournamentGames, useTournamentLeaderboard } from './queries';
@@ -74,6 +75,7 @@ export function TournamentScreen({ name, viewer }: TournamentScreenProps) {
         position={position}
         name={stats.user.username}
         score={stats.score}
+        unclaimed={isPlaceholder(stats.user)}
         onPress={() => openUserDetail(stats.user.username, name)}
       />
     ),

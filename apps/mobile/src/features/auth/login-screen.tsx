@@ -1,10 +1,17 @@
 import { useCallback, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { router } from 'expo-router';
+
 import { Button } from '@/components/button';
-import { useGoogleSignIn } from '@/auth/google';
 import { DEV_USERNAMES, isDevSessionEnabled } from '@/auth/devSession';
+import type { PendingClaim } from '@/auth/pending-claim';
 import { useSession } from '@/auth/session';
+import {
+  NEW_ACCOUNT_ONLY_TEXT,
+  useClaimSignIn,
+  usePendingClaim,
+} from '@/features/invites/claim-sign-in';
 import { versionLabel } from '@/lib/app-info';
 import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
 
@@ -87,9 +94,29 @@ export interface LoginScreenProps {
   devSignInEnabled?: boolean;
 }
 
+function PendingClaimBanner({ claim, onCancel }: { claim: PendingClaim; onCancel(): void }) {
+  return (
+    <View style={styles.claim} testID="pending-claim">
+      <Text style={styles.devTitle}>CLAIMING A PLAYER</Text>
+      <Text style={Typography.body}>
+        You are claiming the profile of {claim.playerName}. {NEW_ACCOUNT_ONLY_TEXT}
+      </Text>
+      <Button
+        title="View invitation"
+        variant="secondary"
+        onPress={() =>
+          router.replace({ pathname: '/invite/claim/[token]', params: { token: claim.token } })
+        }
+      />
+      <Button title="Cancel claim" variant="secondary" onPress={onCancel} />
+    </View>
+  );
+}
+
 export function LoginScreen({ devSignInEnabled = isDevSessionEnabled() }: LoginScreenProps) {
-  const { loginWithGoogleCode } = useSession();
-  const google = useGoogleSignIn(loginWithGoogleCode);
+  const { pending, discard } = usePendingClaim();
+  const google = useClaimSignIn(pending);
+  const googleTitle = pending ? 'Claim with Google' : 'Continue with Google';
 
   return (
     <ScrollView style={Palette.screen} contentContainerStyle={styles.container}>
@@ -99,9 +126,11 @@ export function LoginScreen({ devSignInEnabled = isDevSessionEnabled() }: LoginS
         <Text style={styles.welcome}>{WELCOME_TEXT}</Text>
       </View>
 
+      {pending && <PendingClaimBanner claim={pending} onCancel={discard} />}
+
       <View style={styles.actions}>
         <Button
-          title={google.status === 'pending' ? 'Signing in…' : 'Continue with Google'}
+          title={google.status === 'pending' ? 'Signing in…' : googleTitle}
           loading={google.status === 'pending'}
           disabled={!google.ready}
           onPress={() => void google.signIn()}
@@ -143,6 +172,7 @@ const styles = StyleSheet.create({
   },
   errorText: { ...Typography.body, color: Colors.errorText },
   dev: { ...Palette.card, gap: Spacing.sm },
+  claim: { ...Palette.card, borderColor: Colors.accent, gap: Spacing.sm },
   devTitle: { ...Typography.caption, letterSpacing: 2 },
   input: {
     ...Typography.body,

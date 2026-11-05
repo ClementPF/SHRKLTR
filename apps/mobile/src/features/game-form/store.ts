@@ -12,6 +12,8 @@ interface GameFormState {
   /** Picking another tournament drops the scans made for the previous one. */
   selectTournament(tournament: Tournament): void;
   scan(raw: string): ScanResult | null;
+  /** Adds a player picked or created without scanning; repeated players are ignored. */
+  addPlayer(outcome: ScannedOutcome): 'added' | 'duplicate';
   resetOutcomes(): void;
 }
 
@@ -33,6 +35,12 @@ export const useGameFormStore = create<GameFormState>((set, get) => ({
     const result = applyScan(outcomes, raw, tournament.name);
     if (result.status === 'added') set({ outcomes: result.outcomes });
     return result;
+  },
+  addPlayer: (outcome) => {
+    const { outcomes } = get();
+    if (outcomes.some((o) => o.username === outcome.username)) return 'duplicate';
+    set({ outcomes: [...outcomes, outcome] });
+    return 'added';
   },
   resetOutcomes: () => {
     const { owner } = get();

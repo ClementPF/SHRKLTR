@@ -13,6 +13,7 @@ import { QrScanner } from '@/components/qr-scanner';
 import { buildQrPayload, encodeQrPayload, submissionBlocker, type ScannedOutcome } from '@/lib/qr';
 import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
 
+import { AddPlayers } from './add-players';
 import { useGameFormTournament, useSubmitGame } from './queries';
 import { useGameFormStore } from './store';
 import { GameFormTournamentHeader } from './tournament-header';
@@ -68,7 +69,13 @@ function handleScan(raw: string) {
   }
 }
 
-export function ScannerScreen({ username }: { username: string | undefined }) {
+export interface ScannerScreenProps {
+  username: string | undefined;
+  /** Signed-in account id; links issued for players added by name are kept for it. */
+  userId?: string;
+}
+
+export function ScannerScreen({ username, userId }: ScannerScreenProps) {
   const { tournament, loading } = useGameFormTournament(username);
   return (
     <ScrollView
@@ -77,12 +84,22 @@ export function ScannerScreen({ username }: { username: string | undefined }) {
       keyboardShouldPersistTaps="handled"
     >
       <GameFormTournamentHeader tournament={tournament} loading={loading} />
-      {tournament && username && <ScannerBody username={username} tournament={tournament} />}
+      {tournament && username && (
+        <ScannerBody username={username} userId={userId} tournament={tournament} />
+      )}
     </ScrollView>
   );
 }
 
-function ScannerBody({ username, tournament }: { username: string; tournament: Tournament }) {
+function ScannerBody({
+  username,
+  userId,
+  tournament,
+}: {
+  username: string;
+  userId: string | undefined;
+  tournament: Tournament;
+}) {
   const [mode, setMode] = useState<'scan' | 'show'>('scan');
   const [confirming, setConfirming] = useState(false);
   const outcomes = useGameFormStore((s) => s.outcomes);
@@ -132,6 +149,7 @@ function ScannerBody({ username, tournament }: { username: string; tournament: T
           <QrDisplay value={encodeQrPayload(buildQrPayload(username, tournament.name, 'LOSS'))} />
         </>
       )}
+      {mode === 'scan' && <AddPlayers ownerId={userId} />}
       <OutcomeColumns
         testID="scanned-outcomes"
         winners={members(outcomes, 'WIN')}

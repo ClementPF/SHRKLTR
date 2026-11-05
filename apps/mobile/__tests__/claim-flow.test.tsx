@@ -1,0 +1,436 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import * as AuthSession from 'expo-auth-session';
+import type { AuthSessionResult } from 'expo-auth-session';
+import { router } from 'expo-router';
+import type { ReactElement } from 'react';
+
+import * as endpoints from '@/api/endpoints';
+import { exchangeGoogleCode } from '@/api/endpoints';
+import { ApiError } from '@/api/errors';
+import type { ClaimPreview, Game, User } from '@/api/types';
+import { GOOGLE_WEB_REDIRECT_URI, googleRedirectUri } from '@/auth/google';
+import {
+  PENDING_CLAIM_KEY,
+  PENDING_CLAIM_TTL_MS,
+  clearPendingClaim,
+  getPendingIntentStorage,
+  readPendingClaim,
+  savePendingClaim,
+} from '@/auth/pending-claim';
+import { useSession, type SessionContextValue } from '@/auth/session';
+import { LoginScreen } from '@/features/auth/login-screen';
+import {
+  CLAIM_UNUSABLE_TEXT,
+  EXISTING_ACCOUNT_TEXT,
+  NEW_ACCOUNT_ONLY_TEXT,
+} from '@/features/invites/claim-sign-in';
+import { CLAIM_UNUSABLE_TITLE, ClaimScreen } from '@/features/invites/claim-screen';
+
+import { jsonResponse, makeSession, memoryStorage } from '../test-utils/session';
+
+const mockSecureStore = new Map<string, string>();
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async (key: string) => mockSecureStore.get(key) ?? null),
+  setItemAsync: jest.fn(async (key: string, value: string) => {
+    mockSecureStore.set(key, value);
+  }),
+  deleteItemAsync: jest.fn(async (key: string) => {
+    mockSecureStore.delete(key);
+  }),
+}));
+jest.mock('expo-auth-session', () => ({
+  ...jest.requireActual<typeof import('expo-auth-session')>('expo-auth-session'),
+  useAuthRequest: jest.fn(),
+  makeRedirectUri: jest.fn(() => 'com.elo.sharkulator:/oauthredirect'),
+}));
+jest.mock('@/api/endpoints', () => ({
+  ...jest.requireActual<typeof import('@/api/endpoints')>('@/api/endpoints'),
+  getClaimPreview: jest.fn(),
+}));
+jest.mock('@/auth/session', () => ({ useSession: jest.fn() }));
+jest.mock('@/api/config', () => ({
+  ...jest.requireActual<typeof import('@/api/config')>('@/api/config'),
+  GOOGLE_CLIENT_ID: 'test-client-id',
+}));
+jest.mock('expo-router', () => {
+  const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    router: { push: jest.fn(), replace: jest.fn(), navigate: jest.fn() },
+    Redirect: ({ href }: { href: string }) => <Text testID="redirect">{href}</Text>,
+  };
+});
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
+}));
+
+const mockedUseAuthRequest = jest.mocked(AuthSession.useAuthRequest);
+const mockedSession = jest.mocked(useSession);
+const getClaimPreview = jest.mocked(endpoints.getClaimPreview);
+
+const TOKEN = 'claim-token-abc';
+
+const placeholder: User = {
+  id: 'p-riley',
+  username: 'guest-riley',
+  accountType: 'PLACEHOLDER',
+  firstName: 'Riley',
+  lastName: 'Guest',
+  pictureUrl: null,
+  locale: null,
+};
+const creator: User = {
+  ...placeholder,
+  id: 'u-alex',
+  username: 'dev-alex',
+  accountType: 'REGISTERED',
+  firstName: 'Alex',
+  lastName: 'Martin',
+};
+
+const previewGame: Game = {
+  id: 'g1',
+  date: new Date(Date.now() - 3_600_000).toISOString(),
+  tournament: {
+    id: 't1',
+    name: 'officebabyfoot',
+    displayName: 'Office Babyfoot',
+    isOver: false,
+    sport: { id: 's1', name: 'babyfoot' },
+    owner: null,
+  },
+  outcomes: [
+    { id: 'o1', result: 'WIN', scoreValue: 16, ratingBefore: 1000, user: placeholder },
+    { id: 'o2', result: 'LOSS', scoreValue: -16, ratingBefore: 1000, user: creator },
+  ],
+};
+
+const preview: ClaimPreview = {
+  player: placeholder,
+  invitedBy: creator,
+  expiresAt: '2026-12-05T07:00:00.000Z',
+  gamesCount: 1,
+  recentGames: [previewGame],
+  stats: [],
+};
+
+// Mutable Google response the mocked useAuthRequest hands to useGoogleSignIn on each render.
+let authResponse: AuthSessionResult | null = null;
+const promptAsync = jest.fn(async () => ({ type: 'dismiss' }) as AuthSessionResult);
+
+function sessionValue(overrides: Partial<SessionContextValue> = {}): SessionContextValue {
+  return {
+    status: 'unauthenticated',
+    session: null,
+    user: null,
+    loginWithGoogleCode: jest.fn(async () => undefined),
+    loginWithDevUser: jest.fn(async () => undefined),
+    logout: jest.fn(async () => undefined),
+    refresh: jest.fn(async () => false),
+    ...overrides,
+  };
+}
+
+let client: QueryClient;
+function renderWithClient(ui: ReactElement) {
+  client = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: Infinity },
+      mutations: { gcTime: Infinity },
+    },
+  });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
+
+function googleReturns(response: AuthSessionResult) {
+  authResponse = response;
+}
+
+const success = { type: 'success', params: { code: 'auth-code' } } as unknown as AuthSessionResult;
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockSecureStore.clear();
+  authResponse = null;
+  mockedUseAuthRequest.mockImplementation(() => [
+    { codeVerifier: 'v'.repeat(43) } as AuthSession.AuthRequest,
+    authResponse,
+    promptAsync,
+  ]);
+  getClaimPreview.mockResolvedValue(preview);
+});
+
+describe('pending claim storage', () => {
+  it('saves, reads and clears a typed claim intent', async () => {
+    const { storage, data } = memoryStorage();
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' }, storage, 1_000);
+    expect(JSON.parse(data.get(PENDING_CLAIM_KEY)!)).toEqual({
+      type: 'claim',
+      token: TOKEN,
+      playerName: 'Riley Guest',
+      savedAt: 1_000,
+    });
+    await expect(readPendingClaim(storage, 2_000)).resolves.toMatchObject({ token: TOKEN });
+    await clearPendingClaim(storage);
+    await expect(readPendingClaim(storage, 2_000)).resolves.toBeNull();
+  });
+
+  it('drops stale and corrupt intents', async () => {
+    const { storage, data } = memoryStorage();
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley' }, storage, 0);
+    await expect(readPendingClaim(storage, PENDING_CLAIM_TTL_MS + 1)).resolves.toBeNull();
+    expect(data.has(PENDING_CLAIM_KEY)).toBe(false);
+
+    data.set(PENDING_CLAIM_KEY, '{"type":"join","token":"x"}');
+    await expect(readPendingClaim(storage)).resolves.toBeNull();
+    expect(data.has(PENDING_CLAIM_KEY)).toBe(false);
+  });
+
+  it('keeps the web intent in sessionStorage so it survives a reload of the tab', async () => {
+    const values = new Map<string, string>();
+    const fake = {
+      getItem: (k: string) => values.get(k) ?? null,
+      setItem: (k: string, v: string) => void values.set(k, v),
+      removeItem: (k: string) => void values.delete(k),
+    };
+    const original = Object.getOwnPropertyDescriptor(window, 'sessionStorage');
+    Object.defineProperty(window, 'sessionStorage', { value: fake, configurable: true });
+    try {
+      const storage = getPendingIntentStorage('web');
+      await savePendingClaim({ token: TOKEN, playerName: 'Riley' }, storage);
+      expect(values.has(PENDING_CLAIM_KEY)).toBe(true);
+      await expect(readPendingClaim(getPendingIntentStorage('web'))).resolves.toMatchObject({
+        token: TOKEN,
+      });
+    } finally {
+      if (original) Object.defineProperty(window, 'sessionStorage', original);
+      else delete (window as { sessionStorage?: unknown }).sessionStorage;
+    }
+  });
+});
+
+describe('Google exchange payload', () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('forwards claimToken on POST /auth/google/code only when a claim is in progress', async () => {
+    const fetchFn = jest.fn<Promise<Response>, [string, RequestInit]>(async () =>
+      jsonResponse(200, makeSession()),
+    );
+    globalThis.fetch = fetchFn as unknown as typeof fetch;
+    const base = { code: 'c', codeVerifier: 'v', redirectUri: 'http://localhost:8081' };
+
+    await exchangeGoogleCode({ ...base, claimToken: TOKEN });
+    await exchangeGoogleCode(base);
+
+    expect(JSON.parse(fetchFn.mock.calls[0]![1].body as string)).toStrictEqual({
+      ...base,
+      claimToken: TOKEN,
+    });
+    expect(JSON.parse(fetchFn.mock.calls[1]![1].body as string)).toStrictEqual(base);
+    // The claim token never travels in the URL.
+    expect(fetchFn.mock.calls[0]![0]).not.toContain(TOKEN);
+  });
+
+  it('derives the web redirect from EXPO_PUBLIC_WEB_URL (default http://localhost:8081)', () => {
+    expect(GOOGLE_WEB_REDIRECT_URI).toBe('http://localhost:8081');
+    expect(googleRedirectUri('web')).toBe(GOOGLE_WEB_REDIRECT_URI);
+  });
+});
+
+describe('ClaimScreen', () => {
+  it('previews the player publicly with the new-account restriction, without consuming', async () => {
+    mockedSession.mockReturnValue(sessionValue());
+    await renderWithClient(<ClaimScreen token={TOKEN} />);
+
+    expect(await screen.findByText('Riley Guest')).toBeTruthy();
+    expect(screen.getByText('@guest-riley')).toBeTruthy();
+    expect(screen.getAllByText('UNCLAIMED').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('claim-games-count')).toHaveTextContent('1 game played');
+    expect(screen.getByText('Added by Alex Martin')).toBeTruthy();
+    expect(screen.getByText('Only a new account can claim')).toBeTruthy();
+    expect(screen.getByText(NEW_ACCOUNT_ONLY_TEXT)).toBeTruthy();
+    expect(screen.getByTestId('game-row-g1')).toBeTruthy();
+    expect(getClaimPreview).toHaveBeenCalledWith(TOKEN);
+    expect(promptAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows an unusable-link state without any player history for a 404 CLAIM_INVALID', async () => {
+    mockedSession.mockReturnValue(sessionValue());
+    getClaimPreview.mockRejectedValue(new ApiError(404, 'CLAIM_INVALID', 'invalid'));
+    await renderWithClient(<ClaimScreen token="unknown" />);
+
+    expect(await screen.findByText(CLAIM_UNUSABLE_TITLE)).toBeTruthy();
+    expect(screen.getByText(CLAIM_UNUSABLE_TEXT)).toBeTruthy();
+    expect(screen.queryByText('Riley Guest')).toBeNull();
+    expect(screen.queryByLabelText('Claim with Google')).toBeNull();
+    expect(getClaimPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it('stores a pending claim, sends claimToken with the code exchange and clears it on success', async () => {
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await renderWithClient(<ClaimScreen token={TOKEN} />);
+
+    await fireEvent.press(await screen.findByLabelText('Claim with Google'));
+    expect(promptAsync).toHaveBeenCalledTimes(1);
+    await waitFor(async () =>
+      expect(await readPendingClaim()).toMatchObject({ token: TOKEN, playerName: 'Riley Guest' }),
+    );
+    // OAuth request config never carries the claim token.
+    expect(JSON.stringify(mockedUseAuthRequest.mock.lastCall?.[0])).not.toContain(TOKEN);
+
+    googleReturns(success);
+    mockedSession.mockReturnValue(
+      sessionValue({
+        loginWithGoogleCode,
+        session: makeSession({ user: { ...placeholder, accountType: 'REGISTERED' } }),
+      }),
+    );
+    await view.rerender(
+      <QueryClientProvider client={client}>
+        <ClaimScreen token={TOKEN} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+    expect(loginWithGoogleCode).toHaveBeenCalledWith({
+      code: 'auth-code',
+      codeVerifier: 'v'.repeat(43),
+      redirectUri: 'com.elo.sharkulator:/oauthredirect',
+      claimToken: TOKEN,
+    });
+    expect(await screen.findByTestId('redirect')).toHaveTextContent('/feed');
+    await expect(readPendingClaim()).resolves.toBeNull();
+  });
+
+  it('shows the new-account restriction when an existing account is rejected, keeping the claim', async () => {
+    const loginWithGoogleCode = jest.fn(async () => {
+      throw new ApiError(400, 'CLAIM_REQUIRES_NEW_ACCOUNT', 'existing');
+    });
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await renderWithClient(<ClaimScreen token={TOKEN} />);
+    await fireEvent.press(await screen.findByLabelText('Claim with Google'));
+
+    googleReturns(success);
+    await view.rerender(
+      <QueryClientProvider client={client}>
+        <ClaimScreen token={TOKEN} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(EXISTING_ACCOUNT_TEXT)).toBeTruthy();
+    expect(screen.queryByTestId('redirect')).toBeNull();
+    await expect(readPendingClaim()).resolves.toMatchObject({ token: TOKEN });
+    expect(screen.getByLabelText('Try again')).toBeTruthy();
+  });
+
+  it('drops the pending claim when the link turned out to be unusable at exchange time', async () => {
+    const loginWithGoogleCode = jest.fn(async () => {
+      throw new ApiError(400, 'CLAIM_INVALID', 'used');
+    });
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await renderWithClient(<ClaimScreen token={TOKEN} />);
+    await fireEvent.press(await screen.findByLabelText('Claim with Google'));
+    googleReturns(success);
+    await view.rerender(
+      <QueryClientProvider client={client}>
+        <ClaimScreen token={TOKEN} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(CLAIM_UNUSABLE_TEXT)).toBeTruthy();
+    await waitFor(async () => expect(await readPendingClaim()).toBeNull());
+  });
+
+  it('keeps the claim after a cancelled sign-in and lets the user retry', async () => {
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await renderWithClient(<ClaimScreen token={TOKEN} />);
+    await fireEvent.press(await screen.findByLabelText('Claim with Google'));
+
+    googleReturns({ type: 'dismiss' });
+    await view.rerender(
+      <QueryClientProvider client={client}>
+        <ClaimScreen token={TOKEN} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByLabelText('Claim with Google')).toBeEnabled());
+    expect(loginWithGoogleCode).not.toHaveBeenCalled();
+    await expect(readPendingClaim()).resolves.toMatchObject({ token: TOKEN });
+
+    await fireEvent.press(screen.getByLabelText('Claim with Google'));
+    expect(promptAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('asks a signed-in user to sign out instead of claiming with their account', async () => {
+    const logout = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(
+      sessionValue({ session: makeSession(), user: makeSession().user, logout }),
+    );
+    await renderWithClient(<ClaimScreen token={TOKEN} />);
+
+    expect(await screen.findByTestId('claim-signed-in')).toHaveTextContent(/@dev-alex/);
+    expect(screen.queryByLabelText('Claim with Google')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Sign out'));
+    expect(logout).toHaveBeenCalled();
+  });
+});
+
+describe('LoginScreen with a pending claim', () => {
+  it('resumes the claim after an app restart and forwards claimToken on the exchange', async () => {
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await render(<LoginScreen devSignInEnabled={false} />);
+
+    expect(await screen.findByTestId('pending-claim')).toHaveTextContent(/Riley Guest/);
+    expect(screen.getByLabelText('Claim with Google')).toBeTruthy();
+
+    googleReturns(success);
+    await view.rerender(<LoginScreen devSignInEnabled={false} />);
+    await waitFor(() =>
+      expect(loginWithGoogleCode).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'auth-code', claimToken: TOKEN }),
+      ),
+    );
+    await expect(readPendingClaim()).resolves.toBeNull();
+  });
+
+  it('signs in normally, without a claim token, once the claim is cancelled', async () => {
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await render(<LoginScreen devSignInEnabled={false} />);
+
+    await fireEvent.press(await screen.findByLabelText('Cancel claim'));
+    expect(screen.queryByTestId('pending-claim')).toBeNull();
+    expect(screen.getByLabelText('Continue with Google')).toBeTruthy();
+    await waitFor(async () => expect(await readPendingClaim()).toBeNull());
+
+    googleReturns(success);
+    await view.rerender(<LoginScreen devSignInEnabled={false} />);
+    await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+    expect(loginWithGoogleCode.mock.calls[0]).toEqual([
+      expect.not.objectContaining({ claimToken: expect.anything() }),
+    ]);
+  });
+
+  it('can go back to the invitation page', async () => {
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+    mockedSession.mockReturnValue(sessionValue());
+    await render(<LoginScreen devSignInEnabled={false} />);
+    await fireEvent.press(await screen.findByLabelText('View invitation'));
+    expect(router.replace).toHaveBeenCalledWith({
+      pathname: '/invite/claim/[token]',
+      params: { token: TOKEN },
+    });
+  });
+});
+
+// Silences "not wrapped in act" noise from the async storage read in usePendingClaim.
+afterEach(async () => {
+  await act(async () => undefined);
+});

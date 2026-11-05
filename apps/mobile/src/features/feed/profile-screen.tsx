@@ -11,12 +11,14 @@ import {
   flattenPages,
   useChallenge,
   useTournamentStats,
+  useUser,
   useUserGames,
   useUserRivalries,
   useUserStats,
 } from '@/features/users/queries';
 import { useErrorAlert } from '@/features/users/use-error-alert';
 import { splitRivalries, toDonutSlices } from '@/lib/rivalries';
+import { isPlaceholder } from '@/lib/users';
 import { Colors, Palette, Spacing } from '@/theme';
 
 import { historyItems, renderListItem, statsItems, type ListItem } from './list-items';
@@ -44,6 +46,7 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const stats = useProfileStats(username, tournamentName);
   const rivalries = useUserRivalries(username, tournamentName);
   const games = useUserGames(username, { tournamentName, pageSize: DETAIL_PAGE_SIZE });
+  const profile = useUser(username);
   const challenge = useChallenge(username);
   const [challenged, setChallenged] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -56,7 +59,10 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const statsList = stats.data ?? [];
   const wins = statsList.reduce((n, s) => n + s.winCount, 0);
   const gameCount = statsList.reduce((n, s) => n + s.gameCount, 0);
-  const canChallenge = !!viewer && viewer !== username;
+  const unclaimed = isPlaceholder(profile.data);
+  // Only a known registered account can be challenged; placeholders cannot sign in to respond.
+  const canChallenge =
+    !!viewer && viewer !== username && profile.data?.accountType === 'REGISTERED';
 
   const onChallenge = () => {
     challenge.mutate(undefined, {
@@ -86,6 +92,7 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
               games={gameCount}
               challenged={challenged}
               challenging={challenge.isPending}
+              unclaimed={unclaimed}
               onChallenge={canChallenge ? onChallenge : undefined}
             />
           ),

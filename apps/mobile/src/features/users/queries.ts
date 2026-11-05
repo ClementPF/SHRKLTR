@@ -9,11 +9,13 @@ import {
 import {
   challengeUser,
   getRivalry,
+  getUser,
   getStats,
   getUserGames,
   getUserRivalries,
   getUserStats,
   getUserTournaments,
+  listUsers,
 } from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
 import type { Game, RivalryStats, Stats } from '@/api/types';
@@ -25,6 +27,8 @@ export const DETAIL_PAGE_SIZE = 10;
 /** Every key starts with 'users' or 'stats' so a submitted game can invalidate both roots. */
 export const userKeys = {
   all: ['users'] as const,
+  list: () => ['users', 'list'] as const,
+  detail: (username: string) => ['users', username, 'detail'] as const,
   stats: (username: string) => ['users', username, 'stats'] as const,
   tournaments: (username: string) => ['users', username, 'tournaments'] as const,
   games: (username: string, tournamentName: string | undefined, pageSize: number) =>
@@ -40,6 +44,19 @@ export const statsKeys = {
   rivalry: (username: string, rivalName: string, tournamentName: string) =>
     ['stats', 'rivalry', username, rivalName, tournamentName] as const,
 };
+
+export function useUser(username: string | undefined) {
+  return useQuery({
+    queryKey: userKeys.detail(username ?? ''),
+    queryFn: () => getUser(username!),
+    enabled: !!username,
+  });
+}
+
+/** Every player, for picking someone into a game without scanning their code. */
+export function useUsers(enabled: boolean = true) {
+  return useQuery({ queryKey: userKeys.list(), queryFn: listUsers, enabled });
+}
 
 export function useUserStats(username: string | undefined) {
   return useQuery({

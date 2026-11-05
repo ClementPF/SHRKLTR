@@ -6,6 +6,7 @@ import { Button } from '@/components/button';
 import { GameRow } from '@/components/game-row';
 import { EmptyState, SectionTitle } from '@/components/list-parts';
 import { OutcomeColumns } from '@/components/outcome-columns';
+import { isPlaceholder } from '@/lib/users';
 import { Palette, Spacing } from '@/theme';
 
 import { useSubmittedGame } from './queries';
@@ -17,7 +18,11 @@ const signed = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}`;
 const members = (outcomes: readonly Outcome[], result: Outcome['result']) =>
   outcomes
     .filter((o) => o.result === result)
-    .map((o) => ({ username: o.user.username, detail: signed(o.scoreValue) }));
+    .map((o) => ({
+      username: o.user.username,
+      detail: signed(o.scoreValue),
+      unclaimed: isPlaceholder(o.user),
+    }));
 
 export function GameResultScreen({ id, viewer }: { id: string | undefined; viewer?: string }) {
   const { data: game } = useSubmittedGame(id);

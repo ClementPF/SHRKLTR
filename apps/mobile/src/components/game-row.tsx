@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import type { Game } from '@/api/types';
 import { useRivalry } from '@/features/users/queries';
 import { formatPoints, fromNow } from '@/lib/format';
+import { isPlaceholder } from '@/lib/users';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
 
 import { TeamColumn } from './outcome-columns';
@@ -48,9 +49,16 @@ export function rivalryPairs(game: Game, viewer: string | undefined) {
 export interface GameRowProps {
   game: Game;
   viewer?: string;
+  /** Tapping reveals live rivalries, which need a session; public pages turn it off. */
+  expandable?: boolean;
 }
 
-export function GameRow({ game, viewer }: GameRowProps) {
+const toMember = (o: Game['outcomes'][number]) => ({
+  username: o.user.username,
+  unclaimed: isPlaceholder(o.user),
+});
+
+export function GameRow({ game, viewer, expandable = true }: GameRowProps) {
   const [expanded, setExpanded] = useState(false);
   const winners = game.outcomes.filter((o) => o.result === 'WIN');
   const losers = game.outcomes.filter((o) => o.result === 'LOSS');
@@ -61,6 +69,7 @@ export function GameRow({ game, viewer }: GameRowProps) {
       accessibilityRole="button"
       accessibilityState={{ expanded }}
       testID={`game-row-${game.id}`}
+      disabled={!expandable}
       onPress={() => setExpanded((v) => !v)}
       style={styles.card}
     >
@@ -72,9 +81,9 @@ export function GameRow({ game, viewer }: GameRowProps) {
       <Text style={styles.date}>{fromNow(game.date)}</Text>
       <Text style={styles.tournament}>{game.tournament.displayName}</Text>
       <View style={styles.versus}>
-        <TeamColumn members={winners.map((o) => o.user)} won testID="game-winners" />
+        <TeamColumn members={winners.map(toMember)} won testID="game-winners" />
         <Text style={styles.vs}>VS</Text>
-        <TeamColumn members={losers.map((o) => o.user)} won={false} testID="game-losers" />
+        <TeamColumn members={losers.map(toMember)} won={false} testID="game-losers" />
       </View>
       {expanded && (
         <View style={styles.rivalry} testID="game-rivalry">

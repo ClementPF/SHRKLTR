@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
+import { UnclaimedBadge } from '@/components/unclaimed-badge';
 import { formatPoints } from '@/lib/format';
 import { Colors, Spacing, Typography } from '@/theme';
 
@@ -7,10 +8,12 @@ export interface RankRowProps {
   position: number;
   name: string;
   score: number;
+  /** Placeholder player added by name. */
+  unclaimed?: boolean;
   onPress?(): void;
 }
 
-export function RankRow({ position, name, score, onPress }: RankRowProps) {
+export function RankRow({ position, name, score, unclaimed = false, onPress }: RankRowProps) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -23,6 +26,7 @@ export function RankRow({ position, name, score, onPress }: RankRowProps) {
       <Text style={styles.name} numberOfLines={1}>
         {name}
       </Text>
+      {unclaimed && <UnclaimedBadge testID={`rank-row-${name}-unclaimed`} />}
       <Text style={styles.score}>{formatPoints(score)}</Text>
     </Pressable>
   );

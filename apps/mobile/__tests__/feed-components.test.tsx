@@ -205,6 +205,7 @@ describe('ProfileScreen (tournament user detail)', () => {
       rivalry('dev-sam', 'dev-taylor', -5.1),
     ]);
     api.getUserGames.mockResolvedValue([game]);
+    api.getUser.mockResolvedValue(user('dev-sam'));
   });
 
   async function renderDetail() {
@@ -233,7 +234,7 @@ describe('ProfileScreen (tournament user detail)', () => {
   it('shows the challenged state after a successful challenge', async () => {
     api.challengeUser.mockResolvedValue(undefined);
     await renderDetail();
-    await fireEvent.press(screen.getByLabelText('Challenge dev-sam'));
+    await fireEvent.press(await screen.findByLabelText('Challenge dev-sam'));
     expect(await screen.findByTestId('challenged-state')).toBeTruthy();
     expect(api.challengeUser).toHaveBeenCalledWith('dev-sam', 'I demand a trial by combat.');
   });
@@ -241,7 +242,7 @@ describe('ProfileScreen (tournament user detail)', () => {
   it('alerts when the challenged user has no push token', async () => {
     api.challengeUser.mockRejectedValue(new ApiError(400, 'NO_PUSH_TOKEN', 'no token'));
     await renderDetail();
-    await fireEvent.press(screen.getByLabelText('Challenge dev-sam'));
+    await fireEvent.press(await screen.findByLabelText('Challenge dev-sam'));
     expect(
       await screen.findByText(
         "Challenge failed, dev-sam doesn't have push notification turned on.",

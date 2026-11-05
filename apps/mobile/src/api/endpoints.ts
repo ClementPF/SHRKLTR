@@ -1,9 +1,15 @@
 import { api } from './client';
 import type {
+  AppInvite,
+  AppInvitePreview,
+  ClaimPreview,
+  CreatePlaceholderRequest,
   CreateTournamentRequest,
   Game,
   GoogleCodeExchangeRequest,
+  InvitedPlayer,
   PageParams,
+  PlaceholderClaimLink,
   RivalryStats,
   SessionResponse,
   Sport,
@@ -22,10 +28,13 @@ export const exchangeGoogleCode = ({
   code,
   codeVerifier,
   redirectUri,
+  claimToken,
 }: GoogleCodeExchangeRequest) =>
   api.post<SessionResponse>(
     '/auth/google/code',
-    { code, codeVerifier, redirectUri },
+    claimToken
+      ? { code, codeVerifier, redirectUri, claimToken }
+      : { code, codeVerifier, redirectUri },
     { auth: false },
   );
 
@@ -51,6 +60,20 @@ export const getUserGames = (
 ) => api.get<Game[]>(`/users/${seg(username)}/games`, { query: { ...params }, signal });
 export const challengeUser = (username: string, message?: string) =>
   api.post<void>(`/users/${seg(username)}/challenge`, message ? { message } : {});
+
+// Placeholders and invitations
+export const createPlaceholder = (body: CreatePlaceholderRequest) =>
+  api.post<PlaceholderClaimLink>('/players/placeholders', body);
+export const listInvitedPlayers = () => api.get<InvitedPlayer[]>('/players/invited');
+export const reissueClaimLink = (placeholderId: string) =>
+  api.post<PlaceholderClaimLink>(`/players/${seg(placeholderId)}/claim-link`, {});
+export const revokeClaimLink = (placeholderId: string) =>
+  api.delete<void>(`/players/${seg(placeholderId)}/claim-link`);
+export const getClaimPreview = (token: string) =>
+  api.get<ClaimPreview>(`/invites/claim/${seg(token)}`, { auth: false });
+export const issueAppInvite = () => api.post<AppInvite>('/invites/app', {});
+export const getAppInvitePreview = (token: string) =>
+  api.get<AppInvitePreview>(`/invites/app/${seg(token)}`, { auth: false });
 
 // Sports
 export const listSports = () => api.get<Sport[]>('/sports');

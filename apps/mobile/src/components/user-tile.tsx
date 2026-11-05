@@ -11,6 +11,8 @@ export interface UserTileProps {
   /** When set, tapping the avatar challenges the user. */
   onChallenge?(): void;
   challenging?: boolean;
+  /** Placeholder player added by name: labeled, and never challengeable. */
+  unclaimed?: boolean;
 }
 
 function Badge({ label, value }: { label: string; value: number }) {
@@ -34,6 +36,7 @@ export function UserTile({
   challenged = false,
   onChallenge,
   challenging = false,
+  unclaimed = false,
 }: UserTileProps) {
   const avatar = (
     <View style={styles.avatar}>
@@ -51,7 +54,7 @@ export function UserTile({
       )}
       <Badge label="WINS" value={wins} />
       <View style={styles.center}>
-        {onChallenge ? (
+        {onChallenge && !unclaimed ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Challenge ${username}`}
@@ -65,7 +68,12 @@ export function UserTile({
           avatar
         )}
         <Text style={styles.username}>{username}</Text>
-        {onChallenge && (
+        {unclaimed && (
+          <Text style={styles.unclaimed} testID="user-tile-unclaimed">
+            UNCLAIMED PLAYER
+          </Text>
+        )}
+        {onChallenge && !unclaimed && (
           <Text style={styles.hint}>
             {challenged ? 'CHALLENGED' : challenging ? 'CHALLENGING…' : 'TAP TO CHALLENGE'}
           </Text>
@@ -112,4 +120,14 @@ const styles = StyleSheet.create({
   initials: { ...Typography.body, fontSize: 22, fontWeight: '700' },
   username: { ...Typography.body, fontWeight: '700' },
   hint: { ...Typography.caption, color: Colors.text, letterSpacing: 1 },
+  unclaimed: {
+    ...Typography.caption,
+    color: Colors.text,
+    fontWeight: '700',
+    letterSpacing: 1,
+    backgroundColor: Colors.background,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: Radius.sm,
+    overflow: 'hidden',
+  },
 });
