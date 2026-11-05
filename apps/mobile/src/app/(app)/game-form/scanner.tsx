@@ -2,7 +2,7 @@ import { Stack } from 'expo-router';
 
 import { useSession } from '@/auth/session';
 import { ScannerScreen } from '@/features/game-form/scanner-screen';
-import { Colors } from '@/theme';
+import { ScannerHeader } from '@/features/game-form/scanner-header';
 
 export default function ScannerRoute() {
   const username = useSession().user?.username;
@@ -12,8 +12,7 @@ export default function ScannerRoute() {
         options={{
           headerShown: true,
           title: 'Scan the QR code',
-          headerStyle: { backgroundColor: Colors.background },
-          headerTintColor: Colors.text,
+          header: () => <ScannerHeader />,
         }}
       />
       <ScannerScreen username={username} />

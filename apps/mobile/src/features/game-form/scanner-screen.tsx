@@ -17,7 +17,7 @@ import { useGameFormTournament, useSubmitGame } from './queries';
 import { useGameFormStore } from './store';
 import { GameFormTournamentHeader } from './tournament-header';
 
-export const CONFIRM_TITLE = 'All Good ?';
+export const CONFIRM_TITLE = 'Confirm this game?';
 export const CONFIRM_MESSAGE =
   "Make sure everything is right. Games can't be deleted or edited once submitted.";
 
@@ -66,6 +66,7 @@ function handleScan(raw: string) {
   } else if (result.status === 'invalid' || result.status === 'wrong-tournament') {
     showAlert('error', 'Error', result.error);
   }
+  return result;
 }
 
 export function ScannerScreen({ username }: { username: string | undefined }) {
@@ -84,23 +85,39 @@ export function ScannerScreen({ username }: { username: string | undefined }) {
 
 function ScannerBody({ username, tournament }: { username: string; tournament: Tournament }) {
   const [mode, setMode] = useState<'scan' | 'show'>('scan');
-  const [confirming, setConfirming] = useState(false);
+  const [confirmation, setConfirmation] = useState<{
+    tournament: Tournament;
+    outcomes: ScannedOutcome[];
+  } | null>(null);
   const outcomes = useGameFormStore((s) => s.outcomes);
   const resetOutcomes = useGameFormStore((s) => s.resetOutcomes);
   const submit = useSubmitGame();
   const blocker = submissionBlocker(outcomes);
 
+  const review = () => {
+    if (!blocker) setConfirmation({ tournament, outcomes });
+  };
+
+  const scan = (raw: string) => {
+    if (confirmation) return;
+    const result = handleScan(raw);
+    if (result?.status === 'added' && !submissionBlocker(result.outcomes)) {
+      setConfirmation({ tournament, outcomes: result.outcomes });
+    }
+  };
+
   const confirm = () => {
+    if (!confirmation || submit.isPending) return;
     submit.mutate(
-      { tournamentName: tournament.name, outcomes },
+      { tournamentName: confirmation.tournament.name, outcomes: confirmation.outcomes },
       {
         onSuccess: (game) => {
-          setConfirming(false);
+          setConfirmation(null);
           resetOutcomes();
           router.replace({ pathname: '/game-form/result', params: { id: game.id } });
         },
         onError: (err) => {
-          setConfirming(false);
+          setConfirmation(null);
           showAlert('error', 'Error', `Failed to submit the game: ${err.message}`);
         },
       },
@@ -117,8 +134,8 @@ function ScannerBody({ username, tournament }: { username: string; tournament: T
             testID="scanner-get-scanned"
             onPress={() => setMode('show')}
           />
-          <QrScanner onScanned={handleScan} />
-          {SHOW_MANUAL_CODE_ENTRY && <ManualCodeEntry onSubmit={handleScan} />}
+          {!confirmation && <QrScanner onScanned={scan} />}
+          {SHOW_MANUAL_CODE_ENTRY && <ManualCodeEntry onSubmit={scan} />}
         </>
       ) : (
         <>
@@ -139,27 +156,47 @@ function ScannerBody({ username, tournament }: { username: string; tournament: T
       />
       {blocker && <Text style={styles.caption}>{blocker}</Text>}
       <Button
-        title="All good"
-        testID="scanner-all-good"
+        title="Review game"
+        testID="scanner-review-game"
         disabled={!!blocker}
         loading={submit.isPending}
-        onPress={() => setConfirming(true)}
+        onPress={review}
       />
       <ConfirmDialog
-        visible={confirming}
+        visible={!!confirmation}
         title={CONFIRM_TITLE}
         message={CONFIRM_MESSAGE}
-        confirmTitle="Submit"
+        confirmTitle="Confirm game"
         loading={submit.isPending}
         onConfirm={confirm}
-        onCancel={() => setConfirming(false)}
-      />
+        onCancel={() => setConfirmation(null)}
+      >
+        {confirmation && (
+          <View style={styles.summary} testID="game-confirmation-summary">
+            <Text style={styles.caption}>TOURNAMENT</Text>
+            <Text style={styles.text}>{confirmation.tournament.displayName}</Text>
+            <Text style={styles.text}>Winners</Text>
+            {members(confirmation.outcomes, 'WIN').map(({ username }) => (
+              <Text key={username} style={styles.text}>
+                {username}
+              </Text>
+            ))}
+            <Text style={styles.text}>Losers</Text>
+            {members(confirmation.outcomes, 'LOSS').map(({ username }) => (
+              <Text key={username} style={styles.text}>
+                {username}
+              </Text>
+            ))}
+          </View>
+        )}
+      </ConfirmDialog>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   content: { padding: Spacing.md, gap: Spacing.md },
+  summary: { gap: Spacing.sm },
   text: { ...Typography.body, fontWeight: '700', textAlign: 'center' },
   caption: { ...Typography.caption, textAlign: 'center' },
   manual: { gap: Spacing.sm },
