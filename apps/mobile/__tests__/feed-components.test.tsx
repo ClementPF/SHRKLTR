@@ -88,8 +88,8 @@ const game: Game = {
   date: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   tournament,
   outcomes: [
-    { id: 'o1', result: 'WIN', scoreValue: 16, user: user('dev-alex') },
-    { id: 'o2', result: 'LOSS', scoreValue: -16, user: user('dev-sam') },
+    { id: 'o1', result: 'WIN', scoreValue: 16, ratingBefore: 1000, user: user('dev-alex') },
+    { id: 'o2', result: 'LOSS', scoreValue: -16, ratingBefore: 1000, user: user('dev-sam') },
   ],
 };
 

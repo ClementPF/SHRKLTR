@@ -18,6 +18,7 @@ export const testEnv: Record<string, string> = {
   GOOGLE_CLIENT_ID: 'test-client-id.apps.googleusercontent.com',
   GOOGLE_JWKS_URL: 'http://127.0.0.1:1/jwks',
   PUSH_URL: 'http://127.0.0.1:1/push',
+  MAINTENANCE_ENABLED: 'false',
 };
 
 export function testConfig(overrides: Record<string, string> = {}): AppConfig {

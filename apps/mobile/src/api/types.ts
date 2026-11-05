@@ -28,7 +28,10 @@ export interface Tournament {
 export interface Outcome {
   id: string;
   result: GameResult;
+  /** Signed Elo change from this game. */
   scoreValue: number;
+  /** Tournament rating just before the game; null for games recorded before it was tracked. */
+  ratingBefore: number | null;
   user: User;
 }
 

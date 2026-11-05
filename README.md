@@ -97,23 +97,30 @@ readiness check as in the quick start: never seed before it prints the healthy r
 
 ### Root `.env` (backend, gitignored; template in `.env.example`)
 
-| Variable                    | Required         | Default / example                                                    | Notes                                                                          |
-| --------------------------- | ---------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `PORT`                      | no               | `3100`                                                               | Compose pins it to 3100.                                                       |
-| `HOST`                      | no               | `0.0.0.0`                                                            |                                                                                |
-| `APP_ENV`                   | no               | `development`                                                        | `development`, `test`, or `production`. Production disables `/auth/dev-token`. |
-| `DATABASE_URL`              | yes              | `postgres://sharkulator:sharkulator@db:5432/sharkulator_dev`         | Compose-internal host. Host tools use `localhost:5433`.                        |
-| `TEST_DATABASE_URL`         | for tests        | `postgres://sharkulator:sharkulator@localhost:5433/sharkulator_test` | Used by host-run vitest.                                                       |
-| `JWT_ACCESS_SECRET`         | yes              | 32-byte hex                                                          | Signs 15-minute access tokens.                                                 |
-| `JWT_REFRESH_SECRET`        | yes              | 32-byte hex                                                          | Signs 30-day refresh tokens.                                                   |
-| `DEV_AUTH_SECRET`           | yes              | 32-byte hex                                                          | `x-dev-auth` header value for `POST /auth/dev-token`.                          |
-| `GOOGLE_CLIENT_ID`          | yes              | `686477747885-…apps.googleusercontent.com`                           | Google Web-application client ID (public). Expected `aud` of Google ID tokens. |
-| `GOOGLE_CLIENT_SECRET`      | for Google login | unset                                                                | Web-application client **secret**. Server-only; see below.                     |
-| `GOOGLE_JWKS_URL`           | no               | `https://www.googleapis.com/oauth2/v3/certs`                         | Overridden in tests.                                                           |
-| `GOOGLE_TOKEN_URL`          | no               | `https://oauth2.googleapis.com/token`                                | Overridden in tests.                                                           |
-| `GOOGLE_REDIRECT_ALLOWLIST` | no               | `http://localhost:8081`                                              | Comma-separated exact redirect URIs accepted by `POST /auth/google/code`.      |
-| `PUSH_URL`                  | no               | `https://exp.host/--/api/v2/push/send`                               | Expo push API; point at a local collector when testing.                        |
-| `LOG_LEVEL`                 | no               | `info`                                                               |                                                                                |
+| Variable                    | Required         | Default / example                                                    | Notes                                                                                   |
+| --------------------------- | ---------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `PORT`                      | no               | `3100`                                                               | Compose pins it to 3100.                                                                |
+| `HOST`                      | no               | `0.0.0.0`                                                            |                                                                                         |
+| `APP_ENV`                   | no               | `development`                                                        | `development`, `test`, or `production`. Production disables `/auth/dev-token`.          |
+| `DATABASE_URL`              | yes              | `postgres://sharkulator:sharkulator@db:5432/sharkulator_dev`         | Compose-internal host. Host tools use `localhost:5433`.                                 |
+| `TEST_DATABASE_URL`         | for tests        | `postgres://sharkulator:sharkulator@localhost:5433/sharkulator_test` | Used by host-run vitest.                                                                |
+| `JWT_ACCESS_SECRET`         | yes              | 32-byte hex                                                          | Signs 15-minute access tokens.                                                          |
+| `JWT_REFRESH_SECRET`        | yes              | 32-byte hex                                                          | Signs 30-day refresh tokens.                                                            |
+| `DEV_AUTH_SECRET`           | yes              | 32-byte hex                                                          | `x-dev-auth` header value for `POST /auth/dev-token`.                                   |
+| `GOOGLE_CLIENT_ID`          | yes              | `686477747885-…apps.googleusercontent.com`                           | Google Web-application client ID (public). Expected `aud` of Google ID tokens.          |
+| `GOOGLE_CLIENT_SECRET`      | for Google login | unset                                                                | Web-application client **secret**. Server-only; see below.                              |
+| `GOOGLE_JWKS_URL`           | no               | `https://www.googleapis.com/oauth2/v3/certs`                         | Overridden in tests.                                                                    |
+| `GOOGLE_TOKEN_URL`          | no               | `https://oauth2.googleapis.com/token`                                | Overridden in tests.                                                                    |
+| `GOOGLE_REDIRECT_ALLOWLIST` | no               | `http://localhost:8081`                                              | Comma-separated exact redirect URIs accepted by `POST /auth/google/code`.               |
+| `PUSH_URL`                  | no               | `https://exp.host/--/api/v2/push/send`                               | Expo push API; point at a local collector when testing.                                 |
+| `EXPO_ACCESS_TOKEN`         | no               | unset                                                                | Server-only Expo push access token (enhanced push security).                            |
+| `PUBLIC_API_URL`            | no               | `http://localhost:3100`                                              | Canonical API origin for share links. Production `https://shrkltr-api.wtchthfck.com`.   |
+| `PUBLIC_WEB_URL`            | no               | `http://localhost:8081`                                              | Web app origin for claim/invite/join links. Production `https://shrkltr.wtchthfck.com`. |
+| `CORS_ORIGINS`              | no               | `http://localhost:8081`                                              | Comma-separated exact browser origins allowed by CORS; no paths or wildcards.           |
+| `CLAIM_TTL_DAYS`            | no               | `30`                                                                 | Days before a placeholder claim link expires (1–365).                                   |
+| `GROUP_INVITE_TTL_DAYS`     | no               | `30`                                                                 | Default days before a group invite expires (1–365).                                     |
+| `MAINTENANCE_ENABLED`       | no               | `true`                                                               | Runs the 60-second challenge expiry/reminder sweep; `false` in tests.                   |
+| `LOG_LEVEL`                 | no               | `info`                                                               |                                                                                         |
 
 ### `apps/mobile/.env` (gitignored; template in `apps/mobile/.env.example`)
 

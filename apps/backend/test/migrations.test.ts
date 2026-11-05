@@ -72,6 +72,14 @@ describe('committed migrations', () => {
     );
   });
 
+  it('add a nullable outcomes.rating_before snapshot column', async () => {
+    const rows = await db.execute<{ data_type: string; is_nullable: string }>(
+      sql`select data_type, is_nullable from information_schema.columns
+          where table_schema = 'public' and table_name = 'outcomes' and column_name = 'rating_before'`,
+    );
+    expect(rows).toEqual([{ data_type: 'double precision', is_nullable: 'YES' }]);
+  });
+
   it('keep the legacy longuest_* column spelling', async () => {
     const rows = await db.execute<{ column_name: string }>(
       sql`select column_name from information_schema.columns

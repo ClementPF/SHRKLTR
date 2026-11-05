@@ -95,6 +95,8 @@ export const outcomes = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     result: gameResult('result').notNull(),
     scoreValue: doublePrecision('score_value').notNull(),
+    // Tournament rating just before the game; NULL for outcomes recorded before snapshots existed.
+    ratingBefore: doublePrecision('rating_before'),
   },
   (t) => [index('outcomes_game_idx').on(t.gameId), index('outcomes_user_idx').on(t.userId)],
 );

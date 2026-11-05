@@ -82,7 +82,11 @@ export const outcomeDtoSchema = z
   .object({
     id: z.uuid(),
     result: z.enum(['WIN', 'TIE', 'LOSS']),
-    scoreValue: z.number(),
+    scoreValue: z.number().describe('Signed Elo change from this game'),
+    ratingBefore: z
+      .number()
+      .nullable()
+      .describe('Tournament rating just before the game; null for games recorded before tracking'),
     user: userDtoSchema,
   })
   .meta({ id: 'Outcome' });
@@ -97,6 +101,7 @@ export function toOutcomeDto(row: {
     id: row.outcome.id,
     result: row.outcome.result,
     scoreValue: row.outcome.scoreValue,
+    ratingBefore: row.outcome.ratingBefore,
     user: toUserDto(row.user),
   };
 }

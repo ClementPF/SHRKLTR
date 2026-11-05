@@ -96,6 +96,7 @@ export async function recordGame(tx: Transaction, input: RecordGameInput): Promi
       userId: r.userId,
       result: r.result,
       scoreValue: r.delta,
+      ratingBefore: ratings.get(r.userId) ?? DEFAULT_RATING,
     })),
   );
 

@@ -7,6 +7,7 @@ import type { PageWindow } from '../lib/pagination.js';
 import type { GameWithRelations } from './game.service.js';
 import { findTournamentByName } from './tournament.service.js';
 import { findUserByUsername } from './user.service.js';
+import { visibleTournamentsFilter } from './visibility.service.js';
 
 const owners = alias(users, 'owner');
 
@@ -91,4 +92,16 @@ export async function listUserGames(
     conditions.push(eq(games.tournamentId, found.tournament.id));
   }
   return listGames(db, and(...conditions), page);
+}
+
+/** One game by id. Unknown games and games the viewer may not see → 404. */
+export async function getGame(
+  db: Database,
+  gameId: string,
+  viewerId: string,
+): Promise<GameWithRelations> {
+  const where = and(eq(games.id, gameId), visibleTournamentsFilter(viewerId));
+  const [found] = await listGames(db, where, { offset: 0, limit: 1 });
+  if (!found) throw ApiError.notFound('Game not found', 'GAME_NOT_FOUND');
+  return found;
 }

@@ -19,6 +19,7 @@ import { createGoogleVerifier } from './auth/google.verify.js';
 import { registerJwt } from './auth/jwt.js';
 import { authGuard } from './auth/guard.js';
 import { authRoutes } from './routes/auth.routes.js';
+import { gameRoutes } from './routes/games.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
 import { sportRoutes } from './routes/sports.routes.js';
 import { statsRoutes } from './routes/stats.routes.js';
@@ -31,8 +32,6 @@ declare module 'fastify' {
     db: Database;
   }
 }
-
-export const CORS_ORIGINS = ['http://localhost:8081'];
 
 // Tournament slugs come from displayNames of up to 100 chars, and lowercasing can double a
 // char's UTF-16 length (U+0130 → "i" + U+0307), so decoded path params may reach 200 units.
@@ -70,7 +69,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
 
   await app.register(helmet);
   await app.register(cors, {
-    origin: CORS_ORIGINS,
+    origin: config.CORS_ORIGINS,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   });
 
@@ -110,6 +109,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(sportRoutes);
   await app.register(tournamentRoutes);
   await app.register(statsRoutes);
+  await app.register(gameRoutes);
 
   return app;
 }

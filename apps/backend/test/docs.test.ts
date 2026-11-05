@@ -82,6 +82,7 @@ describe('API docs', () => {
         '/tournaments/{name}/stats',
         '/tournaments/{name}/games',
         '/tournaments/{name}/rivalries',
+        '/games/{id}',
         '/stats',
         '/rivalries',
         '/rivalry',
@@ -104,6 +105,10 @@ describe('API docs', () => {
     expect(games.get.responses['200'].content['application/json'].schema.items.$ref).toBe(
       '#/components/schemas/Game',
     );
+    expect(
+      doc.paths['/games/{id}'].get.responses['200'].content['application/json'].schema.$ref,
+    ).toBe('#/components/schemas/Game');
+    expect(doc.components.schemas.Outcome.properties.ratingBefore).toBeDefined();
     for (const schema of ['Game', 'Outcome', 'Stats', 'RivalryStats', 'User', 'Tournament']) {
       expect(doc.components.schemas[schema]).toBeDefined();
     }
