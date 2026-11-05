@@ -7,18 +7,24 @@ import type {
   CreateTournamentRequest,
   Game,
   GoogleCodeExchangeRequest,
+  InboxNotification,
   InvitedPlayer,
+  NotificationPreferences,
   PageParams,
   PlaceholderClaimLink,
+  RegisterPushDeviceRequest,
   RivalryStats,
   SessionResponse,
   Sport,
   Stats,
   SubmitGameRequest,
   Tournament,
+  UnreadCount,
   UpdateMeRequest,
+  UpdateNotificationPreferencesRequest,
   UpdateTournamentRequest,
   User,
+  UserAchievement,
 } from './types';
 
 const seg = encodeURIComponent;
@@ -45,8 +51,6 @@ export const logoutSession = (refreshToken: string) =>
 export const listUsers = () => api.get<User[]>('/users');
 export const getMe = () => api.get<User>('/users/me');
 export const updateMe = (body: UpdateMeRequest) => api.put<User>('/users/me', body);
-export const registerPushToken = (value: string) =>
-  api.post<void>('/users/me/push-token', { value });
 export const getUser = (username: string) => api.get<User>(`/users/${seg(username)}`);
 export const getUserTournaments = (username: string) =>
   api.get<Tournament[]>(`/users/${seg(username)}/tournaments`);
@@ -112,3 +116,23 @@ export const getRivalries = (userName: string, tournamentName: string) =>
   api.get<RivalryStats[]>('/rivalries', { query: { userName, tournamentName } });
 export const getRivalry = (userName: string, rivalName: string, tournamentName: string) =>
   api.get<RivalryStats>('/rivalry', { query: { userName, rivalName, tournamentName } });
+
+// Notifications
+export const listNotifications = (params: PageParams & { unreadOnly?: boolean } = {}) =>
+  api.get<InboxNotification[]>('/notifications', { query: { ...params } });
+export const getUnreadNotificationCount = () => api.get<UnreadCount>('/notifications/unread-count');
+export const markNotificationRead = (id: string) =>
+  api.put<InboxNotification>(`/notifications/${seg(id)}/read`, {});
+export const markAllNotificationsRead = () => api.post<void>('/notifications/read-all', {});
+export const getNotificationPreferences = () =>
+  api.get<NotificationPreferences>('/users/me/notification-preferences');
+export const updateNotificationPreferences = (body: UpdateNotificationPreferencesRequest) =>
+  api.put<NotificationPreferences>('/users/me/notification-preferences', body);
+export const registerPushDevice = (body: RegisterPushDeviceRequest) =>
+  api.post<void>('/users/me/push-devices', body);
+export const unregisterPushDevice = (installationId: string) =>
+  api.delete<void>(`/users/me/push-devices/${seg(installationId)}`);
+
+// Achievements
+export const getUserAchievements = (username: string) =>
+  api.get<UserAchievement[]>(`/users/${seg(username)}/achievements`);

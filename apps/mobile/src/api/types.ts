@@ -169,3 +169,92 @@ export interface AppInvite {
 export interface AppInvitePreview {
   invitedBy: User;
 }
+
+export type NotificationCategory = 'games' | 'challenges' | 'achievements' | 'claims' | 'groups';
+
+export type NotificationType =
+  | 'game_recorded'
+  | 'challenge_received'
+  | 'challenge_accepted'
+  | 'challenge_declined'
+  | 'challenge_expiring'
+  | 'challenge_expired'
+  | 'achievement_unlocked'
+  | 'placeholder_claimed'
+  | 'group_member_joined';
+
+/** Screen a notification opens; also the `target` of a push payload's data. */
+export type NotificationTarget =
+  | { type: 'game'; gameId: string }
+  | { type: 'challenge'; challengeId: string }
+  | { type: 'group'; groupId: string }
+  | { type: 'achievements'; username: string }
+  | { type: 'user'; username: string };
+
+/** GET /notifications row. Named to avoid the DOM's global Notification. */
+export interface InboxNotification {
+  id: string;
+  type: NotificationType;
+  category: NotificationCategory;
+  title: string;
+  body: string;
+  /** Null when the source no longer exists. */
+  target: NotificationTarget | null;
+  actor: User | null;
+  /** ISO-8601 UTC timestamp. */
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface UnreadCount {
+  count: number;
+}
+
+/** Push toggles per category; the inbox always records every notification. */
+export type NotificationPreferences = Record<NotificationCategory, boolean>;
+
+/** PUT body: at least one category; omitted categories keep their value. */
+export type UpdateNotificationPreferencesRequest = Partial<NotificationPreferences>;
+
+export type PushPlatform = 'IOS' | 'ANDROID' | 'UNKNOWN';
+
+export interface RegisterPushDeviceRequest {
+  installationId: string;
+  expoToken: string;
+  platform: PushPlatform;
+}
+
+export type AchievementCode =
+  | 'first_win'
+  | 'win_streak_3'
+  | 'win_streak_5'
+  | 'win_streak_10'
+  | 'games_10'
+  | 'games_50'
+  | 'games_100'
+  | 'giant_killer'
+  | 'explorer_3'
+  | 'explorer_5'
+  | 'first_challenge_won'
+  | 'first_group_joined'
+  | 'invited_player_claimed';
+
+export interface Achievement {
+  code: AchievementCode;
+  title: string;
+  description: string;
+}
+
+export interface AchievementSource {
+  type: 'GAME' | 'CHALLENGE' | 'GROUP' | 'CLAIM' | 'BACKFILL';
+  /** Null when there is none or the viewer cannot see it. */
+  gameId: string | null;
+}
+
+/** GET /users/:username/achievements entry: the catalog with this user's unlock state. */
+export interface UserAchievement extends Achievement {
+  unlocked: boolean;
+  unlockedAt: string | null;
+  /** Null while locked. */
+  source: AchievementSource | null;
+}

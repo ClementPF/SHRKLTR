@@ -20,6 +20,8 @@ jest.mock('@/api/endpoints', () => ({
 }));
 jest.mock('@/notifications/push-registration', () => ({
   registerForPushNotifications: jest.fn(async () => null),
+  unregisterPushNotifications: jest.fn(async () => undefined),
+  watchPushTokenChanges: jest.fn(() => () => undefined),
 }));
 
 function Probe() {
@@ -333,5 +335,105 @@ describe('SessionProvider', () => {
       expect(JSON.parse(data.get(SESSION_STORAGE_KEY)!)).toEqual(sessionB);
       await view.unmount();
     }
+  });
+});
+
+describe('SessionProvider push lifecycle', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  async function renderSignedIn(props: {
+    unregisterPush: () => Promise<void>;
+    watchPushToken?: (onChange: () => void) => () => void;
+    registerPush?: () => Promise<string | null>;
+  }) {
+    const { storage } = memoryStorage({ [SESSION_STORAGE_KEY]: JSON.stringify(makeSession()) });
+    await render(
+      <SessionProvider
+        store={createSessionStore(storage)}
+        registerPush={props.registerPush ?? jest.fn(async () => null)}
+        unregisterPush={props.unregisterPush}
+        watchPushToken={props.watchPushToken ?? (() => () => undefined)}
+      >
+        <Probe />
+      </SessionProvider>,
+    );
+    return screen.findByText('authenticated:dev-alex');
+  }
+
+  it('unregisters this installation before revoking the session on logout', async () => {
+    const order: string[] = [];
+    const unregisterPush = jest.fn(async () => {
+      order.push('unregister');
+    });
+    jest.mocked(logoutSession).mockImplementationOnce(async () => {
+      order.push('logout');
+    });
+    const label = await renderSignedIn({ unregisterPush });
+
+    await act(async () => {
+      label.props.onPress();
+    });
+
+    expect(await screen.findByText('unauthenticated:none')).toBeTruthy();
+    expect(unregisterPush).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['unregister', 'logout']);
+  });
+
+  it('still signs out when unregistering fails', async () => {
+    const unregisterPush = jest.fn(async () => {
+      throw new Error('offline');
+    });
+    const label = await renderSignedIn({ unregisterPush });
+
+    await act(async () => {
+      label.props.onPress();
+    });
+
+    expect(await screen.findByText('unauthenticated:none')).toBeTruthy();
+    expect(logoutSession).toHaveBeenCalledWith('refresh-1');
+  });
+
+  it('still signs out when unregistering never answers', async () => {
+    jest.useFakeTimers();
+    try {
+      const unregisterPush = jest.fn(() => new Promise<void>(() => undefined));
+      const label = await renderSignedIn({ unregisterPush });
+
+      await act(async () => {
+        label.props.onPress();
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(5000);
+      });
+
+      expect(screen.getByText('unauthenticated:none')).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('re-registers on token rotation while signed in and stops watching on sign-out', async () => {
+    const stop = jest.fn();
+    let onRotate: (() => void) | null = null;
+    const watchPushToken = jest.fn((onChange: () => void) => {
+      onRotate = onChange;
+      return stop;
+    });
+    const registerPush = jest.fn(async () => null);
+    const label = await renderSignedIn({
+      unregisterPush: jest.fn(async () => undefined),
+      watchPushToken,
+      registerPush,
+    });
+    expect(registerPush).toHaveBeenCalledTimes(1);
+
+    await act(async () => onRotate!());
+    expect(registerPush).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      label.props.onPress();
+    });
+    expect(await screen.findByText('unauthenticated:none')).toBeTruthy();
+    expect(stop).toHaveBeenCalled();
   });
 });

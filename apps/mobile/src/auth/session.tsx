@@ -13,7 +13,11 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { api } from '@/api/client';
 import { exchangeGoogleCode, getMe, logoutSession } from '@/api/endpoints';
 import type { GoogleCodeExchangeRequest, User } from '@/api/types';
-import { registerForPushNotifications } from '@/notifications/push-registration';
+import {
+  registerForPushNotifications,
+  unregisterPushNotifications,
+  watchPushTokenChanges,
+} from '@/notifications/push-registration';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
 
 import { requestDevSession } from './devSession';
@@ -37,12 +41,25 @@ export interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+const UNREGISTER_TIMEOUT_MS = 3000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out')), ms);
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
 export interface SessionProviderProps {
   children: ReactNode;
   /** Owns session cleanup (storage, query cache, auth-lost) for sign-out and expiry. */
   store?: SessionStore;
   refreshTokens?: () => Promise<string | null>;
   registerPush?: () => Promise<string | null>;
+  /** Stops pushes to this installation; attempted on logout, never blocks it. */
+  unregisterPush?: () => Promise<void>;
+  /** Subscribes to push token rotation while signed in. */
+  watchPushToken?: (onChange: () => void) => () => void;
   /**
    * Checks a restored session against the server (GET /users/me). The API client refreshes an
    * expired access token, or clears the session when the refresh token is no longer accepted.
@@ -66,6 +83,8 @@ export function SessionProvider({
   store = sessionStore,
   refreshTokens = api.refresh,
   registerPush = registerForPushNotifications,
+  unregisterPush = unregisterPushNotifications,
+  watchPushToken = watchPushTokenChanges,
   fetchCurrentUser = getMe,
   fallback,
 }: SessionProviderProps) {
@@ -110,6 +129,15 @@ export function SessionProvider({
     });
   }, [userId, registerPush]);
 
+  useEffect(() => {
+    if (!userId) return;
+    return watchPushToken(() => {
+      registerPush().catch((err: unknown) => {
+        console.warn('Push registration failed', err);
+      });
+    });
+  }, [userId, registerPush, watchPushToken]);
+
   const loginWithGoogleCode = useCallback(
     async (exchange: GoogleCodeExchangeRequest) => {
       await store.set(await exchangeGoogleCode(exchange));
@@ -128,12 +156,15 @@ export function SessionProvider({
     const generation = store.generation();
     const refreshToken = store.get()?.refreshToken;
     if (refreshToken) {
+      // Needs the still-valid session, so it runs first; failures and slow networks must not
+      // keep the user signed in.
+      await withTimeout(unregisterPush(), UNREGISTER_TIMEOUT_MS).catch(() => undefined);
       // Local sign-out must succeed even if the server cannot be reached.
       await logoutSession(refreshToken).catch(() => undefined);
     }
     // Skipped by the store if a login completed meanwhile; the store also clears the cache.
     await store.clear(generation);
-  }, [store]);
+  }, [store, unregisterPush]);
 
   const refresh = useCallback(async () => (await refreshTokens()) !== null, [refreshTokens]);
 

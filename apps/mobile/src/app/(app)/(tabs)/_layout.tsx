@@ -4,6 +4,7 @@ import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import type { ColorValue } from 'react-native';
 
 import { HeaderButton } from '@/components/header-button';
+import { NotificationBell } from '@/features/notifications/notification-bell';
 import { Colors } from '@/theme';
 
 type TabIconName = SymbolViewProps['name'];
@@ -30,6 +31,7 @@ export default function TabsLayout() {
         name="feed"
         options={{
           title: 'Feed',
+          headerRight: () => <NotificationBell />,
           tabBarIcon: tabIcon({ ios: 'list.bullet', android: 'list', web: 'list' }),
         }}
       />

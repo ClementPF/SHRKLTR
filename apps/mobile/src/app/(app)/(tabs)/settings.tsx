@@ -25,6 +25,12 @@ export default function SettingsScreen() {
       <View style={styles.content}>
         {user && <Text style={Typography.bodySecondary}>Signed in as {user.username}</Text>}
         <Button
+          title="Notifications"
+          variant="secondary"
+          onPress={() => router.push('/settings/notifications')}
+          style={styles.button}
+        />
+        <Button
           title="Invite to Sharkulator"
           variant="secondary"
           onPress={() => router.push('/settings/invite')}

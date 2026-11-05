@@ -2,7 +2,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { submitGame } from '@/api/endpoints';
+import { achievementKeys } from '@/features/achievements/queries';
 import { gameKeys } from '@/features/games/queries';
+import { notificationKeys } from '@/features/notifications/queries';
 import { tournamentKeys } from '@/features/tournaments/queries';
 import { FEED_PAGE_SIZE, statsKeys, userKeys, useUserGames } from '@/features/users/queries';
 import { toSubmitGameRequest, type ScannedOutcome } from '@/lib/qr';
@@ -23,7 +25,13 @@ export function useSubmitGame() {
       // Pre-fills the durable game detail so the result opens instantly.
       queryClient.setQueryData(gameKeys.detail(game.id), game);
       // Not awaited: the result screen should open while the mounted feed/history refetch.
-      for (const queryKey of [userKeys.all, statsKeys.all, tournamentKeys.all]) {
+      for (const queryKey of [
+        userKeys.all,
+        statsKeys.all,
+        tournamentKeys.all,
+        notificationKeys.all,
+        achievementKeys.all,
+      ]) {
         void queryClient.invalidateQueries({ queryKey });
       }
     },
