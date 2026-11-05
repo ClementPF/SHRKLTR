@@ -90,8 +90,13 @@ function DevSignIn() {
   );
 }
 
+/** `/login?mode=signin`: ordinary sign-in that ignores any claim left pending. */
+export const ORDINARY_SIGN_IN_MODE = 'signin';
+
 export interface LoginScreenProps {
   devSignInEnabled?: boolean;
+  /** Sign in without resuming a pending claim, e.g. when continuing a general app invitation. */
+  ordinarySignIn?: boolean;
 }
 
 function PendingClaimBanner({ claim, onCancel }: { claim: PendingClaim; onCancel(): void }) {
@@ -113,8 +118,11 @@ function PendingClaimBanner({ claim, onCancel }: { claim: PendingClaim; onCancel
   );
 }
 
-export function LoginScreen({ devSignInEnabled = isDevSessionEnabled() }: LoginScreenProps) {
-  const { pending, discard } = usePendingClaim();
+export function LoginScreen({
+  devSignInEnabled = isDevSessionEnabled(),
+  ordinarySignIn = false,
+}: LoginScreenProps) {
+  const { pending, discard } = usePendingClaim(!ordinarySignIn);
   const google = useClaimSignIn(pending);
   const googleTitle = pending ? 'Claim with Google' : 'Continue with Google';
 

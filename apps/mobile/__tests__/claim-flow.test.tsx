@@ -2,11 +2,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as AuthSession from 'expo-auth-session';
 import type { AuthSessionResult } from 'expo-auth-session';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import type { ReactElement } from 'react';
+import { Platform } from 'react-native';
 
 import * as endpoints from '@/api/endpoints';
 import { exchangeGoogleCode } from '@/api/endpoints';
+import LoginRoute from '@/app/(auth)/login';
 import { ApiError } from '@/api/errors';
 import type { ClaimPreview, Game, User } from '@/api/types';
 import { GOOGLE_WEB_REDIRECT_URI, googleRedirectUri } from '@/auth/google';
@@ -20,6 +22,7 @@ import {
 } from '@/auth/pending-claim';
 import { useSession, type SessionContextValue } from '@/auth/session';
 import { LoginScreen } from '@/features/auth/login-screen';
+import { AppInviteLanding } from '@/features/invites/app-invite-landing';
 import {
   CLAIM_UNUSABLE_TEXT,
   EXISTING_ACCOUNT_TEXT,
@@ -47,6 +50,7 @@ jest.mock('expo-auth-session', () => ({
 jest.mock('@/api/endpoints', () => ({
   ...jest.requireActual<typeof import('@/api/endpoints')>('@/api/endpoints'),
   getClaimPreview: jest.fn(),
+  getAppInvitePreview: jest.fn(),
 }));
 jest.mock('@/auth/session', () => ({ useSession: jest.fn() }));
 jest.mock('@/api/config', () => ({
@@ -57,7 +61,11 @@ jest.mock('expo-router', () => {
   const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
   return {
     router: { push: jest.fn(), replace: jest.fn(), navigate: jest.fn() },
+    useLocalSearchParams: jest.fn(() => ({})),
     Redirect: ({ href }: { href: string }) => <Text testID="redirect">{href}</Text>,
+    Link: (props: { href: string; target?: string; testID?: string; children: string }) => (
+      <Text {...props} accessibilityRole="link" />
+    ),
   };
 });
 jest.mock('react-native-safe-area-context', () => ({
@@ -67,6 +75,8 @@ jest.mock('react-native-safe-area-context', () => ({
 const mockedUseAuthRequest = jest.mocked(AuthSession.useAuthRequest);
 const mockedSession = jest.mocked(useSession);
 const getClaimPreview = jest.mocked(endpoints.getClaimPreview);
+const getAppInvitePreview = jest.mocked(endpoints.getAppInvitePreview);
+const mockedParams = jest.mocked(useLocalSearchParams);
 
 const TOKEN = 'claim-token-abc';
 
@@ -365,6 +375,30 @@ describe('ClaimScreen', () => {
     expect(promptAsync).toHaveBeenCalledTimes(2);
   });
 
+  it('offers to open the claim link in the installed app alongside continuing on web', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    mockedSession.mockReturnValue(sessionValue());
+    await renderWithClient(<ClaimScreen token={TOKEN} />);
+
+    const link = await screen.findByTestId('open-in-app-link');
+    expect(link).toHaveTextContent('Open in app');
+    expect(link.props.href).toBe(`com.elo.sharkulator:///invite/claim/${TOKEN}`);
+    // Same tab, so the browser hands the custom scheme to the app instead of opening a blank tab.
+    expect(link.props.target).toBe('_self');
+    expect(screen.getByLabelText('Claim with Google')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Continue on web'));
+    expect(screen.queryByTestId('open-in-app')).toBeNull();
+    expect(screen.getByLabelText('Claim with Google')).toBeTruthy();
+  });
+
+  it('does not offer Open in app inside the native app', async () => {
+    mockedSession.mockReturnValue(sessionValue());
+    await renderWithClient(<ClaimScreen token={TOKEN} />);
+    expect(await screen.findByLabelText('Claim with Google')).toBeTruthy();
+    expect(screen.queryByTestId('open-in-app')).toBeNull();
+  });
+
   it('asks a signed-in user to sign out instead of claiming with their account', async () => {
     const logout = jest.fn(async () => undefined);
     mockedSession.mockReturnValue(
@@ -430,7 +464,71 @@ describe('LoginScreen with a pending claim', () => {
   });
 });
 
+describe('General app invitation after a cancelled claim', () => {
+  it('signs in normally, never sending the stale claim token', async () => {
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+
+    // A claim sign-in that was cancelled at Google keeps its claim pending.
+    const claimView = await renderWithClient(<ClaimScreen token={TOKEN} />);
+    await fireEvent.press(await screen.findByLabelText('Claim with Google'));
+    googleReturns({ type: 'dismiss' });
+    await claimView.rerender(
+      <QueryClientProvider client={client}>
+        <ClaimScreen token={TOKEN} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByLabelText('Claim with Google')).toBeEnabled());
+    await expect(readPendingClaim()).resolves.toMatchObject({ token: TOKEN });
+    await claimView.unmount();
+
+    // The visitor then follows someone's general app invitation.
+    getAppInvitePreview.mockResolvedValue({ invitedBy: creator });
+    const inviteView = await renderWithClient(<AppInviteLanding token="app-invite-token" />);
+    await fireEvent.press(await screen.findByLabelText('Sign in to get started'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledTimes(1));
+    const destination = jest.mocked(router.push).mock.calls[0]![0];
+    expect(destination).toEqual({ pathname: '/login', params: { mode: 'signin' } });
+    await expect(readPendingClaim()).resolves.toBeNull();
+    await inviteView.unmount();
+
+    // The login route it opened exchanges the Google code as an ordinary sign-in.
+    mockedParams.mockReturnValue((destination as { params: Record<string, string> }).params);
+    const loginView = await render(<LoginRoute />);
+    expect(await screen.findByLabelText('Continue with Google')).toBeTruthy();
+    expect(screen.queryByTestId('pending-claim')).toBeNull();
+    googleReturns(success);
+    await loginView.rerender(<LoginRoute />);
+    await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+    expect(loginWithGoogleCode.mock.calls[0]).toStrictEqual([
+      {
+        code: 'auth-code',
+        codeVerifier: 'v'.repeat(43),
+        redirectUri: 'com.elo.sharkulator:/oauthredirect',
+      },
+    ]);
+  });
+
+  it('ignores a pending claim on the ordinary sign-in even if it could not be cleared', async () => {
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    mockedParams.mockReturnValue({ mode: 'signin' });
+    const view = await render(<LoginRoute />);
+
+    expect(await screen.findByLabelText('Continue with Google')).toBeTruthy();
+    expect(screen.queryByTestId('pending-claim')).toBeNull();
+    googleReturns(success);
+    await view.rerender(<LoginRoute />);
+    await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+    expect(loginWithGoogleCode.mock.calls[0]).toEqual([
+      expect.not.objectContaining({ claimToken: expect.anything() }),
+    ]);
+  });
+});
+
 // Silences "not wrapped in act" noise from the async storage read in usePendingClaim.
 afterEach(async () => {
   await act(async () => undefined);
+  jest.restoreAllMocks();
 });

@@ -1,9 +1,13 @@
 import { router } from 'expo-router';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { clearPendingClaim } from '@/auth/pending-claim';
 import { useSession } from '@/auth/session';
 import { Button } from '@/components/button';
 import { CenteredLoading, EmptyState } from '@/components/list-parts';
+import { OpenInApp } from '@/components/open-in-app';
+import { ORDINARY_SIGN_IN_MODE } from '@/features/auth/login-screen';
+import { appInviteAppUrl } from '@/lib/app-links';
 import { displayName } from '@/lib/users';
 import { Palette, Spacing, Typography } from '@/theme';
 
@@ -14,6 +18,15 @@ export const INVITE_INVALID_TITLE = "This invitation link isn't valid";
 export const INVITE_INVALID_TEXT =
   'It may have been replaced by a newer link. Ask the person who invited you to send it again, or sign in directly.';
 export const INVITE_LOAD_FAILED_TEXT = "Couldn't load this invitation.";
+
+/**
+ * A general invitation is never a claim: a claim left pending by an abandoned claim sign-in is
+ * dropped, and the login screen is told to sign in normally even if dropping it failed.
+ */
+async function continueToOrdinarySignIn() {
+  await clearPendingClaim().catch(() => undefined);
+  router.push({ pathname: '/login', params: { mode: ORDINARY_SIGN_IN_MODE } });
+}
 
 /** Public landing for a general app invitation. It never signs anyone in or claims a player. */
 export function AppInviteLanding({ token }: { token: string }) {
@@ -43,6 +56,7 @@ export function AppInviteLanding({ token }: { token: string }) {
       <Text style={styles.text}>
         Track your games, Elo ratings and rivalries with your friends, office or club.
       </Text>
+      <OpenInApp url={appInviteAppUrl(token)} />
       {session ? (
         <View style={styles.actions}>
           <Text style={styles.text}>You are already signed in as @{user?.username}.</Text>
@@ -52,7 +66,7 @@ export function AppInviteLanding({ token }: { token: string }) {
         <Button
           title="Sign in to get started"
           testID="app-invite-sign-in"
-          onPress={() => router.push('/login')}
+          onPress={() => void continueToOrdinarySignIn()}
         />
       )}
     </ScrollView>

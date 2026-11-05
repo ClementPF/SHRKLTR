@@ -84,11 +84,15 @@ export function useClaimSignIn(target: ClaimTarget | null): ClaimSignIn {
   return { ...google, signIn, claimed };
 }
 
-/** The claim left pending by an interrupted sign-in, with a way to abandon it. */
-export function usePendingClaim() {
+/**
+ * The claim left pending by an interrupted sign-in, with a way to abandon it. Disabled, it never
+ * reads the stored claim (and so never resumes it).
+ */
+export function usePendingClaim(enabled = true) {
   const [pending, setPending] = useState<PendingClaim | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     readPendingClaim()
       .then((claim) => {
@@ -98,7 +102,7 @@ export function usePendingClaim() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [enabled]);
 
   const discard = useCallback(() => {
     setPending(null);

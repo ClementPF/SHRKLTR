@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import type { ReactElement } from 'react';
+import { Platform } from 'react-native';
 
 import * as endpoints from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
@@ -33,9 +34,15 @@ import { makeSession, memoryStorage } from '../test-utils/session';
 jest.mock('@/api/endpoints');
 jest.mock('@/auth/session', () => ({ useSession: jest.fn() }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn() }));
-jest.mock('expo-router', () => ({
-  router: { push: jest.fn(), replace: jest.fn(), navigate: jest.fn() },
-}));
+jest.mock('expo-router', () => {
+  const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    router: { push: jest.fn(), replace: jest.fn(), navigate: jest.fn() },
+    Link: (props: { href: string; target?: string; testID?: string; children: string }) => (
+      <Text {...props} accessibilityRole="link" />
+    ),
+  };
+});
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
@@ -122,6 +129,8 @@ beforeEach(async () => {
     refresh: jest.fn(),
   });
 });
+
+afterEach(() => jest.restoreAllMocks());
 
 afterAll(() => setIssuedLinksStorage(null));
 
@@ -351,11 +360,46 @@ describe('AppInviteLanding', () => {
       'Dev-alex Guest invited you to Sharkulator',
     );
     await fireEvent.press(screen.getByLabelText('Sign in to get started'));
-    expect(router.push).toHaveBeenCalledWith('/login');
+    // Explicitly the ordinary sign-in, never a claim that may still be pending.
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith({ pathname: '/login', params: { mode: 'signin' } }),
+    );
     expect(api.getAppInvitePreview).toHaveBeenCalledWith('tok');
     // Opening the invitation never claims or signs anyone in.
     expect(api.exchangeGoogleCode).not.toHaveBeenCalled();
     expect(api.getClaimPreview).not.toHaveBeenCalled();
+  });
+
+  it('offers to open the invitation in the installed app alongside continuing on web', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    signedOut();
+    api.getAppInvitePreview.mockResolvedValue({ invitedBy: person('dev-alex', 'REGISTERED') });
+    await renderWithClient(<AppInviteLanding token="tok" />);
+
+    const link = await screen.findByTestId('open-in-app-link');
+    expect(link).toHaveTextContent('Open in app');
+    expect(link.props.href).toBe('com.elo.sharkulator:///invite/app/tok');
+    expect(link.props.target).toBe('_self');
+    expect(screen.getByLabelText('Sign in to get started')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Continue on web'));
+    expect(screen.queryByTestId('open-in-app')).toBeNull();
+    expect(screen.getByLabelText('Sign in to get started')).toBeTruthy();
+  });
+
+  it('does not offer Open in app inside the native app or for an invalid link', async () => {
+    signedOut();
+    api.getAppInvitePreview.mockResolvedValue({ invitedBy: person('dev-alex', 'REGISTERED') });
+    const view = await renderWithClient(<AppInviteLanding token="tok" />);
+    expect(await screen.findByLabelText('Sign in to get started')).toBeTruthy();
+    expect(screen.queryByTestId('open-in-app')).toBeNull();
+    await view.unmount();
+
+    jest.replaceProperty(Platform, 'OS', 'web');
+    api.getAppInvitePreview.mockRejectedValue(new ApiError(404, 'INVITE_NOT_FOUND', 'nope'));
+    await renderWithClient(<AppInviteLanding token="bad" />);
+    expect(await screen.findByText(INVITE_INVALID_TITLE)).toBeTruthy();
+    expect(screen.queryByTestId('open-in-app')).toBeNull();
   });
 
   it('shows a clear invalid-invitation screen for 404 INVITE_NOT_FOUND', async () => {

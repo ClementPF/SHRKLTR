@@ -8,7 +8,9 @@ import { useSession } from '@/auth/session';
 import { Button } from '@/components/button';
 import { GameRow } from '@/components/game-row';
 import { CenteredLoading, EmptyState, SectionTitle } from '@/components/list-parts';
+import { OpenInApp } from '@/components/open-in-app';
 import { UnclaimedBadge } from '@/components/unclaimed-badge';
+import { claimInviteAppUrl } from '@/lib/app-links';
 import { formatPoints } from '@/lib/format';
 import { displayName } from '@/lib/users';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
@@ -134,6 +136,7 @@ export function ClaimScreen({ token }: { token: string }) {
         Someone has been recording games for you. Claim this player to keep its games, ratings and
         rivalries under your own account.
       </Text>
+      <OpenInApp url={claimInviteAppUrl(token)} />
       <PlayerSummary preview={data} />
       <View style={styles.notice} testID="claim-new-account-notice">
         <Text style={styles.noticeTitle}>Only a new account can claim</Text>
