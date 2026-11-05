@@ -35,7 +35,7 @@ export async function challengeUser(deps: ChallengeDeps, req: ChallengeRequest):
     );
   }
 
-  deps.push.dispatchDirect(target.id, {
+  deps.push.dispatchDirect(target.id, 'challenges', {
     title: `${caller.firstName || caller.username} is challenging you.`,
     body: req.message ?? DEFAULT_CHALLENGE_MESSAGE,
     data: { target: { type: 'user', username: caller.username } },

@@ -5,8 +5,10 @@ import { z } from 'zod';
 import type { Database } from '../db/client.js';
 import { notifications, users } from '../db/schema.js';
 import {
+  getNotificationPreferences,
   getPreferencesFor,
   loadNotificationViews,
+  type NotificationCategory,
   type NotificationTarget,
 } from './notification.service.js';
 import {
@@ -90,8 +92,11 @@ export interface PushContent {
 export interface PushNotifier {
   /** Starts best-effort delivery of committed notifications; never throws, never blocks. */
   dispatch(notificationIds: readonly string[]): void;
-  /** Starts best-effort delivery of content without an inbox row to a user's devices. */
-  dispatchDirect(userId: string, content: PushContent): void;
+  /**
+   * Starts best-effort delivery of content without an inbox row to a user's devices, unless the
+   * user turned off push for the given category.
+   */
+  dispatchDirect(userId: string, category: NotificationCategory, content: PushContent): void;
   /** Resolves once every delivery started so far (and any started meanwhile) has settled. */
   drain(): Promise<void>;
 }
@@ -198,7 +203,12 @@ export function createPushNotifier(deps: PushNotifierDeps): PushNotifier {
     await send(outgoing);
   }
 
-  async function deliverDirect(userId: string, content: PushContent): Promise<void> {
+  async function deliverDirect(
+    userId: string,
+    category: NotificationCategory,
+    content: PushContent,
+  ): Promise<void> {
+    if (!(await getNotificationPreferences(db, userId))[category]) return;
     await send(toMessages(await listActivePushDevices(db, userId), content));
   }
 
@@ -218,8 +228,8 @@ export function createPushNotifier(deps: PushNotifierDeps): PushNotifier {
     dispatch(notificationIds) {
       if (notificationIds.length > 0) track(() => deliver(notificationIds));
     },
-    dispatchDirect(userId, content) {
-      track(() => deliverDirect(userId, content));
+    dispatchDirect(userId, category, content) {
+      track(() => deliverDirect(userId, category, content));
     },
     async drain() {
       while (pending.size > 0) await Promise.allSettled([...pending]);

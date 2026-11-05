@@ -175,6 +175,74 @@ describe('VAL-USERS-005: POST /users/:username/challenge', () => {
 
     expect(res.statusCode).toBe(204);
   });
+
+  describe('recipient push preferences', () => {
+    async function setPreferences(userId: string, payload: object) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/users/me/notification-preferences',
+        headers: await authHeadersFor(app, userId),
+        payload,
+      });
+      expect(res.statusCode).toBe(200);
+    }
+
+    it('returns 204 without pushing when the target disabled challenges', async () => {
+      const caller = await createUser(app.db);
+      const target = await createReachableUser(app);
+      await setPreferences(target.id, { challenges: false });
+
+      const res = await challenge(caller.id, target.username);
+
+      expect(res.statusCode).toBe(204);
+      expect(res.body).toBe('');
+      expect(collector.received).toHaveLength(0);
+    });
+
+    it('pushes again once the target re-enables challenges', async () => {
+      const caller = await createUser(app.db, { firstName: 'Jean' });
+      const target = await createReachableUser(app);
+      await setPreferences(target.id, { challenges: false });
+      await challenge(caller.id, target.username);
+      expect(collector.received).toHaveLength(0);
+
+      await setPreferences(target.id, { challenges: true });
+      const res = await challenge(caller.id, target.username);
+
+      expect(res.statusCode).toBe(204);
+      expect(collector.messages()).toEqual([
+        expect.objectContaining({ to: TOKEN, title: 'Jean is challenging you.' }),
+      ]);
+    });
+
+    it('still pushes when the target disabled only other categories', async () => {
+      const caller = await createUser(app.db);
+      const target = await createReachableUser(app);
+      await setPreferences(target.id, {
+        games: false,
+        achievements: false,
+        claims: false,
+        groups: false,
+      });
+
+      const res = await challenge(caller.id, target.username);
+
+      expect(res.statusCode).toBe(204);
+      expect(collector.messages().map((m) => m.to)).toEqual([TOKEN]);
+    });
+
+    it('keeps the 400 for a target without devices even when challenges are disabled', async () => {
+      const caller = await createUser(app.db);
+      const target = await createUser(app.db);
+      await setPreferences(target.id, { challenges: false });
+
+      const res = await challenge(caller.id, target.username);
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('PUSH_TOKEN_MISSING');
+      expect(collector.received).toHaveLength(0);
+    });
+  });
 });
 
 describe('challenge with an unreachable push API', () => {
