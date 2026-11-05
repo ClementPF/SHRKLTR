@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import type { ReactNode } from 'react';
+import { Platform } from 'react-native';
 
 import ScannerRoute from '@/app/(app)/game-form/scanner';
 
@@ -48,5 +49,17 @@ describe('Lost screen header', () => {
     await fireEvent.press(screen.getByLabelText('Back'));
     expect(router.replace).toHaveBeenCalledWith('/(app)/(tabs)/add-game');
     expect(router.back).not.toHaveBeenCalled();
+  });
+
+  it('uses the CSS safe area on web, where the inset hook reports zero', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
+    await render(<ScannerRoute />);
+    expect(screen.getByTestId('scanner-header')).toHaveStyle({
+      paddingTop: 'env(safe-area-inset-top, 0px)',
+      paddingLeft: 'env(safe-area-inset-left, 0px)',
+      paddingRight: 'env(safe-area-inset-right, 0px)',
+    });
+    jest.restoreAllMocks();
   });
 });

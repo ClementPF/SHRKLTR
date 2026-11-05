@@ -167,11 +167,6 @@ function ScannerBody({
         </>
       )}
       {mode === 'scan' && <AddPlayers ownerId={userId} />}
-      <OutcomeColumns
-        testID="scanned-outcomes"
-        winners={members(outcomes, 'WIN')}
-        losers={members(outcomes, 'LOSS')}
-      />
       {blocker && <Text style={styles.caption}>{blocker}</Text>}
       <Button
         title="Review game"
@@ -191,20 +186,13 @@ function ScannerBody({
       >
         {confirmation && (
           <View style={styles.summary} testID="game-confirmation-summary">
-            <Text style={styles.caption}>TOURNAMENT</Text>
-            <Text style={styles.text}>{confirmation.tournament.displayName}</Text>
-            <Text style={styles.text}>Winners</Text>
-            {members(confirmation.outcomes, 'WIN').map(({ username }) => (
-              <Text key={username} style={styles.text}>
-                {username}
-              </Text>
-            ))}
-            <Text style={styles.text}>Losers</Text>
-            {members(confirmation.outcomes, 'LOSS').map(({ username }) => (
-              <Text key={username} style={styles.text}>
-                {username}
-              </Text>
-            ))}
+            <Text style={styles.tournament}>{confirmation.tournament.displayName}</Text>
+            <Text style={styles.sport}>{confirmation.tournament.sport.name}</Text>
+            <OutcomeColumns
+              testID="game-confirmation-outcomes"
+              winners={members(confirmation.outcomes, 'WIN')}
+              losers={members(confirmation.outcomes, 'LOSS')}
+            />
           </View>
         )}
       </ConfirmDialog>
@@ -214,7 +202,9 @@ function ScannerBody({
 
 const styles = StyleSheet.create({
   content: { padding: Spacing.md, gap: Spacing.md },
-  summary: { gap: Spacing.sm },
+  summary: { ...Palette.card, gap: Spacing.sm },
+  tournament: { ...Typography.title, textAlign: 'center' },
+  sport: { ...Typography.bodySecondary, textAlign: 'center', textTransform: 'capitalize' },
   text: { ...Typography.body, fontWeight: '700', textAlign: 'center' },
   caption: { ...Typography.caption, textAlign: 'center' },
   manual: { gap: Spacing.sm },

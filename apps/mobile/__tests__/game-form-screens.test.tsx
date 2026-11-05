@@ -199,7 +199,7 @@ describe('ScannerScreen', () => {
 
   async function renderScanner() {
     await renderWithClient(<ScannerScreen username="dev-sam" />);
-    await screen.findByTestId('scanned-outcomes');
+    await screen.findByTestId('scanner-review-game');
   }
 
   const scan = (data: string) => {
@@ -214,20 +214,21 @@ describe('ScannerScreen', () => {
     expect(mockedCamera.mock.lastCall?.[0].barcodeScannerSettings).toStrictEqual({
       barcodeTypes: ['qr'],
     });
-    expect(screen.getByTestId('scanned-outcomes-losers')).toHaveTextContent('dev-sam');
+    expect(screen.queryByTestId('scanned-outcomes')).toBeNull();
     expect(screen.getByLabelText('Review game')).toBeDisabled();
     expect(screen.queryByTestId('confirm-dialog')).toBeNull();
 
     await waitFor(() => scan(winnerCode));
     expect(await screen.findByTestId('game-confirmation-summary')).toHaveTextContent(
-      'TOURNAMENTOffice BabyfootWinnersdev-alexLosersdev-sam',
+      /^Office Babyfootbabyfoot/,
     );
+    expect(screen.getByTestId('game-confirmation-outcomes-winners')).toHaveTextContent('dev-alex');
+    expect(screen.getByTestId('game-confirmation-outcomes-losers')).toHaveTextContent('dev-sam');
     expect(screen.getByLabelText('Confirm game')).toBeEnabled();
     expect(screen.queryByTestId('scanner-camera')).toBeNull();
     expect(api.submitGame).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByLabelText('Cancel'));
     await waitFor(() => expect(screen.getByTestId('scanner-camera')).toBeTruthy());
-    expect(await screen.findByTestId('scanned-outcomes-winners')).toHaveTextContent('dev-alex');
     expect(screen.getByTestId('dropdown-alert')).toHaveTextContent(
       'Scanneddev-alex added as winner.',
     );
@@ -258,8 +259,11 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('confirm-dialog')).toBeNull();
     expect(screen.getByLabelText('Review game')).toBeDisabled();
     await waitFor(() => scan(encodeQrPayload(buildQrPayload('dev-lee', 'officebabyfoot', 'WIN'))));
-    expect(await screen.findByTestId('game-confirmation-summary')).toHaveTextContent(
-      'TOURNAMENTOffice BabyfootWinnersdev-alexdev-leeLosersdev-samdev-jordan',
+    expect(await screen.findByTestId('game-confirmation-outcomes-winners')).toHaveTextContent(
+      'dev-alexdev-lee',
+    );
+    expect(screen.getByTestId('game-confirmation-outcomes-losers')).toHaveTextContent(
+      'dev-samdev-jordan',
     );
     expect(api.submitGame).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByLabelText('Cancel'));
@@ -284,9 +288,8 @@ describe('ScannerScreen', () => {
     expect(api.submitGame).not.toHaveBeenCalled();
 
     await fireEvent.press(screen.getByLabelText('Review game'));
-    expect(screen.getByTestId('game-confirmation-summary')).toHaveTextContent(
-      'TOURNAMENTOffice BabyfootWinnersdev-alexLosersdev-sam',
-    );
+    expect(screen.getByTestId('game-confirmation-outcomes-winners')).toHaveTextContent('dev-alex');
+    expect(screen.getByTestId('game-confirmation-outcomes-losers')).toHaveTextContent('dev-sam');
     await fireEvent.press(screen.getByLabelText('Confirm game'));
     await waitFor(() =>
       expect(mockedRouter.replace).toHaveBeenCalledWith({
