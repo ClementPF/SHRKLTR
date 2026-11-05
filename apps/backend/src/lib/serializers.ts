@@ -13,6 +13,9 @@ export const userDtoSchema = z
   .object({
     id: z.uuid(),
     username: z.string(),
+    accountType: z
+      .enum(['REGISTERED', 'PLACEHOLDER'])
+      .describe('PLACEHOLDER players were added by name and have not claimed their profile yet'),
     firstName: z.string().nullable(),
     lastName: z.string().nullable(),
     pictureUrl: z.string().nullable(),
@@ -28,6 +31,7 @@ export function toUserDto(row: UserRow): UserDto {
   return {
     id: row.id,
     username: row.username,
+    accountType: row.accountType,
     firstName: row.firstName,
     lastName: row.lastName,
     pictureUrl: row.pictureUrl,

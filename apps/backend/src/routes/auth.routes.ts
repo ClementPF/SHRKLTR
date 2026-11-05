@@ -6,13 +6,25 @@ import type { GoogleCodeExchanger } from '../auth/google.code.js';
 import type { GoogleTokenVerifier } from '../auth/google.verify.js';
 import { ApiError, errorResponseSchema } from '../lib/errors.js';
 import { toUserDto, userDtoSchema } from '../lib/serializers.js';
+import { signInWithGoogle } from '../services/google-account.service.js';
 import { logoutSession, rotateSession } from '../services/session.service.js';
-import { findUserByUsername, upsertGoogleUser } from '../services/user.service.js';
+import { findUserByUsername } from '../services/user.service.js';
+
+const claimTokenSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .optional()
+  .describe(
+    'Token from a placeholder claim link. Binds a Google account that is new to Sharkulator ' +
+      'to the placeholder; an existing account gets 400 CLAIM_REQUIRES_NEW_ACCOUNT.',
+  );
 
 const tokenRequestSchema = z
   .object({
     provider: z.literal('google'),
     idToken: z.string().min(1),
+    claimToken: claimTokenSchema,
   })
   .meta({ id: 'TokenRequest' });
 
@@ -26,6 +38,7 @@ const codeExchangeRequestSchema = z
       .max(128)
       .regex(/^[A-Za-z0-9\-._~]+$/),
     redirectUri: z.string().min(1).max(2048),
+    claimToken: claimTokenSchema,
   })
   .meta({ id: 'GoogleCodeExchangeRequest' });
 
@@ -65,11 +78,16 @@ export interface AuthRoutesOptions {
 }
 
 export const authRoutes: FastifyPluginAsyncZod<AuthRoutesOptions> = async (app, opts) => {
-  /** The single Google sign-in path: verify the ID token, provision/link the user, issue a session. */
-  async function sessionForGoogleIdToken(idToken: string) {
+  /**
+   * The single Google sign-in path: verify the ID token, then log in, provision, or claim a
+   * placeholder, issuing the session in the same transaction.
+   */
+  async function sessionForGoogleIdToken(idToken: string, claimToken: string | undefined) {
     const identity = await opts.verifyGoogleIdToken(idToken);
-    const user = await upsertGoogleUser(app.db, identity);
-    const tokens = await issueSession(app, app.db, user.id);
+    const { user, ...tokens } = await signInWithGoogle(app, identity, {
+      claimToken,
+      now: app.clock(),
+    });
     return { ...tokens, user: toUserDto(user) };
   }
 
@@ -87,7 +105,7 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRoutesOptions> = async (app, 
         },
       },
     },
-    async (request) => sessionForGoogleIdToken(request.body.idToken),
+    async (request) => sessionForGoogleIdToken(request.body.idToken, request.body.claimToken),
   );
 
   app.post(
@@ -109,7 +127,10 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRoutesOptions> = async (app, 
       },
     },
     async (request) =>
-      sessionForGoogleIdToken(await opts.exchangeGoogleCode(request.body, request.log)),
+      sessionForGoogleIdToken(
+        await opts.exchangeGoogleCode(request.body, request.log),
+        request.body.claimToken,
+      ),
   );
 
   app.post(
@@ -159,11 +180,14 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRoutesOptions> = async (app, 
         schema: {
           tags: ['auth'],
           summary: 'Development only: issue a session for an existing user',
-          description: 'Requires the x-dev-auth header to match DEV_AUTH_SECRET; 404 otherwise.',
+          description:
+            'Requires the x-dev-auth header to match DEV_AUTH_SECRET; 404 otherwise. ' +
+            'Placeholder players cannot sign in (403 PLACEHOLDER_CANNOT_SIGN_IN).',
           body: devTokenRequestSchema,
           response: {
             200: sessionResponseSchema,
             400: errorResponseSchema,
+            403: errorResponseSchema,
             404: errorResponseSchema,
           },
         },
@@ -174,6 +198,12 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRoutesOptions> = async (app, 
         }
         const user = await findUserByUsername(app.db, request.body.username);
         if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+        if (user.accountType !== 'REGISTERED') {
+          throw ApiError.forbidden(
+            'Placeholder players cannot sign in until their profile is claimed',
+            'PLACEHOLDER_CANNOT_SIGN_IN',
+          );
+        }
         const tokens = await issueSession(app, app.db, user.id);
         return { ...tokens, user: toUserDto(user) };
       },

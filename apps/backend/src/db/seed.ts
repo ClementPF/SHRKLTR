@@ -1,8 +1,10 @@
 import { pathToFileURL } from 'node:url';
 import { count, eq, inArray } from 'drizzle-orm';
+import { hashCapabilityToken } from '../lib/capability-token.js';
 import { recordGame } from '../services/game.service.js';
+import { claimUrlFor } from '../services/placeholder.service.js';
 import { createDb, type Database, type Transaction } from './client.js';
-import { games, sports, tournaments, users } from './schema.js';
+import { games, outcomes, playerClaims, sports, tournaments, users } from './schema.js';
 
 interface DemoUser {
   username: string;
@@ -99,6 +101,59 @@ export const DEMO_TOURNAMENTS: readonly DemoTournament[] = [
   },
 ];
 
+type ClaimFixtureState = 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'CLAIMED';
+
+interface DemoPlaceholder {
+  username: string;
+  firstName: string;
+  lastName: string;
+  state: ClaimFixtureState;
+  /**
+   * LOCAL ONLY deterministic claim token, so the printed links stay stable across seed runs.
+   * Only its hash is stored; real claim tokens are always random.
+   */
+  claimToken: string;
+  /** One game against the creator in this tournament, recorded once. */
+  game?: { tournament: string; placeholderResult: 'WIN' | 'LOSS' };
+}
+
+const PLACEHOLDER_CREATOR = 'dev-alex';
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Players dev-alex added by name, one per claim-link lifecycle state. */
+export const DEMO_PLACEHOLDERS: readonly DemoPlaceholder[] = [
+  {
+    username: 'guest-riley',
+    firstName: 'Riley',
+    lastName: 'Guest',
+    state: 'ACTIVE',
+    claimToken: 'LOCAL-DEV-ONLY_claim_guest-riley_active',
+    game: { tournament: 'Office Babyfoot', placeholderResult: 'WIN' },
+  },
+  {
+    username: 'guest-casey',
+    firstName: 'Casey',
+    lastName: 'Guest',
+    state: 'EXPIRED',
+    claimToken: 'LOCAL-DEV-ONLY_claim_guest-casey_expired',
+  },
+  {
+    username: 'guest-jamie',
+    firstName: 'Jamie',
+    lastName: 'Guest',
+    state: 'REVOKED',
+    claimToken: 'LOCAL-DEV-ONLY_claim_guest-jamie_revoked',
+  },
+  {
+    username: 'guest-quinn',
+    firstName: 'Quinn',
+    lastName: 'Guest',
+    state: 'CLAIMED',
+    claimToken: 'LOCAL-DEV-ONLY_claim_guest-quinn_claimed',
+    game: { tournament: 'Friday Ping Pong', placeholderResult: 'LOSS' },
+  },
+];
+
 export function tournamentSlug(displayName: string): string {
   return displayName.replace(/\s+/g, '').toLowerCase();
 }
@@ -134,6 +189,90 @@ export interface SeedSummary {
   sports: number;
   tournaments: number;
   tournamentsWithNewGames: number;
+  placeholders: number;
+  placeholderGamesAdded: number;
+}
+
+/**
+ * Placeholder fixtures created by dev-alex with their claim links. Existing rows are never
+ * updated, so a claimed or revoked fixture is not reset and no link silently rotates.
+ */
+async function seedPlaceholders(
+  tx: Transaction,
+  userIds: Map<string, string>,
+  now: Date,
+): Promise<{ placeholders: number; gamesAdded: number }> {
+  const creatorId = requireId(userIds, PLACEHOLDER_CREATOR);
+  await tx
+    .insert(users)
+    .values(
+      DEMO_PLACEHOLDERS.map((p) => ({
+        username: p.username,
+        firstName: p.firstName,
+        lastName: p.lastName,
+        createdByUserId: creatorId,
+        ...(p.state === 'CLAIMED'
+          ? {
+              accountType: 'REGISTERED' as const,
+              googleSub: `dev|${p.username}`,
+              claimedAt: now,
+            }
+          : { accountType: 'PLACEHOLDER' as const }),
+      })),
+    )
+    .onConflictDoNothing();
+  const rows = await tx
+    .select({ id: users.id, username: users.username })
+    .from(users)
+    .where(
+      inArray(
+        users.username,
+        DEMO_PLACEHOLDERS.map((p) => p.username),
+      ),
+    );
+  const placeholderIds = new Map(rows.map((r) => [r.username, r.id]));
+
+  await tx
+    .insert(playerClaims)
+    .values(
+      DEMO_PLACEHOLDERS.map((p) => ({
+        placeholderUserId: requireId(placeholderIds, p.username),
+        creatorUserId: creatorId,
+        tokenHash: hashCapabilityToken(p.claimToken),
+        // Long-lived so the local fixture link stays usable; real links use CLAIM_TTL_DAYS.
+        expiresAt: new Date(now.getTime() + (p.state === 'EXPIRED' ? -1 : 365) * DAY_MS),
+        consumedAt: p.state === 'CLAIMED' ? now : null,
+        revokedAt: p.state === 'REVOKED' ? now : null,
+      })),
+    )
+    .onConflictDoNothing();
+
+  let gamesAdded = 0;
+  for (const p of DEMO_PLACEHOLDERS) {
+    if (!p.game) continue;
+    const placeholderId = requireId(placeholderIds, p.username);
+    const [played] = await tx
+      .select({ n: count() })
+      .from(outcomes)
+      .where(eq(outcomes.userId, placeholderId));
+    if ((played?.n ?? 0) > 0) continue;
+    const [tournament] = await tx
+      .select({ id: tournaments.id })
+      .from(tournaments)
+      .where(eq(tournaments.name, tournamentSlug(p.game.tournament)));
+    if (!tournament) throw new Error(`tournament ${p.game.tournament} missing`);
+    const creatorResult = p.game.placeholderResult === 'WIN' ? 'LOSS' : 'WIN';
+    await recordGame(tx, {
+      tournamentId: tournament.id,
+      date: new Date(now.getTime() - 60 * 60 * 1000),
+      participants: [
+        { userId: placeholderId, result: p.game.placeholderResult },
+        { userId: creatorId, result: creatorResult },
+      ],
+    });
+    gamesAdded += 1;
+  }
+  return { placeholders: placeholderIds.size, gamesAdded };
 }
 
 /**
@@ -207,11 +346,15 @@ export async function runSeed(db: Database, now: Date = new Date()): Promise<See
       tournamentsWithNewGames += 1;
     }
 
+    const placeholders = await seedPlaceholders(tx, userIds, now);
+
     return {
       users: userRows.length,
       sports: sportRows.length,
       tournaments: DEMO_TOURNAMENTS.length,
       tournamentsWithNewGames,
+      placeholders: placeholders.placeholders,
+      placeholderGamesAdded: placeholders.gamesAdded,
     };
   });
 }
@@ -221,13 +364,24 @@ const DEFAULT_DEV_DATABASE_URL =
   'postgres://sharkulator:sharkulator@localhost:5433/sharkulator_dev';
 
 async function main(): Promise<void> {
+  if (process.env.APP_ENV === 'production') {
+    throw new Error('The dev seed must never run against production (APP_ENV=production).');
+  }
   const db = createDb(process.env.DATABASE_URL ?? DEFAULT_DEV_DATABASE_URL);
   try {
     const summary = await runSeed(db);
     console.log(
       `Seed complete: ${summary.users} demo users, ${summary.sports} sports, ` +
-        `${summary.tournaments} tournaments (${summary.tournamentsWithNewGames} received demo games).`,
+        `${summary.tournaments} tournaments (${summary.tournamentsWithNewGames} received demo games), ` +
+        `${summary.placeholders} invited players (${summary.placeholderGamesAdded} new placeholder games).`,
     );
+    const webUrl = (process.env.PUBLIC_WEB_URL ?? 'http://localhost:8081').replace(/\/+$/, '');
+    console.log(
+      `LOCAL ONLY claim links created by ${PLACEHOLDER_CREATOR} (dev fixtures, not secrets):`,
+    );
+    for (const p of DEMO_PLACEHOLDERS) {
+      console.log(`  [${p.state}] ${p.username}: ${claimUrlFor(webUrl, p.claimToken)}`);
+    }
   } finally {
     await db.$client.end({ timeout: 5 });
   }

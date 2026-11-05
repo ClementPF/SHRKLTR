@@ -62,6 +62,7 @@ describe('user routes', () => {
       expect(res.json()).toEqual({
         id: me.id,
         username: 'jean-dupont',
+        accountType: 'REGISTERED',
         firstName: 'Jean',
         lastName: 'Dupont',
         pictureUrl: 'https://example.com/jean.png',
@@ -95,7 +96,7 @@ describe('user routes', () => {
       expect(body.map((u) => u.id).sort()).toEqual([a.id, b.id, c.id].sort());
       for (const u of body) {
         expect(Object.keys(u).sort()).toEqual(
-          ['firstName', 'id', 'lastName', 'locale', 'pictureUrl', 'username'].sort(),
+          ['accountType', 'firstName', 'id', 'lastName', 'locale', 'pictureUrl', 'username'].sort(),
         );
       }
     });
@@ -153,6 +154,7 @@ describe('user routes', () => {
       expect(res.json()).toEqual({
         id: me.id,
         username: 'jean-dupont',
+        accountType: 'REGISTERED',
         firstName: 'Jeanne',
         lastName: 'Durand',
         locale: 'en',

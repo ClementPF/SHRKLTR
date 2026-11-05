@@ -2,9 +2,13 @@
 
 export type GameResult = 'WIN' | 'TIE' | 'LOSS';
 
+/** PLACEHOLDER players were added by name and have not claimed their profile yet. */
+export type AccountType = 'REGISTERED' | 'PLACEHOLDER';
+
 export interface User {
   id: string;
   username: string;
+  accountType: AccountType;
   firstName: string | null;
   lastName: string | null;
   pictureUrl: string | null;

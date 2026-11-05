@@ -51,6 +51,7 @@ describe('POST /auth/token (google)', () => {
     expect(body.user).toEqual({
       id: expect.any(String),
       username: 'zoe-dupre-martin',
+      accountType: 'REGISTERED',
       firstName: 'Zoé',
       lastName: 'Dupré Martin',
       pictureUrl: 'https://lh3.googleusercontent.com/a/zoe',

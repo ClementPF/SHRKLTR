@@ -59,6 +59,7 @@ const mockedPermissions = jest.mocked(useCameraPermissions);
 const user = (username: string): User => ({
   id: `id-${username}`,
   username,
+  accountType: 'REGISTERED',
   firstName: null,
   lastName: null,
   pictureUrl: null,

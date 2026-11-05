@@ -1,5 +1,7 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   doublePrecision,
   index,
   integer,
@@ -9,26 +11,45 @@ import {
   timestamp,
   unique,
   uuid,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
 export const gameResult = pgEnum('game_result', ['WIN', 'TIE', 'LOSS']);
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  googleSub: text('google_sub').notNull().unique(),
-  email: text('email'),
-  emailVerified: boolean('email_verified').notNull().default(false),
-  firstName: text('first_name'),
-  lastName: text('last_name'),
-  username: text('username').notNull().unique(),
-  pictureUrl: text('picture_url'),
-  locale: text('locale'),
-  pushToken: text('push_token'),
-  createdAt: createdAt(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const accountType = pgEnum('account_type', ['REGISTERED', 'PLACEHOLDER']);
+
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    // NULL only for placeholders; a claim binds a Google subject to the same row.
+    googleSub: text('google_sub').unique(),
+    accountType: accountType('account_type').notNull().default('REGISTERED'),
+    email: text('email'),
+    emailVerified: boolean('email_verified').notNull().default(false),
+    firstName: text('first_name'),
+    lastName: text('last_name'),
+    username: text('username').notNull().unique(),
+    pictureUrl: text('picture_url'),
+    locale: text('locale'),
+    pushToken: text('push_token'),
+    createdByUserId: uuid('created_by_user_id').references((): AnyPgColumn => users.id, {
+      onDelete: 'set null',
+    }),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('users_created_by_account_type_idx').on(t.createdByUserId, t.accountType),
+    check(
+      'users_account_identity_check',
+      sql`(${t.accountType} = 'PLACEHOLDER' and ${t.googleSub} is null and ${t.email} is null and ${t.claimedAt} is null and ${t.emailVerified} = false) or (${t.accountType} = 'REGISTERED' and ${t.googleSub} is not null)`,
+    ),
+  ],
+);
 
 export const refreshTokens = pgTable(
   'refresh_tokens',
@@ -159,3 +180,42 @@ export const rivalryStats = pgTable(
     index('rivalry_stats_tournament_idx').on(t.tournamentId),
   ],
 );
+
+/** One current one-time claim link per placeholder; only the SHA-256 of the token is stored. */
+export const playerClaims = pgTable(
+  'player_claims',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    placeholderUserId: uuid('placeholder_user_id')
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    creatorUserId: uuid('creator_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('player_claims_creator_created_idx').on(t.creatorUserId, t.createdAt.desc()),
+    check(
+      'player_claims_not_consumed_and_revoked_check',
+      sql`${t.consumedAt} is null or ${t.revokedAt} is null`,
+    ),
+  ],
+);
+
+/** One reusable general invitation link per registered user; reissue replaces the hash. */
+export const appInvites = pgTable('app_invites', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  creatorUserId: uuid('creator_user_id')
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull().unique(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: createdAt(),
+});

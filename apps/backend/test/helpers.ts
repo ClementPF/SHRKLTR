@@ -3,7 +3,16 @@ import { sql } from 'drizzle-orm';
 import { buildApp } from '../src/app.js';
 import { loadConfig, type AppConfig } from '../src/config.js';
 import type { Database } from '../src/db/client.js';
-import { games, outcomes, sports, stats, tournaments, users } from '../src/db/schema.js';
+import {
+  games,
+  outcomes,
+  playerClaims,
+  sports,
+  stats,
+  tournaments,
+  users,
+} from '../src/db/schema.js';
+import { generateCapabilityToken, hashCapabilityToken } from '../src/lib/capability-token.js';
 import type { LogDestination } from '../src/lib/logger.js';
 import { TEST_DATABASE_URL } from './test-env.js';
 
@@ -28,11 +37,16 @@ export function testConfig(overrides: Record<string, string> = {}): AppConfig {
 export interface BuildTestAppOptions {
   env?: Record<string, string>;
   logger?: false | LogDestination;
+  clock?: () => Date;
 }
 
 /** Returns an app that is not yet ready, so tests may still register extra routes. */
 export async function buildTestApp(opts: BuildTestAppOptions = {}): Promise<FastifyInstance> {
-  return buildApp({ config: testConfig(opts.env), logger: opts.logger ?? false });
+  return buildApp({
+    config: testConfig(opts.env),
+    logger: opts.logger ?? false,
+    ...(opts.clock ? { clock: opts.clock } : {}),
+  });
 }
 
 export async function truncateAll(db: Database): Promise<void> {
@@ -75,6 +89,54 @@ export async function createUser(db: Database, overrides: Partial<UserInsert> = 
       })
       .returning(),
   );
+}
+
+/** A PLACEHOLDER user (no Google subject, email or claim timestamp). */
+export async function createPlaceholderUser(db: Database, overrides: Partial<UserInsert> = {}) {
+  const n = nextSeq();
+  return firstRow(
+    await db
+      .insert(users)
+      .values({
+        username: `placeholder-${n}`,
+        firstName: `Guest${n}`,
+        ...overrides,
+        accountType: 'PLACEHOLDER',
+        googleSub: null,
+        email: null,
+        emailVerified: false,
+        claimedAt: null,
+      })
+      .returning(),
+  );
+}
+
+export interface ClaimInput {
+  placeholderUserId: string;
+  creatorUserId: string;
+  token?: string;
+  expiresAt?: Date;
+  consumedAt?: Date | null;
+  revokedAt?: Date | null;
+}
+
+/** Stores a claim for the placeholder and returns it with its raw token. */
+export async function createClaim(db: Database, input: ClaimInput) {
+  const token = input.token ?? generateCapabilityToken();
+  const claim = firstRow(
+    await db
+      .insert(playerClaims)
+      .values({
+        placeholderUserId: input.placeholderUserId,
+        creatorUserId: input.creatorUserId,
+        tokenHash: hashCapabilityToken(token),
+        expiresAt: input.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        consumedAt: input.consumedAt ?? null,
+        revokedAt: input.revokedAt ?? null,
+      })
+      .returning(),
+  );
+  return { claim, token };
 }
 
 export async function createSport(db: Database, overrides: Partial<SportInsert> = {}) {

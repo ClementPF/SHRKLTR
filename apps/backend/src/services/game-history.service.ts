@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, countDistinct, desc, eq, inArray, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Database } from '../db/client.js';
 import { games, outcomes, sports, tournaments, users } from '../db/schema.js';
@@ -7,7 +7,7 @@ import type { PageWindow } from '../lib/pagination.js';
 import type { GameWithRelations } from './game.service.js';
 import { findTournamentByName } from './tournament.service.js';
 import { findUserByUsername } from './user.service.js';
-import { visibleTournamentsFilter } from './visibility.service.js';
+import { openTournamentsFilter, visibleTournamentsFilter } from './visibility.service.js';
 
 const owners = alias(users, 'owner');
 
@@ -104,4 +104,28 @@ export async function getGame(
   const [found] = await listGames(db, where, { offset: 0, limit: 1 });
   if (!found) throw ApiError.notFound('Game not found', 'GAME_NOT_FOUND');
   return found;
+}
+
+/** A user's games in open tournaments only, newest first, for anonymous previews. */
+export async function listOpenUserGames(
+  db: Database,
+  userId: string,
+  page: PageWindow,
+): Promise<GameWithRelations[]> {
+  const played = inArray(
+    games.id,
+    db.select({ id: outcomes.gameId }).from(outcomes).where(eq(outcomes.userId, userId)),
+  );
+  return listGames(db, and(played, openTournamentsFilter()), page);
+}
+
+/** Number of distinct games a user played in open tournaments. */
+export async function countOpenUserGames(db: Database, userId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: countDistinct(outcomes.gameId) })
+    .from(outcomes)
+    .innerJoin(games, eq(outcomes.gameId, games.id))
+    .innerJoin(tournaments, eq(games.tournamentId, tournaments.id))
+    .where(and(eq(outcomes.userId, userId), openTournamentsFilter()));
+  return row?.n ?? 0;
 }

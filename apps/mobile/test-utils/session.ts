@@ -4,6 +4,7 @@ import type { KeyValueStorage, StoredSession } from '@/auth/storage';
 export const testUser: User = {
   id: '00000000-0000-4000-8000-000000000001',
   username: 'dev-alex',
+  accountType: 'REGISTERED',
   firstName: 'Alex',
   lastName: 'Martin',
   pictureUrl: null,

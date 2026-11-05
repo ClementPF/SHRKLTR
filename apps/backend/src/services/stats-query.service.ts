@@ -5,6 +5,7 @@ import { rivalryStats, sports, stats, tournaments, users } from '../db/schema.js
 import { ApiError } from '../lib/errors.js';
 import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
 import { findUserByUsername } from './user.service.js';
+import { openTournamentsFilter } from './visibility.service.js';
 
 type StatsRow = typeof stats.$inferSelect;
 type RivalryRow = typeof rivalryStats.$inferSelect;
@@ -119,6 +120,16 @@ export async function listTournamentStats(
 export async function listUserStats(db: Database, username: string): Promise<StatsWithRelations[]> {
   const user = await requireUser(db, username);
   return queryStats(db, eq(stats.userId, user.id), [asc(tournaments.name)]);
+}
+
+/** A user's stats in open tournaments only, for anonymous previews. */
+export async function listOpenUserStats(
+  db: Database,
+  userId: string,
+): Promise<StatsWithRelations[]> {
+  return queryStats(db, and(eq(stats.userId, userId), openTournamentsFilter()), [
+    asc(tournaments.name),
+  ]);
 }
 
 /** Stats of one user in one tournament; 404 when either is unknown or the user never played. */

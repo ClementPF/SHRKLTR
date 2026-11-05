@@ -1,20 +1,22 @@
+import { createHash } from 'node:crypto';
 import { count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Database } from '../src/db/client.js';
 import {
   games,
   outcomes,
+  playerClaims,
   rivalryStats,
   sports,
   stats,
   tournaments,
   users,
 } from '../src/db/schema.js';
-import { DEMO_TOURNAMENTS, DEMO_USERS, runSeed } from '../src/db/seed.js';
+import { DEMO_PLACEHOLDERS, DEMO_TOURNAMENTS, DEMO_USERS, runSeed } from '../src/db/seed.js';
 import { truncateAll } from './helpers.js';
 import { TEST_DATABASE_URL } from './test-env.js';
 
-const tables = { users, sports, tournaments, games, outcomes, stats, rivalryStats };
+const tables = { users, sports, tournaments, games, outcomes, stats, rivalryStats, playerClaims };
 
 async function rowCounts(db: Database): Promise<Record<string, number>> {
   const entries = await Promise.all(
@@ -42,17 +44,47 @@ describe('dev seed', () => {
   it('populates demo data and is idempotent', async () => {
     await runSeed(db);
     const first = await rowCounts(db);
-    const expectedGames = DEMO_TOURNAMENTS.reduce((n, t) => n + t.games.length, 0);
-    expect(first.users).toBe(DEMO_USERS.length);
+    const expectedGames =
+      DEMO_TOURNAMENTS.reduce((n, t) => n + t.games.length, 0) +
+      DEMO_PLACEHOLDERS.filter((p) => p.game).length;
+    expect(first.users).toBe(DEMO_USERS.length + DEMO_PLACEHOLDERS.length);
+    expect(first.playerClaims).toBe(DEMO_PLACEHOLDERS.length);
     expect(first.tournaments).toBe(DEMO_TOURNAMENTS.length);
     expect(first.sports).toBeGreaterThan(0);
     expect(first.games).toBe(expectedGames);
     expect(first.stats).toBeGreaterThan(0);
     expect(first.rivalryStats).toBeGreaterThan(0);
 
+    const claimsBefore = await db.select().from(playerClaims).orderBy(playerClaims.id);
     const second = await runSeed(db);
     expect(second.tournamentsWithNewGames).toBe(0);
+    expect(second.placeholderGamesAdded).toBe(0);
     expect(await rowCounts(db)).toEqual(first);
+    expect(await db.select().from(playerClaims).orderBy(playerClaims.id)).toEqual(claimsBefore);
+  });
+
+  it('creates dev-alex’s invited players in every claim state with hashed local tokens', async () => {
+    const [alex] = await db.select().from(users).where(eq(users.username, 'dev-alex'));
+    const now = Date.now();
+    for (const fixture of DEMO_PLACEHOLDERS) {
+      const [user] = await db.select().from(users).where(eq(users.username, fixture.username));
+      const [claim] = await db
+        .select()
+        .from(playerClaims)
+        .where(eq(playerClaims.placeholderUserId, user!.id));
+      expect(user?.createdByUserId).toBe(alex?.id);
+      expect(claim?.creatorUserId).toBe(alex?.id);
+      expect(claim?.tokenHash).toBe(createHash('sha256').update(fixture.claimToken).digest('hex'));
+      expect(user?.accountType).toBe(fixture.state === 'CLAIMED' ? 'REGISTERED' : 'PLACEHOLDER');
+      expect(claim?.consumedAt !== null).toBe(fixture.state === 'CLAIMED');
+      expect(claim?.revokedAt !== null).toBe(fixture.state === 'REVOKED');
+      expect(claim!.expiresAt.getTime() < now).toBe(fixture.state === 'EXPIRED');
+      const [played] = await db
+        .select({ n: count() })
+        .from(outcomes)
+        .where(eq(outcomes.userId, user!.id));
+      expect(played?.n).toBe(fixture.game ? 1 : 0);
+    }
   });
 
   it('creates the dev-token subjects', async () => {

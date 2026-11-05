@@ -21,6 +21,8 @@ import { authGuard } from './auth/guard.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { gameRoutes } from './routes/games.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
+import { inviteRoutes } from './routes/invites.routes.js';
+import { playerRoutes } from './routes/players.routes.js';
 import { sportRoutes } from './routes/sports.routes.js';
 import { statsRoutes } from './routes/stats.routes.js';
 import { tournamentRoutes } from './routes/tournaments.routes.js';
@@ -30,6 +32,8 @@ declare module 'fastify' {
   interface FastifyInstance {
     config: AppConfig;
     db: Database;
+    /** Current time for domain rules (expiries); injectable in tests. */
+    clock: () => Date;
   }
 }
 
@@ -41,6 +45,8 @@ export interface BuildAppOptions {
   config: AppConfig;
   /** false disables logging; a destination captures log lines (tests). Defaults to stdout. */
   logger?: boolean | LogDestination;
+  /** Defaults to the system clock. */
+  clock?: () => Date;
 }
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
@@ -63,6 +69,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const db = createDb(config.DATABASE_URL);
   app.decorate('config', config);
   app.decorate('db', db);
+  app.decorate('clock', opts.clock ?? (() => new Date()));
   app.addHook('onClose', async () => {
     await db.$client.end({ timeout: 5 });
   });
@@ -110,6 +117,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(tournamentRoutes);
   await app.register(statsRoutes);
   await app.register(gameRoutes);
+  await app.register(playerRoutes);
+  await app.register(inviteRoutes);
 
   return app;
 }

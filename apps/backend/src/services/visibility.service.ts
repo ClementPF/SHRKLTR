@@ -9,3 +9,12 @@ export function visibleTournamentsFilter(viewerId: string): SQL | undefined {
   void viewerId;
   return undefined;
 }
+
+/**
+ * Restricts a query joined on `tournaments` to data an anonymous capability holder (e.g. a
+ * claim-link preview) may read. Every tournament is currently open; grouped tournaments will be
+ * excluded here.
+ */
+export function openTournamentsFilter(): SQL | undefined {
+  return undefined;
+}

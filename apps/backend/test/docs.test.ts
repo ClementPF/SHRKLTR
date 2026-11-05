@@ -83,6 +83,12 @@ describe('API docs', () => {
         '/tournaments/{name}/games',
         '/tournaments/{name}/rivalries',
         '/games/{id}',
+        '/players/placeholders',
+        '/players/invited',
+        '/players/{id}/claim-link',
+        '/invites/claim/{token}',
+        '/invites/app',
+        '/invites/app/{token}',
         '/stats',
         '/rivalries',
         '/rivalry',
@@ -109,7 +115,27 @@ describe('API docs', () => {
       doc.paths['/games/{id}'].get.responses['200'].content['application/json'].schema.$ref,
     ).toBe('#/components/schemas/Game');
     expect(doc.components.schemas.Outcome.properties.ratingBefore).toBeDefined();
-    for (const schema of ['Game', 'Outcome', 'Stats', 'RivalryStats', 'User', 'Tournament']) {
+    expect(doc.components.schemas.User.properties.accountType.enum).toEqual([
+      'REGISTERED',
+      'PLACEHOLDER',
+    ]);
+    expect(doc.components.schemas.TokenRequest.properties.claimToken).toBeDefined();
+    expect(doc.components.schemas.GoogleCodeExchangeRequest.properties.claimToken).toBeDefined();
+    expect(doc.paths['/invites/claim/{token}'].get.security).toBeUndefined();
+    expect(doc.paths['/invites/app'].post.security).toEqual([{ bearerAuth: [] }]);
+    for (const schema of [
+      'Game',
+      'Outcome',
+      'Stats',
+      'RivalryStats',
+      'User',
+      'Tournament',
+      'PlaceholderClaimLink',
+      'InvitedPlayer',
+      'ClaimPreview',
+      'AppInvite',
+      'AppInvitePreview',
+    ]) {
       expect(doc.components.schemas[schema]).toBeDefined();
     }
     const tags = new Set(
@@ -118,7 +144,16 @@ describe('API docs', () => {
       ),
     );
     expect([...tags]).toEqual(
-      expect.arrayContaining(['auth', 'users', 'sports', 'tournaments', 'games', 'stats']),
+      expect.arrayContaining([
+        'auth',
+        'users',
+        'sports',
+        'tournaments',
+        'games',
+        'stats',
+        'players',
+        'invites',
+      ]),
     );
   });
 });

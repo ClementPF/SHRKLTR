@@ -34,12 +34,15 @@ export const redactPaths = [
   'idToken',
   'token',
   'pushToken',
+  'claimToken',
   '*.authorization',
   '*.accessToken',
   '*.refreshToken',
   '*.idToken',
   '*.token',
   '*.pushToken',
+  '*.claimToken',
+  '*.*.claimToken',
   '*.*.accessToken',
   '*.*.refreshToken',
   '*.*.idToken',
@@ -70,7 +73,11 @@ export const redactPaths = [
   '*.*.refresh_token',
 ];
 
-export function redactUrl(url: string): string {
+// Capability links carry their secret as the path segment after these prefixes.
+const CAPABILITY_PATH = /^(\/invites\/(?:claim|app|group)\/)[^/?#]+/;
+
+export function redactUrl(rawUrl: string): string {
+  const url = rawUrl.replace(CAPABILITY_PATH, `$1${REDACTED}`);
   const queryIndex = url.indexOf('?');
   if (queryIndex === -1) return url;
   const params = new URLSearchParams(url.slice(queryIndex + 1));

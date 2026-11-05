@@ -2,21 +2,26 @@ import { asc, eq, like, or } from 'drizzle-orm';
 import type { GoogleIdentity } from '../auth/google.verify.js';
 import type { Database } from '../db/client.js';
 import { users } from '../db/schema.js';
-import { isUniqueViolation } from '../lib/db-errors.js';
 
 type UserRow = typeof users.$inferSelect;
 
 const FALLBACK_USERNAME = 'player';
-const MAX_INSERT_ATTEMPTS = 5;
 
-/** Display name → username base: accents stripped (NFD), lowercased, whitespace runs → '-'. */
+/**
+ * Display name → username base: accents stripped (NFD), lowercased, whitespace runs → '-'.
+ * Characters other than letters, digits, '.', '_' and '-' are dropped because usernames are
+ * used as URL path segments.
+ */
 export function deriveUsernameBase(displayName: string): string {
   const base = displayName
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-');
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}._-]/gu, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
   return base === '' ? FALLBACK_USERNAME : base;
 }
 
@@ -33,7 +38,10 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
-async function findAvailableUsername(db: Database, base: string): Promise<string> {
+export async function findAvailableUsername(
+  db: Pick<Database, 'select'>,
+  base: string,
+): Promise<string> {
   const rows = await db
     .select({ username: users.username })
     .from(users)
@@ -41,21 +49,29 @@ async function findAvailableUsername(db: Database, base: string): Promise<string
   return pickAvailableUsername(base, new Set(rows.map((r) => r.username)));
 }
 
-function splitName(identity: GoogleIdentity): {
+/** Splits a free-form display name at its final space into first and last name. */
+export function splitDisplayName(displayName: string | null | undefined): {
   firstName: string | null;
   lastName: string | null;
 } {
-  if (identity.givenName || identity.familyName) {
-    return { firstName: identity.givenName, lastName: identity.familyName };
-  }
-  const name = identity.name?.trim();
+  const name = displayName?.trim();
   if (!name) return { firstName: null, lastName: null };
   const lastSpace = name.lastIndexOf(' ');
   if (lastSpace === -1) return { firstName: name, lastName: null };
   return { firstName: name.slice(0, lastSpace).trim(), lastName: name.slice(lastSpace + 1) };
 }
 
-function displayNameOf(identity: GoogleIdentity): string {
+export function splitGoogleName(identity: GoogleIdentity): {
+  firstName: string | null;
+  lastName: string | null;
+} {
+  if (identity.givenName || identity.familyName) {
+    return { firstName: identity.givenName, lastName: identity.familyName };
+  }
+  return splitDisplayName(identity.name);
+}
+
+export function googleDisplayName(identity: GoogleIdentity): string {
   const fromParts = [identity.givenName, identity.familyName].filter(Boolean).join(' ');
   return identity.name ?? (fromParts || identity.email?.split('@')[0] || FALLBACK_USERNAME);
 }
@@ -114,51 +130,4 @@ export async function setPushToken(db: Database, id: string, token: string): Pro
     .where(eq(users.id, id))
     .returning({ id: users.id });
   return rows.length > 0;
-}
-
-/**
- * Creates the user for a Google identity on first login, otherwise refreshes the mutable
- * profile fields. Username and googleSub never change after creation.
- */
-export async function upsertGoogleUser(db: Database, identity: GoogleIdentity): Promise<UserRow> {
-  const profile = {
-    email: identity.email,
-    emailVerified: identity.emailVerified,
-    ...splitName(identity),
-    pictureUrl: identity.picture,
-    locale: identity.locale,
-  };
-
-  for (let attempt = 0; attempt < MAX_INSERT_ATTEMPTS; attempt++) {
-    const existing = await findUserByGoogleSub(db, identity.sub);
-    if (existing) {
-      const [updated] = await db
-        .update(users)
-        .set({ ...profile, updatedAt: new Date() })
-        .where(eq(users.id, existing.id))
-        .returning();
-      if (!updated) throw new Error('user disappeared during profile refresh');
-      return updated;
-    }
-
-    const username = await findAvailableUsername(db, deriveUsernameBase(displayNameOf(identity)));
-    try {
-      const [created] = await db
-        .insert(users)
-        .values({ googleSub: identity.sub, username, ...profile })
-        .returning();
-      if (!created) throw new Error('user insert returned no row');
-      return created;
-    } catch (err) {
-      // A concurrent login may have taken the username or created this Google user; retry.
-      if (
-        isUniqueViolation(err, 'users_username_key') ||
-        isUniqueViolation(err, 'users_google_sub_key')
-      ) {
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error('could not provision user after repeated unique-constraint conflicts');
 }

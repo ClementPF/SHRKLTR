@@ -187,6 +187,7 @@ describe('tournament routes', () => {
         owner: {
           id: owner.id,
           username: 'owner',
+          accountType: 'REGISTERED',
           firstName: 'Olive',
           lastName: owner.lastName,
           pictureUrl: null,

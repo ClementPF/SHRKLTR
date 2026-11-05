@@ -22,6 +22,7 @@ const api = jest.mocked(endpoints);
 const user = (username: string): User => ({
   id: `id-${username}`,
   username,
+  accountType: 'REGISTERED',
   firstName: null,
   lastName: null,
   pictureUrl: null,
