@@ -84,10 +84,11 @@ export const authRoutes: FastifyPluginAsyncZod<AuthRoutesOptions> = async (app, 
    */
   async function sessionForGoogleIdToken(idToken: string, claimToken: string | undefined) {
     const identity = await opts.verifyGoogleIdToken(idToken);
-    const { user, ...tokens } = await signInWithGoogle(app, identity, {
+    const { user, notificationIds, ...tokens } = await signInWithGoogle(app, identity, {
       claimToken,
       now: app.clock(),
     });
+    app.push.dispatch(notificationIds);
     return { ...tokens, user: toUserDto(user) };
   }
 

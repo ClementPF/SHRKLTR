@@ -5,8 +5,10 @@ import { loadConfig, type AppConfig } from '../src/config.js';
 import type { Database } from '../src/db/client.js';
 import {
   games,
+  notifications,
   outcomes,
   playerClaims,
+  pushDevices,
   sports,
   stats,
   tournaments,
@@ -202,6 +204,42 @@ export async function createGameRow(db: Database, input: GameRowInput) {
             .returning();
     return { game, outcomes: outcomeRows };
   });
+}
+
+/** Valid-looking Expo push token derived from a label (never a real device). */
+export const expoTokenOf = (label: string) => `ExponentPushToken[${label}]`;
+
+export async function createPushDevice(
+  db: Database,
+  values: Pick<typeof pushDevices.$inferInsert, 'userId'> &
+    Partial<typeof pushDevices.$inferInsert>,
+) {
+  const n = nextSeq();
+  return firstRow(
+    await db
+      .insert(pushDevices)
+      .values({ installationId: `install-${n}`, expoToken: expoTokenOf(`device-${n}`), ...values })
+      .returning(),
+  );
+}
+
+export async function createNotification(
+  db: Database,
+  values: Pick<typeof notifications.$inferInsert, 'recipientUserId'> &
+    Partial<typeof notifications.$inferInsert>,
+) {
+  const n = nextSeq();
+  return firstRow(
+    await db
+      .insert(notifications)
+      .values({
+        type: 'placeholder_claimed',
+        category: 'claims',
+        dedupeKey: `fixture:${n}`,
+        ...values,
+      })
+      .returning(),
+  );
 }
 
 /** Authorization header carrying a freshly signed access token for the user. */

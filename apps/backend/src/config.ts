@@ -41,6 +41,8 @@ export const envSchema = z.object({
   GOOGLE_TOKEN_URL: z.url().default('https://oauth2.googleapis.com/token'),
   GOOGLE_REDIRECT_ALLOWLIST: z.string().default('http://localhost:8081').transform(splitCsv),
   PUSH_URL: z.url().default('https://exp.host/--/api/v2/push/send'),
+  /** Upper bound for one Expo push request, response body included. */
+  PUSH_TIMEOUT_MS: z.coerce.number().int().min(50).max(60_000).default(5000),
   // Optional server-only bearer token for Expo's enhanced push security; empty counts as unset.
   EXPO_ACCESS_TOKEN: z
     .string()

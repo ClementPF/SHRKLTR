@@ -129,12 +129,3 @@ export async function updateUserProfile(
     .returning();
   return row;
 }
-
-export async function setPushToken(db: Database, id: string, token: string): Promise<boolean> {
-  const rows = await db
-    .update(users)
-    .set({ pushToken: token, updatedAt: new Date() })
-    .where(eq(users.id, id))
-    .returning({ id: users.id });
-  return rows.length > 0;
-}

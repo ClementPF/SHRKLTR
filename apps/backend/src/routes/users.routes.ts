@@ -19,7 +19,6 @@ import {
   findUserById,
   findUserByUsername,
   listUsers,
-  setPushToken,
   updateUserProfile,
 } from '../services/user.service.js';
 import { challengeUser } from '../services/challenge.service.js';
@@ -36,10 +35,6 @@ const updateMeSchema = z
     pictureUrl: z.url().max(2048).nullable().optional(),
   })
   .meta({ id: 'UpdateMeRequest' });
-
-const pushTokenSchema = z
-  .object({ value: z.string().trim().min(1).max(512) })
-  .meta({ id: 'PushTokenRequest' });
 
 const challengeSchema = z
   .object({
@@ -110,29 +105,6 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       const user = await updateUserProfile(app.db, request.user.id, request.body);
       if (!user) throw currentUserGone();
       return toUserDto(user);
-    },
-  );
-
-  app.post(
-    '/users/me/push-token',
-    {
-      schema: {
-        tags: ['users'],
-        summary: 'Register the Expo push token of the authenticated user',
-        description: 'One token per user; the latest registration wins.',
-        security,
-        body: pushTokenSchema,
-        response: {
-          204: z.null().describe('Token stored'),
-          400: errorResponseSchema,
-          401: errorResponseSchema,
-        },
-      },
-    },
-    async (request, reply) => {
-      const stored = await setPushToken(app.db, request.user.id, request.body.value);
-      if (!stored) throw currentUserGone();
-      return reply.code(204).send(null);
     },
   );
 
@@ -260,8 +232,8 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
         tags: ['users'],
         summary: 'Challenge a user with a push notification',
         description:
-          'Sends "<firstName> is challenging you." to the target. Push delivery is best effort: ' +
-          'a failed delivery still returns 204. The target must have a registered push token.',
+          'Pushes "<firstName> is challenging you." to every active device of the target, after ' +
+          'the response and best effort. The target must have an active push device.',
         security,
         params: usernameParamsSchema,
         body: challengeSchema,
@@ -276,7 +248,7 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       await challengeUser(
-        { db: app.db, pushUrl: app.config.PUSH_URL, log: request.log },
+        { db: app.db, push: app.push },
         {
           callerId: request.user.id,
           targetUsername: request.params.username,

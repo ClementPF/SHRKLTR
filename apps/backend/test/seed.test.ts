@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Database } from '../src/db/client.js';
 import {
   games,
+  notifications,
   outcomes,
   playerClaims,
   rivalryStats,
@@ -16,7 +17,17 @@ import { DEMO_PLACEHOLDERS, DEMO_TOURNAMENTS, DEMO_USERS, runSeed } from '../src
 import { truncateAll } from './helpers.js';
 import { TEST_DATABASE_URL } from './test-env.js';
 
-const tables = { users, sports, tournaments, games, outcomes, stats, rivalryStats, playerClaims };
+const tables = {
+  users,
+  sports,
+  tournaments,
+  games,
+  outcomes,
+  stats,
+  rivalryStats,
+  playerClaims,
+  notifications,
+};
 
 async function rowCounts(db: Database): Promise<Record<string, number>> {
   const entries = await Promise.all(
@@ -85,6 +96,19 @@ describe('dev seed', () => {
         .where(eq(outcomes.userId, user!.id));
       expect(played?.n).toBe(fixture.game ? 1 : 0);
     }
+  });
+
+  it('seeds read and unread inbox rows: one game_recorded per participant, no duplicates', async () => {
+    const [outcomeCount] = await db.select({ n: count() }).from(outcomes);
+    const rows = await db.select().from(notifications);
+    const gameRows = rows.filter((r) => r.type === 'game_recorded');
+    expect(gameRows).toHaveLength(outcomeCount!.n);
+    expect(rows.filter((r) => r.type === 'placeholder_claimed')).toHaveLength(1);
+    const [alex] = await db.select().from(users).where(eq(users.username, 'dev-alex'));
+    const alexRows = rows.filter((r) => r.recipientUserId === alex!.id);
+    expect(alexRows.some((r) => r.readAt === null)).toBe(true);
+    expect(alexRows.some((r) => r.readAt !== null)).toBe(true);
+    for (const row of gameRows) expect(row.createdAt).toBeInstanceOf(Date);
   });
 
   it('creates the dev-token subjects', async () => {

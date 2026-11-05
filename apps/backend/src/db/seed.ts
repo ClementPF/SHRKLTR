@@ -2,9 +2,18 @@ import { pathToFileURL } from 'node:url';
 import { count, eq, inArray } from 'drizzle-orm';
 import { hashCapabilityToken } from '../lib/capability-token.js';
 import { recordGame } from '../services/game.service.js';
+import { NOTIFICATION_CATEGORY_BY_TYPE } from '../services/notification.service.js';
 import { claimUrlFor } from '../services/placeholder.service.js';
 import { createDb, type Database, type Transaction } from './client.js';
-import { games, outcomes, playerClaims, sports, tournaments, users } from './schema.js';
+import {
+  games,
+  notifications,
+  outcomes,
+  playerClaims,
+  sports,
+  tournaments,
+  users,
+} from './schema.js';
 
 interface DemoUser {
   username: string;
@@ -184,6 +193,64 @@ async function seedTournamentGames(
   }
 }
 
+/** Demo inbox rows older than this are seeded as already read. */
+const READ_AFTER_HOURS = 48;
+
+/**
+ * Inbox fixtures: game_recorded for every participant of every demo game, plus dev-alex's
+ * placeholder_claimed for the claimed fixture. Keyed by the same dedupe keys as live events, so
+ * reruns never duplicate rows or reset read state. Rows are inserted directly; the seed never
+ * pushes.
+ */
+async function seedNotifications(
+  tx: Transaction,
+  userIds: Map<string, string>,
+  now: Date,
+): Promise<void> {
+  const played = await tx
+    .select({ userId: outcomes.userId, gameId: games.id, date: games.date })
+    .from(outcomes)
+    .innerJoin(games, eq(outcomes.gameId, games.id))
+    .innerJoin(tournaments, eq(games.tournamentId, tournaments.id))
+    .where(
+      inArray(
+        tournaments.name,
+        DEMO_TOURNAMENTS.map((t) => tournamentSlug(t.displayName)),
+      ),
+    );
+  const readBefore = now.getTime() - READ_AFTER_HOURS * 3_600_000;
+  const gameRows = played.map((p) => ({
+    recipientUserId: p.userId,
+    type: 'game_recorded' as const,
+    category: NOTIFICATION_CATEGORY_BY_TYPE.game_recorded,
+    dedupeKey: `game_recorded:${p.gameId}`,
+    gameId: p.gameId,
+    createdAt: p.date,
+    readAt: p.date.getTime() < readBefore ? new Date(p.date.getTime() + 3_600_000) : null,
+  }));
+  if (gameRows.length > 0) await tx.insert(notifications).values(gameRows).onConflictDoNothing();
+
+  const claimed = DEMO_PLACEHOLDERS.find((p) => p.state === 'CLAIMED');
+  if (!claimed) return;
+  const [claimedUser] = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.username, claimed.username));
+  if (!claimedUser) return;
+  await tx
+    .insert(notifications)
+    .values({
+      recipientUserId: requireId(userIds, PLACEHOLDER_CREATOR),
+      type: 'placeholder_claimed',
+      category: NOTIFICATION_CATEGORY_BY_TYPE.placeholder_claimed,
+      dedupeKey: `placeholder_claimed:${claimedUser.id}`,
+      actorUserId: claimedUser.id,
+      subjectUserId: claimedUser.id,
+      createdAt: new Date(now.getTime() - 3 * 3_600_000),
+    })
+    .onConflictDoNothing();
+}
+
 export interface SeedSummary {
   users: number;
   sports: number;
@@ -347,6 +414,7 @@ export async function runSeed(db: Database, now: Date = new Date()): Promise<See
     }
 
     const placeholders = await seedPlaceholders(tx, userIds, now);
+    await seedNotifications(tx, userIds, now);
 
     return {
       users: userRows.length,

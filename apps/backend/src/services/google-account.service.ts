@@ -7,6 +7,7 @@ import { playerClaims, users } from '../db/schema.js';
 import { hashCapabilityToken } from '../lib/capability-token.js';
 import { isUniqueViolation } from '../lib/db-errors.js';
 import { ApiError } from '../lib/errors.js';
+import { notifyPlaceholderClaimed } from './notification.service.js';
 import {
   deriveUsernameBase,
   findAvailableUsername,
@@ -26,6 +27,8 @@ export interface GoogleSignInOptions {
 
 export interface GoogleSignInResult extends SessionTokens {
   user: UserRow;
+  /** Inbox rows created by a claim, to push once the transaction has committed. */
+  notificationIds: string[];
 }
 
 export const claimInvalid = () =>
@@ -90,7 +93,7 @@ async function claimPlaceholder(
   identity: GoogleIdentity,
   claimToken: string,
   now: Date,
-): Promise<UserRow> {
+): Promise<{ user: UserRow; creatorId: string }> {
   const tokenHash = hashCapabilityToken(claimToken);
   const [candidate] = await tx
     .select({ placeholderUserId: playerClaims.placeholderUserId })
@@ -134,7 +137,7 @@ async function claimPlaceholder(
     .returning();
   if (!claimed) throw claimInvalid();
   await tx.update(playerClaims).set({ consumedAt: now }).where(eq(playerClaims.id, claim.id));
-  return claimed;
+  return { user: claimed, creatorId: claim.creatorUserId };
 }
 
 /**
@@ -159,6 +162,7 @@ export async function signInWithGoogle(
           .limit(1);
 
         let user: UserRow;
+        let notificationIds: string[] = [];
         if (opts.claimToken !== undefined) {
           if (existing) {
             throw ApiError.badRequest(
@@ -166,14 +170,19 @@ export async function signInWithGoogle(
               'CLAIM_REQUIRES_NEW_ACCOUNT',
             );
           }
-          user = await claimPlaceholder(tx, identity, opts.claimToken, opts.now);
+          const claimed = await claimPlaceholder(tx, identity, opts.claimToken, opts.now);
+          user = claimed.user;
+          notificationIds = await notifyPlaceholderClaimed(tx, {
+            creatorId: claimed.creatorId,
+            claimedUserId: user.id,
+          });
         } else if (existing) {
           user = await refreshProfile(tx, existing.id, identity);
         } else {
           user = await createRegisteredUser(tx, identity);
         }
         const tokens = await issueSession(app, tx, user.id);
-        return { ...tokens, user };
+        return { ...tokens, user, notificationIds };
       });
     } catch (err) {
       // Another account took the derived username concurrently; pick the next free one.

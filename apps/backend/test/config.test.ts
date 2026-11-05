@@ -21,6 +21,7 @@ describe('config', () => {
     expect(config.MAINTENANCE_ENABLED).toBe(true);
     expect(config.EXPO_ACCESS_TOKEN).toBeUndefined();
     expect(config.PUSH_URL).toBe('https://exp.host/--/api/v2/push/send');
+    expect(config.PUSH_TIMEOUT_MS).toBe(5000);
   });
 
   it('disables maintenance in the test configuration', () => {

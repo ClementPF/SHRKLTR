@@ -84,7 +84,13 @@ describe('API docs', () => {
         '/users/{username}/rivalries',
         '/users/{username}/tournaments',
         '/users/{username}/games',
-        '/users/me/push-token',
+        '/users/me/notification-preferences',
+        '/users/me/push-devices',
+        '/users/me/push-devices/{installationId}',
+        '/notifications',
+        '/notifications/unread-count',
+        '/notifications/{id}/read',
+        '/notifications/read-all',
         '/users/{username}/challenge',
         '/sports',
         '/tournaments',
@@ -132,7 +138,20 @@ describe('API docs', () => {
     ]);
     expect(doc.components.schemas.TokenRequest.properties.claimToken).toBeDefined();
     expect(doc.components.schemas.GoogleCodeExchangeRequest.properties.claimToken).toBeDefined();
+    expect(paths).not.toContain('/users/me/push-token');
     expect(doc.paths['/invites/claim/{token}'].get.security).toBeUndefined();
+    expect(doc.paths['/notifications'].get.security).toEqual([{ bearerAuth: [] }]);
+    expect(
+      doc.paths['/notifications'].get.responses['200'].content['application/json'].schema.items
+        .$ref,
+    ).toBe('#/components/schemas/Notification');
+    expect(Object.keys(doc.components.schemas.NotificationPreferences.properties).sort()).toEqual([
+      'achievements',
+      'challenges',
+      'claims',
+      'games',
+      'groups',
+    ]);
     expect(doc.paths['/invites/app'].post.security).toEqual([{ bearerAuth: [] }]);
     for (const schema of [
       'Game',
@@ -146,6 +165,12 @@ describe('API docs', () => {
       'ClaimPreview',
       'AppInvite',
       'AppInvitePreview',
+      'Notification',
+      'NotificationTarget',
+      'NotificationPreferences',
+      'UpdateNotificationPreferencesRequest',
+      'RegisterPushDeviceRequest',
+      'UnreadCount',
     ]) {
       expect(doc.components.schemas[schema]).toBeDefined();
     }
@@ -164,6 +189,7 @@ describe('API docs', () => {
         'stats',
         'players',
         'invites',
+        'notifications',
       ]),
     );
   });

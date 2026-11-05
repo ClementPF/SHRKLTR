@@ -10,6 +10,7 @@ import {
   refreshRivalrySelection,
   type ParticipantResult,
 } from './stats.service.js';
+import { notifyGameRecorded } from './notification.service.js';
 import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
 
 type GameRow = typeof games.$inferSelect;
@@ -114,11 +115,18 @@ export interface SubmitGameInput {
   outcomes: readonly SubmittedOutcome[];
 }
 
+export interface SubmittedGame {
+  game: GameWithRelations;
+  /** Inbox rows created by the game, to push once the transaction has committed. */
+  notificationIds: string[];
+}
+
 /**
- * Records a game submitted by one of its losers. The game and its outcomes are written in a
- * single transaction; outcome scoreValues are the Elo deltas from current tournament ratings.
+ * Records a game submitted by one of its losers. The game, its outcomes and every participant's
+ * game_recorded inbox row are written in a single transaction; outcome scoreValues are the Elo
+ * deltas from current tournament ratings.
  */
-export async function submitGame(db: Database, input: SubmitGameInput): Promise<GameWithRelations> {
+export async function submitGame(db: Database, input: SubmitGameInput): Promise<SubmittedGame> {
   const tournament = await findTournamentByName(db, input.tournamentName);
   if (!tournament) throw ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
 
@@ -143,13 +151,22 @@ export async function submitGame(db: Database, input: SubmitGameInput): Promise<
     if (!user) throw new Error(`missing user ${o.username}`);
     return { userId: user.id, result: o.result };
   });
-  const gameId = await db.transaction((tx) =>
-    recordGame(tx, { tournamentId: tournament.tournament.id, participants }),
-  );
+  const { gameId, notificationIds } = await db.transaction(async (tx) => {
+    const recorded = await recordGame(tx, { tournamentId: tournament.tournament.id, participants });
+    const inserted = await notifyGameRecorded(tx, {
+      gameId: recorded,
+      submitterId: input.callerId,
+      participantIds: participants.map((p) => p.userId),
+    });
+    return { gameId: recorded, notificationIds: inserted };
+  });
 
   const [game] = await db.select().from(games).where(eq(games.id, gameId)).limit(1);
   if (!game) throw new Error('game disappeared after creation');
-  return { game, tournament, outcomes: await loadOutcomes(db, gameId) };
+  return {
+    game: { game, tournament, outcomes: await loadOutcomes(db, gameId) },
+    notificationIds,
+  };
 }
 
 /** Outcomes of a game with their users, winners first then by username. */

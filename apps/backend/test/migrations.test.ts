@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Database } from '../src/db/client.js';
 import { runMigrations } from '../src/db/migrate.js';
 import { authHeadersFor, buildTestApp } from './helpers.js';
+import { startPushCollector } from './push-collector.js';
 import { TEST_DATABASE_URL } from './test-env.js';
 
 const migrationsDir = resolve(dirname(fileURLToPath(import.meta.url)), '../drizzle');
@@ -25,15 +26,18 @@ describe('committed migrations', () => {
     await db.$client.end({ timeout: 5 });
   });
 
-  it('create all 10 tables', async () => {
+  it('create all 13 tables', async () => {
     const rows = await db.execute<{ tablename: string }>(
       sql`select tablename from pg_tables where schemaname = 'public' order by tablename`,
     );
     expect(rows.map((r) => r.tablename)).toEqual([
       'app_invites',
       'games',
+      'notification_preferences',
+      'notifications',
       'outcomes',
       'player_claims',
+      'push_devices',
       'refresh_tokens',
       'rivalry_stats',
       'sports',
@@ -137,6 +141,64 @@ describe('committed migrations', () => {
     }
   });
 
+  it('add notification, preference and push-device tables with their constraints', async () => {
+    const enumLabels = async (name: string) =>
+      (
+        await db.execute<{ label: string }>(
+          sql`select e.enumlabel as label from pg_enum e join pg_type t on t.oid = e.enumtypid
+              where t.typname = ${name} order by e.enumsortorder`,
+        )
+      ).map((r) => r.label);
+    expect(await enumLabels('notification_category')).toEqual([
+      'games',
+      'challenges',
+      'achievements',
+      'claims',
+      'groups',
+    ]);
+    expect(await enumLabels('notification_type')).toEqual([
+      'game_recorded',
+      'challenge_received',
+      'challenge_accepted',
+      'challenge_declined',
+      'challenge_expiring',
+      'challenge_expired',
+      'achievement_unlocked',
+      'placeholder_claimed',
+      'group_member_joined',
+    ]);
+    expect(await enumLabels('push_platform')).toEqual(['IOS', 'ANDROID', 'UNKNOWN']);
+
+    const indexes = await db.execute<{ indexname: string; indexdef: string }>(
+      sql`select indexname, indexdef from pg_indexes where schemaname = 'public'`,
+    );
+    const defs = new Map(indexes.map((r) => [r.indexname, r.indexdef]));
+    expect(defs.get('notifications_recipient_dedupe_unique')).toContain(
+      'UNIQUE INDEX notifications_recipient_dedupe_unique ON public.notifications USING btree (recipient_user_id, dedupe_key)',
+    );
+    expect(defs.get('notifications_recipient_created_idx')).toContain(
+      '(recipient_user_id, created_at DESC',
+    );
+    expect(defs.get('notifications_recipient_unread_idx')).toContain('WHERE (read_at IS NULL)');
+    expect(defs.get('push_devices_user_installation_unique')).toContain(
+      '(user_id, installation_id)',
+    );
+    expect(defs.get('push_devices_active_user_idx')).toContain('WHERE (disabled_at IS NULL)');
+    expect(
+      [...defs.values()].some((d) =>
+        d.startsWith(
+          'CREATE UNIQUE INDEX push_devices_expo_token_key ON public.push_devices USING btree (expo_token)',
+        ),
+      ),
+    ).toBe(true);
+
+    const legacyColumn = await db.execute(
+      sql`select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'users' and column_name = 'push_token'`,
+    );
+    expect(legacyColumn).toHaveLength(0);
+  });
+
   it('keep the legacy longuest_* column spelling', async () => {
     const rows = await db.execute<{ column_name: string }>(
       sql`select column_name from information_schema.columns
@@ -190,7 +252,7 @@ describe('boot-time migrator (runMigrations)', () => {
     await runMigrations(scratchUrl);
     const { names, tables } = await journal(scratchUrl);
     expect(names).toEqual(migrationFolders.map((d) => d.name).sort());
-    expect(tables).toBe(10);
+    expect(tables).toBe(13);
   });
 
   it('is a no-op when every migration is already applied', async () => {
@@ -312,7 +374,12 @@ describe('M1 migrations on a populated baseline (VAL-GAME-009)', () => {
     for (const table of tables) {
       const after = await snapshot(table);
       expect(after).toHaveLength(before[table]!.length);
-      after.forEach((row, i) => expect(row).toMatchObject(before[table]![i]!));
+      after.forEach((row, i) => {
+        // users.push_token is retired by the notifications migration (moved to push_devices).
+        const expected = { ...before[table]![i]! };
+        delete expected.push_token;
+        expect(row).toMatchObject(expected);
+      });
     }
     const users = await snapshot('users');
     for (const user of users) {
@@ -379,5 +446,123 @@ describe('M1 migrations on a populated baseline (VAL-GAME-009)', () => {
       sql`insert into users (username, account_type, google_sub, claimed_at)
           values ('claimed-ok', 'REGISTERED', 'sub-claimed', now())`,
     );
+  });
+});
+
+describe('legacy push tokens on a populated baseline (VAL-NOTIF-012)', () => {
+  const scratchName = `sharkulator_push_baseline_${process.pid}`;
+  const scratchUrl = (() => {
+    const url = new URL(TEST_DATABASE_URL);
+    url.pathname = `/${scratchName}`;
+    return url.toString();
+  })();
+  const ordered = migrationFolders.map((d) => d.name).sort();
+  const featureFolder = ordered.find((name) => name.endsWith('_notifications_push_devices'));
+  let admin: Database;
+  let db: Database;
+  let baselineDir: string;
+
+  beforeAll(async () => {
+    if (!featureFolder) throw new Error('notifications migration folder not found');
+    admin = createDb(TEST_DATABASE_URL);
+    await admin.execute(sql.raw(`DROP DATABASE IF EXISTS "${scratchName}"`));
+    await admin.execute(sql.raw(`CREATE DATABASE "${scratchName}"`));
+    baselineDir = mkdtempSync(join(tmpdir(), 'sharkulator-push-baseline-'));
+    for (const name of ordered.filter((n) => n < featureFolder)) {
+      cpSync(join(migrationsDir, name), join(baselineDir, name), { recursive: true });
+    }
+    await runMigrations(scratchUrl, baselineDir);
+    db = createDb(scratchUrl);
+  });
+
+  afterAll(async () => {
+    await db.$client.end({ timeout: 5 });
+    rmSync(baselineDir, { recursive: true, force: true });
+    await admin.execute(sql.raw(`DROP DATABASE IF EXISTS "${scratchName}" WITH (FORCE)`));
+    await admin.$client.end({ timeout: 5 });
+  });
+
+  it('moves nonempty tokens to push_devices with one deterministic owner, then drops the column', async () => {
+    const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+    await db.execute(sql`
+      insert into users (id, google_sub, username, push_token, updated_at) values
+        (${id(1)}, 'g1', 'alice', 'ExponentPushToken[alice]', '2026-10-01T00:00:00Z'),
+        (${id(2)}, 'g2', 'bob', ' ExponentPushToken[shared] ', '2026-10-02T00:00:00Z'),
+        (${id(3)}, 'g3', 'carol', 'ExponentPushToken[shared]', '2026-10-03T00:00:00Z'),
+        (${id(4)}, 'g4', 'dave', '', '2026-10-04T00:00:00Z'),
+        (${id(5)}, 'g5', 'erin', '   ', '2026-10-05T00:00:00Z'),
+        (${id(6)}, 'g6', 'frank', null, '2026-10-06T00:00:00Z')`);
+    await db.execute(sql`insert into sports (id, name) values (${id(10)}, 'babyfoot')`);
+    await db.execute(sql`
+      insert into tournaments (id, name, display_name, sport_id, owner_user_id)
+      values (${id(20)}, 'club', 'Club', ${id(10)}, ${id(1)})`);
+
+    await runMigrations(scratchUrl);
+
+    const devices = await db.execute<{
+      username: string;
+      installation_id: string;
+      expo_token: string;
+      platform: string;
+      disabled_at: Date | null;
+    }>(sql`select u.username, d.installation_id, d.expo_token, d.platform, d.disabled_at
+           from push_devices d join users u on u.id = d.user_id order by u.username`);
+    expect(devices).toEqual([
+      {
+        username: 'alice',
+        installation_id: `legacy:${id(1)}`,
+        expo_token: 'ExponentPushToken[alice]',
+        platform: 'UNKNOWN',
+        disabled_at: null,
+      },
+      {
+        username: 'carol',
+        installation_id: `legacy:${id(3)}`,
+        expo_token: 'ExponentPushToken[shared]',
+        platform: 'UNKNOWN',
+        disabled_at: null,
+      },
+    ]);
+    const legacyColumn = await db.execute(
+      sql`select 1 from information_schema.columns
+          where table_schema = 'public' and table_name = 'users' and column_name = 'push_token'`,
+    );
+    expect(legacyColumn).toHaveLength(0);
+
+    // A team game afterwards fans out once per participant device, losers included, with no
+    // extra winner-only message.
+    const collector = await startPushCollector();
+    const app = await buildTestApp({ env: { DATABASE_URL: scratchUrl, PUSH_URL: collector.url } });
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/tournaments/club/games',
+        headers: await authHeadersFor(app, id(1)),
+        payload: {
+          outcomes: [
+            { username: 'carol', result: 'WIN' },
+            { username: 'dave', result: 'WIN' },
+            { username: 'alice', result: 'LOSS' },
+            { username: 'bob', result: 'LOSS' },
+          ],
+        },
+      });
+      await app.push.drain();
+      expect(res.statusCode).toBe(201);
+      expect(
+        collector
+          .messages()
+          .map((m) => m.to)
+          .sort(),
+      ).toEqual(['ExponentPushToken[alice]', 'ExponentPushToken[shared]']);
+      expect(collector.received).toHaveLength(1);
+      const rows = await db.execute<{ n: number }>(
+        sql`select count(*)::int as n from notifications where type = 'game_recorded'`,
+      );
+      expect(rows[0]?.n).toBe(4);
+    } finally {
+      await app.close();
+      await collector.close();
+    }
   });
 });

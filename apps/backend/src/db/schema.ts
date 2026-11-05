@@ -34,7 +34,6 @@ export const users = pgTable(
     username: text('username').notNull().unique(),
     pictureUrl: text('picture_url'),
     locale: text('locale'),
-    pushToken: text('push_token'),
     createdByUserId: uuid('created_by_user_id').references((): AnyPgColumn => users.id, {
       onDelete: 'set null',
     }),
@@ -219,3 +218,99 @@ export const appInvites = pgTable('app_invites', {
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   createdAt: createdAt(),
 });
+
+export const notificationCategory = pgEnum('notification_category', [
+  'games',
+  'challenges',
+  'achievements',
+  'claims',
+  'groups',
+]);
+
+export const notificationType = pgEnum('notification_type', [
+  'game_recorded',
+  'challenge_received',
+  'challenge_accepted',
+  'challenge_declined',
+  'challenge_expiring',
+  'challenge_expired',
+  'achievement_unlocked',
+  'placeholder_claimed',
+  'group_member_joined',
+]);
+
+/**
+ * In-app inbox. Rows are always inserted regardless of preferences; dedupe_key (event identity)
+ * makes repeated event emission for the same recipient a no-op.
+ */
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    recipientUserId: uuid('recipient_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    category: notificationCategory('category').notNull(),
+    type: notificationType('type').notNull(),
+    dedupeKey: text('dedupe_key').notNull(),
+    actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    subjectUserId: uuid('subject_user_id').references(() => users.id, { onDelete: 'set null' }),
+    gameId: uuid('game_id').references(() => games.id, { onDelete: 'set null' }),
+    achievementCode: text('achievement_code'),
+    createdAt: createdAt(),
+    readAt: timestamp('read_at', { withTimezone: true }),
+  },
+  (t) => [
+    unique('notifications_recipient_dedupe_unique').on(t.recipientUserId, t.dedupeKey),
+    index('notifications_recipient_created_idx').on(
+      t.recipientUserId,
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
+    index('notifications_recipient_unread_idx')
+      .on(t.recipientUserId)
+      .where(sql`${t.readAt} is null`),
+  ],
+);
+
+/** Push-only toggles per category; a missing row means every category is enabled. */
+export const notificationPreferences = pgTable('notification_preferences', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  gamesEnabled: boolean('games_enabled').notNull().default(true),
+  challengesEnabled: boolean('challenges_enabled').notNull().default(true),
+  achievementsEnabled: boolean('achievements_enabled').notNull().default(true),
+  claimsEnabled: boolean('claims_enabled').notNull().default(true),
+  groupsEnabled: boolean('groups_enabled').notNull().default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pushPlatform = pgEnum('push_platform', ['IOS', 'ANDROID', 'UNKNOWN']);
+
+/** One row per app installation; an Expo token has exactly one owner at a time. */
+export const pushDevices = pgTable(
+  'push_devices',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    installationId: text('installation_id').notNull(),
+    expoToken: text('expo_token').notNull().unique(),
+    platform: pushPlatform('platform').notNull().default('UNKNOWN'),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique('push_devices_user_installation_unique').on(t.userId, t.installationId),
+    index('push_devices_active_user_idx')
+      .on(t.userId)
+      .where(sql`${t.disabledAt} is null`),
+    check(
+      'push_devices_installation_id_length_check',
+      sql`char_length(${t.installationId}) between 1 and 200`,
+    ),
+  ],
+);

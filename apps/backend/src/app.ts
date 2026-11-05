@@ -18,6 +18,8 @@ import { createGoogleCodeExchanger } from './auth/google.code.js';
 import { createGoogleVerifier } from './auth/google.verify.js';
 import { registerJwt } from './auth/jwt.js';
 import { authGuard } from './auth/guard.js';
+import { createPushNotifier, type PushNotifier } from './services/push.service.js';
+import { notificationRoutes } from './routes/notifications.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { gameRoutes } from './routes/games.routes.js';
 import { healthRoutes } from './routes/health.routes.js';
@@ -34,6 +36,8 @@ declare module 'fastify' {
     db: Database;
     /** Current time for domain rules (expiries); injectable in tests. */
     clock: () => Date;
+    /** Post-commit, best-effort Expo push delivery. */
+    push: PushNotifier;
   }
 }
 
@@ -69,8 +73,22 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   const db = createDb(config.DATABASE_URL);
   app.decorate('config', config);
   app.decorate('db', db);
-  app.decorate('clock', opts.clock ?? (() => new Date()));
+  const clock = opts.clock ?? (() => new Date());
+  app.decorate('clock', clock);
+  const push = createPushNotifier({
+    db,
+    transport: {
+      url: config.PUSH_URL,
+      accessToken: config.EXPO_ACCESS_TOKEN,
+      timeoutMs: config.PUSH_TIMEOUT_MS,
+    },
+    log: app.log,
+    clock,
+  });
+  app.decorate('push', push);
   app.addHook('onClose', async () => {
+    // In-flight deliveries still write device state, so they finish before the pool closes.
+    await push.drain();
     await db.$client.end({ timeout: 5 });
   });
 
@@ -119,6 +137,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(gameRoutes);
   await app.register(playerRoutes);
   await app.register(inviteRoutes);
+  await app.register(notificationRoutes);
 
   return app;
 }

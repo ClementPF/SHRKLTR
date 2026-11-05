@@ -1,7 +1,7 @@
-import type { FastifyBaseLogger } from 'fastify';
 import type { Database } from '../db/client.js';
 import { ApiError } from '../lib/errors.js';
-import { sendPush } from './push.service.js';
+import { listActivePushDevices } from './push-device.service.js';
+import type { PushNotifier } from './push.service.js';
 import { findUserById, findUserByUsername } from './user.service.js';
 
 export const DEFAULT_CHALLENGE_MESSAGE = 'I demand a trial by combat.';
@@ -16,8 +16,7 @@ export interface ChallengeRequest {
 
 export interface ChallengeDeps {
   db: Database;
-  pushUrl: string;
-  log: FastifyBaseLogger;
+  push: PushNotifier;
 }
 
 export async function challengeUser(deps: ChallengeDeps, req: ChallengeRequest): Promise<void> {
@@ -29,21 +28,16 @@ export async function challengeUser(deps: ChallengeDeps, req: ChallengeRequest):
 
   const target = await findUserByUsername(deps.db, req.targetUsername);
   if (!target) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
-  if (!target.pushToken) {
+  if ((await listActivePushDevices(deps.db, target.id)).length === 0) {
     throw ApiError.badRequest(
       `${target.username} doesn't accept challenges or doesn't have push notifications turned on.`,
       'PUSH_TOKEN_MISSING',
     );
   }
 
-  await sendPush(
-    deps.pushUrl,
-    {
-      to: target.pushToken,
-      title: `${caller.firstName || caller.username} is challenging you.`,
-      body: req.message ?? DEFAULT_CHALLENGE_MESSAGE,
-      payload: { type: 'challenge', challenger: caller.username },
-    },
-    deps.log,
-  );
+  deps.push.dispatchDirect(target.id, {
+    title: `${caller.firstName || caller.username} is challenging you.`,
+    body: req.message ?? DEFAULT_CHALLENGE_MESSAGE,
+    data: { target: { type: 'user', username: caller.username } },
+  });
 }

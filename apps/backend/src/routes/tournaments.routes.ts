@@ -24,7 +24,6 @@ import {
 } from '../services/tournament.service.js';
 import { submitGame } from '../services/game.service.js';
 import { listTournamentGames } from '../services/game-history.service.js';
-import { sendPostgamePushes } from '../services/postgame.service.js';
 import { listRivalries, listTournamentStats } from '../services/stats-query.service.js';
 
 // Trimming before min(1) guarantees a non-empty slug once whitespace is stripped.
@@ -275,8 +274,9 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         summary: 'Record a game (submitted by a losing player)',
         description:
           'Needs as many winners as losers, no repeated player and no TIE. The caller must be ' +
-          'one of the losers. Date and outcome scores are computed by the server. Winners with ' +
-          'a push token are notified; push failures never fail the submission.',
+          'one of the losers. Date and outcome scores are computed by the server. Every ' +
+          'participant gets a game_recorded inbox notification; push is sent after commit to ' +
+          'enabled devices and push failures never fail the submission.',
         security,
         params: nameParamsSchema,
         body: submitGameSchema,
@@ -290,12 +290,12 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request, reply) => {
-      const game = await submitGame(app.db, {
+      const { game, notificationIds } = await submitGame(app.db, {
         tournamentName: request.params.name,
         callerId: request.user.id,
         outcomes: request.body.outcomes,
       });
-      await sendPostgamePushes({ pushUrl: app.config.PUSH_URL, log: request.log }, game);
+      app.push.dispatch(notificationIds);
       return reply.code(201).send(toGameDto(game));
     },
   );
