@@ -4,18 +4,17 @@ import { RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 
 import { ApiError } from '@/api/errors';
 import type { Stats } from '@/api/types';
-import { showAlert } from '@/components/dropdown-alert';
+import { Button } from '@/components/button';
 import { CenteredLoading, EmptyState, ListFooter, SectionTitle } from '@/components/list-parts';
 import { UserTile } from '@/components/user-tile';
 import { BadgeStrip } from '@/features/achievements/badge-strip';
 import { useUserAchievements } from '@/features/achievements/queries';
+import { openChallengeComposer, openChallenges } from '@/features/challenges/queries';
 import { useEvictWhenDenied } from '@/features/groups/use-group-access';
 import { TOURNAMENT_NOT_FOUND_TEXT } from '@/features/tournaments/tournament-screen';
 import {
   DETAIL_PAGE_SIZE,
-  challengeFailureMessage,
   flattenPages,
-  useChallenge,
   useTournamentStats,
   useUser,
   useUserGames,
@@ -37,7 +36,7 @@ export interface ProfileScreenProps {
   username: string;
   /** Narrows the screen to one tournament and adds the SHARKS / FISHES charts. */
   tournamentName?: string;
-  /** Username of the signed-in user; their own profile cannot be challenged. */
+  /** Username of the signed-in user; their own profile links to their challenges instead. */
   viewer?: string;
 }
 
@@ -58,8 +57,6 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const games = useUserGames(username, { tournamentName, pageSize: DETAIL_PAGE_SIZE });
   const profile = useUser(username);
   const badges = useUserAchievements(username);
-  const challenge = useChallenge(username);
-  const [challenged, setChallenged] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   // The tournament (or a player only seen in private tournaments) is out of reach, for instance
   // after leaving its group; cached rows from before must not be shown.
@@ -94,15 +91,8 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const canChallenge =
     !!viewer && viewer !== username && profile.data?.accountType === 'REGISTERED';
 
-  const onChallenge = () => {
-    challenge.mutate(undefined, {
-      onSuccess: () => setChallenged(true),
-      onError: () => {
-        setChallenged(false);
-        showAlert('error', 'Error', challengeFailureMessage(username));
-      },
-    });
-  };
+  const onChallenge = () =>
+    openChallengeComposer({ opponent: username, tournament: tournamentName });
 
   const { sharks, fishes } = tournamentName
     ? splitRivalries(rivalries.data ?? [])
@@ -120,14 +110,21 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
               username={username}
               wins={wins}
               games={gameCount}
-              challenged={challenged}
-              challenging={challenge.isPending}
               unclaimed={unclaimed}
               onChallenge={canChallenge ? onChallenge : undefined}
             />
           ),
         },
         { kind: 'node', key: 'badge-strip', node: <BadgeStrip username={username} /> },
+        ...(viewer === username
+          ? [
+              {
+                kind: 'node' as const,
+                key: 'my-challenges',
+                node: <Button title="My challenges" variant="secondary" onPress={openChallenges} />,
+              },
+            ]
+          : []),
       ],
     },
     { title: 'STATS', data: statsItems(statsList, tournamentName ? undefined : 'user') },

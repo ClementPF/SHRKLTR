@@ -31,6 +31,7 @@ import {
 } from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
 import type {
+  Challenge,
   CreateGroupInviteRequest,
   Game,
   Group,
@@ -40,6 +41,7 @@ import type {
   Tournament,
 } from '@/api/types';
 import { achievementKeys } from '@/features/achievements/queries';
+import { challengeKeys } from '@/features/challenges/keys';
 import { gameKeys } from '@/features/games/queries';
 import { notificationKeys } from '@/features/notifications/queries';
 import { tournamentKeys } from '@/features/tournaments/queries';
@@ -157,6 +159,7 @@ const privateDataRoots = (): readonly QueryKey[] => [
   gameKeys.all,
   notificationKeys.all,
   achievementKeys.all,
+  challengeKeys.all,
 ];
 
 /** The server refused this read: the group, tournament, game or player is out of reach. */
@@ -182,6 +185,10 @@ function inLostScope(query: Query, tournamentNames: ReadonlySet<string>, groupId
       );
     case gameKeys.all[0]: {
       const tournament = (query.state.data as Game | undefined)?.tournament;
+      return named(tournament?.name) || (!!groupId && tournament?.group?.id === groupId);
+    }
+    case challengeKeys.all[0]: {
+      const tournament = (query.state.data as Challenge | undefined)?.tournament;
       return named(tournament?.name) || (!!groupId && tournament?.group?.id === groupId);
     }
     default:

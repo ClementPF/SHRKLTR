@@ -5,8 +5,6 @@ import type { NotificationTarget } from '@/api/types';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const USERNAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
-export const INBOX_HREF = '/notifications' satisfies Href;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -39,8 +37,8 @@ export function parseNotificationTarget(value: unknown): NotificationTarget | nu
   }
 }
 
-/** The screen a target opens, or null when the app has no dedicated screen for it yet. */
-export function notificationTargetHref(target: NotificationTarget): Href | null {
+/** The screen a target opens. */
+export function notificationTargetHref(target: NotificationTarget): Href {
   switch (target.type) {
     case 'game':
       return { pathname: '/games/[id]', params: { id: target.gameId } };
@@ -51,7 +49,7 @@ export function notificationTargetHref(target: NotificationTarget): Href | null 
     case 'group':
       return { pathname: '/groups/[id]', params: { id: target.groupId } };
     case 'challenge':
-      return null;
+      return { pathname: '/challenges/[id]', params: { id: target.challengeId } };
   }
 }
 

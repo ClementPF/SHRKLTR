@@ -1,13 +1,11 @@
 import {
   useInfiniteQuery,
-  useMutation,
   useQuery,
   type InfiniteData,
   type UseInfiniteQueryResult,
 } from '@tanstack/react-query';
 
 import {
-  challengeUser,
   getRivalry,
   getUser,
   getStats,
@@ -140,18 +138,6 @@ export function useRivalry(
       !(error instanceof ApiError && error.status === 404) && failureCount < 1,
     // Expanding a row should always show the live rivalry, not a cached snapshot.
     staleTime: 0,
-  });
-}
-
-export const CHALLENGE_MESSAGE = 'I demand a trial by combat.';
-
-export function challengeFailureMessage(username: string): string {
-  return `Challenge failed, ${username} doesn't have push notification turned on.`;
-}
-
-export function useChallenge(username: string) {
-  return useMutation({
-    mutationFn: () => challengeUser(username, CHALLENGE_MESSAGE),
   });
 }
 

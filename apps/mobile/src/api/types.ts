@@ -351,3 +351,36 @@ export interface CreateGroupInviteRequest {
   /** Omit for the default (30 days), null for no expiry. */
   expiresAt?: string | null;
 }
+
+export type ChallengeStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'COMPLETED' | 'EXPIRED';
+
+/** GET /challenges row and GET /challenges/:id. */
+export interface Challenge {
+  id: string;
+  tournament: Tournament;
+  challenger: User;
+  opponent: User;
+  /**
+   * PENDING until the opponent answers; ACCEPTED until a qualifying game (COMPLETED) or the
+   * deadline (EXPIRED); DECLINED, COMPLETED and EXPIRED are final.
+   */
+  status: ChallengeStatus;
+  deadlineAt: string;
+  createdAt: string;
+  acceptedAt: string | null;
+  /** When it was declined, completed or expired. */
+  resolvedAt: string | null;
+  /** Challenged player on the winning team (COMPLETED). */
+  winner: User | null;
+  /** Game that completed the challenge; null otherwise or once that game is deleted. */
+  gameId: string | null;
+}
+
+export interface CreateChallengeRequest {
+  tournamentName: string;
+  opponentUsername: string;
+  /** Between 1 hour and 30 days from now; the server defaults to 7 days. */
+  deadlineAt?: string;
+}
+
+export type ChallengeResponse = 'ACCEPT' | 'DECLINE';

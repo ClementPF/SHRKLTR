@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { router } from 'expo-router';
 import type { ReactElement } from 'react';
 
 import * as endpoints from '@/api/endpoints';
@@ -232,31 +233,24 @@ describe('ProfileScreen (tournament user detail)', () => {
     );
   });
 
-  it('shows the challenged state after a successful challenge', async () => {
-    api.challengeUser.mockResolvedValue(undefined);
+  it('opens the challenge composer with the opponent and tournament prefilled', async () => {
     await renderDetail();
     await fireEvent.press(await screen.findByLabelText('Challenge dev-sam'));
-    expect(await screen.findByTestId('challenged-state')).toBeTruthy();
-    expect(api.challengeUser).toHaveBeenCalledWith('dev-sam', 'I demand a trial by combat.');
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: '/challenges/new',
+      params: { opponent: 'dev-sam', tournament: 'officebabyfoot' },
+    });
+    // Opening the composer creates nothing by itself.
+    expect(api.createChallenge).not.toHaveBeenCalled();
   });
 
-  it('alerts when the challenged user has no push token', async () => {
-    api.challengeUser.mockRejectedValue(new ApiError(400, 'NO_PUSH_TOKEN', 'no token'));
-    await renderDetail();
-    await fireEvent.press(await screen.findByLabelText('Challenge dev-sam'));
-    expect(
-      await screen.findByText(
-        "Challenge failed, dev-sam doesn't have push notification turned on.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByTestId('challenged-state')).toBeNull();
-  });
-
-  it('does not offer a challenge on your own profile', async () => {
+  it('does not offer a challenge on your own profile, but links to your challenges', async () => {
     api.getUserStats.mockResolvedValue([stats]);
     await renderWithClient(<ProfileScreen username="dev-sam" viewer="dev-sam" />);
     expect(await screen.findByText('STATS')).toBeTruthy();
     expect(screen.queryByLabelText('Challenge dev-sam')).toBeNull();
     expect(screen.queryByText('SHARKS')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'My challenges' }));
+    expect(router.push).toHaveBeenCalledWith('/challenges');
   });
 });

@@ -1,6 +1,6 @@
 import type { Href } from 'expo-router';
 
-import { INBOX_HREF, notificationIdFrom, notificationTargetHref, targetFromData } from './targets';
+import { notificationIdFrom, notificationTargetHref, targetFromData } from './targets';
 
 /** expo-notifications' DEFAULT_ACTION_IDENTIFIER: the user tapped the notification itself. */
 export const DEFAULT_ACTION = 'expo.modules.notifications.actions.DEFAULT';
@@ -50,8 +50,7 @@ export function createNotificationTapRouter(deps: TapRouterDeps): NotificationTa
       const data = content.data;
       const notificationId = notificationIdFrom(data);
       const target = targetFromData(data);
-      // A valid target without its own screen still opens the inbox, where it is listed.
-      const href = target ? (notificationTargetHref(target) ?? INBOX_HREF) : null;
+      const href = target ? notificationTargetHref(target) : null;
       if (!href && !notificationId) return;
       pending = { href, notificationId };
       flush();

@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 
 import { submitGame } from '@/api/endpoints';
 import { achievementKeys } from '@/features/achievements/queries';
+import { challengeKeys } from '@/features/challenges/keys';
 import { gameKeys } from '@/features/games/queries';
 import { notificationKeys } from '@/features/notifications/queries';
 import { tournamentKeys } from '@/features/tournaments/queries';
@@ -31,6 +32,8 @@ export function useSubmitGame() {
         tournamentKeys.all,
         notificationKeys.all,
         achievementKeys.all,
+        // The game may complete an accepted challenge between its players.
+        challengeKeys.all,
       ]) {
         void queryClient.invalidateQueries({ queryKey });
       }

@@ -1,8 +1,4 @@
-import {
-  INBOX_HREF,
-  notificationTargetHref,
-  parseNotificationTarget,
-} from '@/notifications/targets';
+import { notificationTargetHref, parseNotificationTarget } from '@/notifications/targets';
 import {
   createNotificationTapRouter,
   DEFAULT_ACTION,
@@ -49,7 +45,13 @@ describe('notification target mapper', () => {
       pathname: '/user/[username]',
       params: { username: 'guest-riley' },
     });
-    expect(notificationTargetHref({ type: 'challenge', challengeId: CHALLENGE_ID })).toBeNull();
+  });
+
+  it('maps challenge targets to the challenge detail', () => {
+    expect(notificationTargetHref({ type: 'challenge', challengeId: CHALLENGE_ID })).toEqual({
+      pathname: '/challenges/[id]',
+      params: { id: CHALLENGE_ID },
+    });
   });
 
   it.each([
@@ -58,6 +60,7 @@ describe('notification target mapper', () => {
     ['a game without a UUID', { type: 'game', gameId: '../../settings' }],
     ['a group without a UUID', { type: 'group', groupId: '../invite' }],
     ['a group without an id', { type: 'group' }],
+    ['a challenge without a UUID', { type: 'challenge', challengeId: '../../settings' }],
     ['a user with a path', { type: 'user', username: 'dev-sam/../../login' }],
     ['a user with a scheme', { type: 'achievements', username: 'javascript:alert(1)' }],
     ['null', null],
@@ -158,11 +161,20 @@ describe('notification tap router', () => {
     expect(markRead).toHaveBeenCalledWith(NOTIFICATION_ID);
   });
 
-  it('opens the inbox for a valid target that has no screen of its own', () => {
-    const { router, navigate } = setup();
+  it('opens the challenge detail for a challenge target', () => {
+    const { router, navigate, markRead } = setup();
     router.setReady(true);
-    router.handle(tap('c', { target: { type: 'challenge', challengeId: CHALLENGE_ID } }));
-    expect(navigate).toHaveBeenCalledWith(INBOX_HREF);
+    router.handle(
+      tap('c', {
+        notificationId: NOTIFICATION_ID,
+        target: { type: 'challenge', challengeId: CHALLENGE_ID },
+      }),
+    );
+    expect(navigate).toHaveBeenCalledWith({
+      pathname: '/challenges/[id]',
+      params: { id: CHALLENGE_ID },
+    });
+    expect(markRead).toHaveBeenCalledWith(NOTIFICATION_ID);
   });
 
   it('ignores actions other than tapping the notification', () => {
