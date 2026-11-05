@@ -11,6 +11,7 @@ import {
   renderListItem,
   type ListItem,
 } from '@/features/feed/list-items';
+import { useEvictWhenDenied } from '@/features/groups/use-group-access';
 import { flattenPages } from '@/features/users/queries';
 import { useErrorAlert } from '@/features/users/use-error-alert';
 import { rankStats } from '@/lib/tournaments';
@@ -35,12 +36,14 @@ export function TournamentScreen({ name, viewer }: TournamentScreenProps) {
   const leaderboard = useTournamentLeaderboard(name);
   const games = useTournamentGames(name);
   const [refreshing, setRefreshing] = useState(false);
+  const missing = isMissing(leaderboard.error) || isMissing(games.error);
   // A 404 renders the not-found state instead of an alert.
   useErrorAlert(isMissing(leaderboard.error) ? null : leaderboard.error, 'the ranking');
   useErrorAlert(isMissing(games.error) ? null : games.error, 'the tournament history');
+  useEvictWhenDenied(missing, name);
 
   // Checked before cached data: access to a members-only tournament can be lost meanwhile.
-  if (isMissing(leaderboard.error) || isMissing(games.error)) {
+  if (missing) {
     return (
       <EmptyState
         title={TOURNAMENT_NOT_FOUND_TEXT}

@@ -1,12 +1,16 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 
+import { ApiError } from '@/api/errors';
 import type { Stats } from '@/api/types';
 import { showAlert } from '@/components/dropdown-alert';
 import { CenteredLoading, EmptyState, ListFooter, SectionTitle } from '@/components/list-parts';
 import { UserTile } from '@/components/user-tile';
 import { BadgeStrip } from '@/features/achievements/badge-strip';
 import { useUserAchievements } from '@/features/achievements/queries';
+import { useEvictWhenDenied } from '@/features/groups/use-group-access';
+import { TOURNAMENT_NOT_FOUND_TEXT } from '@/features/tournaments/tournament-screen';
 import {
   DETAIL_PAGE_SIZE,
   challengeFailureMessage,
@@ -24,6 +28,10 @@ import { isPlaceholder } from '@/lib/users';
 import { Colors, Palette, Spacing } from '@/theme';
 
 import { historyItems, renderListItem, statsItems, type ListItem } from './list-items';
+
+export const PROFILE_NOT_FOUND_TEXT = "This player doesn't exist or you can't see them.";
+
+const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
 
 export interface ProfileScreenProps {
   username: string;
@@ -53,10 +61,29 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const challenge = useChallenge(username);
   const [challenged, setChallenged] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  useErrorAlert(stats.error, 'stats');
-  useErrorAlert(tournamentName ? rivalries.error : null, 'rivalries');
-  useErrorAlert(games.error, 'games');
+  // The tournament (or a player only seen in private tournaments) is out of reach, for instance
+  // after leaving its group; cached rows from before must not be shown.
+  const missing = [stats.error, rivalries.error, games.error].some(isMissing);
+  useErrorAlert(missing ? null : stats.error, 'stats');
+  useErrorAlert(tournamentName && !missing ? rivalries.error : null, 'rivalries');
+  useErrorAlert(missing ? null : games.error, 'games');
+  useEvictWhenDenied(missing, tournamentName);
 
+  if (missing) {
+    return tournamentName ? (
+      <EmptyState
+        title={TOURNAMENT_NOT_FOUND_TEXT}
+        actionTitle="Go to tournaments"
+        onAction={() => router.navigate('/tournaments')}
+      />
+    ) : (
+      <EmptyState
+        title={PROFILE_NOT_FOUND_TEXT}
+        actionTitle="Back to feed"
+        onAction={() => router.navigate('/feed')}
+      />
+    );
+  }
   if (stats.isPending || games.isPending) return <CenteredLoading />;
 
   const statsList = stats.data ?? [];

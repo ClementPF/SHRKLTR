@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { User } from '@/api/types';
@@ -70,15 +70,22 @@ function useCandidates(groupId: string | undefined, enabled: boolean) {
   const users = useUsers(enabled && !groupId);
   const members = useGroupMembers(groupId ?? '', enabled && !!groupId);
   const players = useGroupPlayers(groupId ?? '', enabled && !!groupId);
+  const { hasNextPage, isFetchingNextPage, isError: membersFailed, fetchNextPage } = members;
+  // Groups have no member cap, so search every page rather than only the first one.
+  const loadMore = enabled && !!groupId && hasNextPage && !isFetchingNextPage && !membersFailed;
+  useEffect(() => {
+    if (loadMore) void fetchNextPage();
+  }, [loadMore, fetchNextPage]);
   if (!groupId) return users;
   const error = members.error ?? players.error;
+  const allMembers = members.isSuccess && !hasNextPage;
   return {
     data:
-      members.isSuccess && players.isSuccess
+      allMembers && players.isSuccess
         ? [...flattenPages(members.data).map((m) => m.user), ...players.data.map((p) => p.user)]
         : undefined,
-    isPending: members.isPending || players.isPending,
-    isSuccess: members.isSuccess && players.isSuccess,
+    isPending: !error && (!allMembers || players.isPending),
+    isSuccess: allMembers && players.isSuccess,
     isError: !!error,
     error,
   };

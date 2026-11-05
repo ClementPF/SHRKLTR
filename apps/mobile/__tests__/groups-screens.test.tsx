@@ -745,6 +745,27 @@ describe('Grouped game entry', () => {
     expect(await screen.findByLabelText('Add guest-robin')).toBeTruthy();
   });
 
+  it('finds and adds a member beyond the first page of a large group', async () => {
+    const crowd = Array.from({ length: 101 }, (_, i) =>
+      member(person(`shark-${String(i + 1).padStart(3, '0')}`), i === 0 ? 'OWNER' : 'MEMBER'),
+    );
+    api.listGroupMembers.mockImplementation(async (_id, { page = 0, pageSize = 20 } = {}) =>
+      crowd.slice(page * pageSize, (page + 1) * pageSize),
+    );
+    api.listGroupPlayers.mockResolvedValue([]);
+    await renderWithClient(<AddPlayers ownerId={alex.id} />);
+
+    await fireEvent.changeText(screen.getByLabelText('Find a player'), 'shark-101');
+    await fireEvent.press(await screen.findByLabelText('Add shark-101'));
+
+    expect(useGameFormStore.getState().outcomes).toContainEqual({
+      username: 'shark-101',
+      result: 'WIN',
+    });
+    expect(api.listGroupMembers).toHaveBeenCalledWith(GROUP_ID, { page: 1, pageSize: 100 });
+    expect(api.listUsers).not.toHaveBeenCalled();
+  });
+
   it('adds a new player by name to the group roster', async () => {
     api.createPlaceholder.mockResolvedValue({
       user: person('guest-river', 'PLACEHOLDER'),

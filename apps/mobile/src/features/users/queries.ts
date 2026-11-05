@@ -83,7 +83,8 @@ export function useTournamentStats(username: string, tournamentName: string | un
       try {
         return await getStats(username, tournamentName!);
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null;
+        // Any other 404 means the tournament or player is out of reach, not an empty record.
+        if (err instanceof ApiError && err.code === 'STATS_NOT_FOUND') return null;
         throw err;
       }
     },

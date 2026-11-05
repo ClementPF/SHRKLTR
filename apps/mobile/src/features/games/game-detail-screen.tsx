@@ -8,6 +8,7 @@ import { CenteredLoading, EmptyState, SectionTitle } from '@/components/list-par
 import { OutcomeColumns } from '@/components/outcome-columns';
 import { UnclaimedBadge } from '@/components/unclaimed-badge';
 import { openUserDetail } from '@/features/feed/list-items';
+import { useEvictWhenDenied } from '@/features/groups/use-group-access';
 import { formatPoints, fromNow, gameDate, signedElo } from '@/lib/format';
 import { isPlaceholder } from '@/lib/users';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
@@ -117,8 +118,12 @@ function GameDetail({ game, viewer, actions, footer }: GameDetailScreenProps & {
 export function GameDetailScreen(props: GameDetailScreenProps) {
   const { id } = props;
   const game = useGame(id);
+  const missing = isGameMissing(game.error);
+  // A failed refetch keeps the last data, which tells which tournament and group were lost.
+  const tournament = id && game.data?.id === id ? game.data.tournament : undefined;
+  useEvictWhenDenied(missing, tournament?.name, tournament?.group?.id);
 
-  if (!id || isGameMissing(game.error)) {
+  if (!id || missing) {
     return (
       <EmptyState
         title={GAME_NOT_FOUND_TEXT}

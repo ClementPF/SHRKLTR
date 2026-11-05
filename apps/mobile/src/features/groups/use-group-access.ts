@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
-import { evictGroupData, isGroupMissing, useGroup } from './queries';
+import { evictGroupData, evictTournamentData, isGroupMissing, useGroup } from './queries';
 
 /**
  * The group summary plus whether the group is out of reach (unknown, never joined, or access
@@ -17,4 +17,19 @@ export function useGroupAccess(id: string, ...related: readonly { error: unknown
   }, [missing, queryClient, id]);
 
   return { group, missing };
+}
+
+/**
+ * Once a read inside a tournament (its standings, a game, a scoped profile) is refused, the
+ * account may have lost access to the tournament's group: evicts what could still show it.
+ */
+export function useEvictWhenDenied(
+  denied: boolean,
+  tournamentName: string | undefined,
+  groupId?: string | null,
+) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (denied) evictTournamentData(queryClient, tournamentName, groupId);
+  }, [denied, queryClient, tournamentName, groupId]);
 }

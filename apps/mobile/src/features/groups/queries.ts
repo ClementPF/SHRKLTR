@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
   type InfiniteData,
+  type Query,
   type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query';
@@ -30,6 +31,7 @@ import {
 import { ApiError } from '@/api/errors';
 import type {
   CreateGroupInviteRequest,
+  Game,
   Group,
   GroupMember,
   GroupRole,
@@ -157,25 +159,77 @@ const privateDataRoots = (): readonly QueryKey[] => [
 ];
 
 /**
+ * Unused caches are removed so they can't flash stale private rows later. Mounted ones are
+ * refetched instead: their observers are not told about a removal, so their screens would keep
+ * the stale result. Queries the server already refused are not refetched either: their screens
+ * show not-found, and a refetch would reset them and re-run the eviction their 404 triggered.
+ */
+function evictQueries(
+  queryClient: QueryClient,
+  queryKey: QueryKey,
+  keep: (query: Query) => boolean = () => false,
+) {
+  queryClient.removeQueries({ queryKey, type: 'inactive', predicate: (query) => !keep(query) });
+  void queryClient.invalidateQueries({
+    queryKey,
+    predicate: (query) => !keep(query) && !isGroupMissing(query.state.error),
+  });
+}
+
+function evictPrivateData(queryClient: QueryClient, tournamentNames: Iterable<string>) {
+  for (const name of tournamentNames) evictQueries(queryClient, [...tournamentKeys.all, name]);
+  for (const queryKey of privateDataRoots()) evictQueries(queryClient, queryKey);
+}
+
+/**
  * Drops what this account may no longer see after losing access to a group: the group's own
  * queries (except its summary, whose 404 drives the not-found screen), its tournaments, and any
- * cached list that could hold its games or standings. Unused caches are removed so they can't
- * flash stale private rows; mounted ones refetch.
+ * cached list that could hold its games or standings.
  */
-export function evictGroupData(queryClient: QueryClient, groupId: string) {
+export function evictGroupData(
+  queryClient: QueryClient,
+  groupId: string,
+  alsoTournaments: readonly string[] = [],
+) {
   const tournaments = queryClient.getQueryData<Tournament[]>(groupKeys.tournaments(groupId)) ?? [];
-  for (const { name } of tournaments) {
-    queryClient.removeQueries({ queryKey: [...tournamentKeys.all, name] });
-  }
   const group = groupKeys.group(groupId);
-  queryClient.removeQueries({
-    queryKey: group,
-    predicate: (query) => query.queryKey[group.length] !== 'summary',
-  });
-  for (const queryKey of privateDataRoots()) {
-    queryClient.removeQueries({ queryKey, type: 'inactive' });
-    void queryClient.invalidateQueries({ queryKey });
-  }
+  evictQueries(queryClient, group, (query) => query.queryKey[group.length] === 'summary');
+  evictPrivateData(queryClient, new Set([...tournaments.map((t) => t.name), ...alsoTournaments]));
+}
+
+/** The group of a tournament, from any cached copy of it. */
+function cachedGroupOf(queryClient: QueryClient, tournamentName: string): string | undefined {
+  const lists = [
+    queryClient.getQueryData<Tournament[]>(tournamentKeys.list()),
+    ...queryClient
+      .getQueriesData<Tournament[]>({
+        queryKey: groupKeys.all,
+        predicate: (query) => query.queryKey[3] === 'tournaments',
+      })
+      .map(([, data]) => data),
+  ];
+  const games = queryClient
+    .getQueriesData<Game>({ queryKey: [...gameKeys.all, 'detail'] })
+    .map(([, game]) => game?.tournament);
+  return [...lists.flatMap((list) => list ?? []), ...games].find((t) => t?.name === tournamentName)
+    ?.group?.id;
+}
+
+/**
+ * After a tournament-scoped read was refused (404): the tournament may belong to a group the
+ * account just left or was removed from, so drop that group's data when it is known, and in
+ * any case every cache that could hold the tournament's games or standings.
+ */
+export function evictTournamentData(
+  queryClient: QueryClient,
+  tournamentName: string | undefined,
+  groupId?: string | null,
+) {
+  const owner =
+    groupId ?? (tournamentName ? cachedGroupOf(queryClient, tournamentName) : undefined);
+  const names = tournamentName ? [tournamentName] : [];
+  if (owner) evictGroupData(queryClient, owner, names);
+  else evictPrivateData(queryClient, names);
 }
 
 function invalidateAfterJoin(queryClient: QueryClient) {
