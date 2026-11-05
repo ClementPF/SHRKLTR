@@ -68,6 +68,7 @@ class Deployer:
 
     def backup(self, target):
         self.backups.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.backups.chmod(0o700)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         fd, temporary = tempfile.mkstemp(
             prefix=f"{timestamp}-{target[:12]}-", suffix=".partial", dir=self.backups
@@ -183,9 +184,11 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    os.umask(0o077)
+    # Keep the process umask: Git and Docker builds inherit it, and an owner-only umask
+    # makes checked-out files unreadable to nginx inside the web image.
     state = args.state_dir.resolve()
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    state.chmod(0o700)
     # flock is available on macOS/Linux through Python even without a flock CLI.
     # The OS releases the lock on exit/crash; never unlink the shared lock file.
     with (state / "deploy.lock").open("a") as lock:
@@ -197,10 +200,12 @@ def main(argv=None):
         logger = logging.getLogger("sharkulator.deploy")
         logger.setLevel(logging.INFO)
         formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        log_file = state / "deploy.log"
         handlers = [
-            RotatingFileHandler(state / "deploy.log", maxBytes=5_000_000, backupCount=3),
+            RotatingFileHandler(log_file, maxBytes=5_000_000, backupCount=3),
             logging.StreamHandler(),
         ]
+        log_file.chmod(0o600)
         for handler in handlers:
             handler.setFormatter(formatter)
             logger.addHandler(handler)

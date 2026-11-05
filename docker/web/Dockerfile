@@ -21,5 +21,6 @@ RUN npx expo export --platform web --output-dir dist
 
 FROM nginx:stable-alpine AS serve
 COPY docker/web/nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/apps/mobile/dist /usr/share/nginx/html
+# A checkout made under a restrictive umask yields owner-only files; nginx must be able to read them.
+COPY --from=build --chmod=a+rX /app/apps/mobile/dist /usr/share/nginx/html
 EXPOSE 80
