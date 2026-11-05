@@ -27,6 +27,13 @@ export interface Tournament {
   isOver: boolean;
   sport: Sport;
   owner: User | null;
+  /** Owning group of a members-only tournament; null for open tournaments. */
+  group?: TournamentGroup | null;
+}
+
+export interface TournamentGroup {
+  id: string;
+  name: string;
 }
 
 export interface Outcome {
@@ -249,6 +256,8 @@ export interface AchievementSource {
   type: 'GAME' | 'CHALLENGE' | 'GROUP' | 'CLAIM' | 'BACKFILL';
   /** Null when there is none or the viewer cannot see it. */
   gameId: string | null;
+  /** Null when there is none or the viewer is not a member. */
+  groupId?: string | null;
 }
 
 /** GET /users/:username/achievements entry: the catalog with this user's unlock state. */

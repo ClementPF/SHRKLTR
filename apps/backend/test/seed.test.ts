@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto';
-import { count, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Database } from '../src/db/client.js';
 import {
   games,
+  groupInvites,
+  groupMembers,
+  groupPlayers,
+  groups,
   notifications,
   outcomes,
   playerClaims,
@@ -14,7 +18,13 @@ import {
   userAchievements,
   users,
 } from '../src/db/schema.js';
-import { DEMO_PLACEHOLDERS, DEMO_TOURNAMENTS, DEMO_USERS, runSeed } from '../src/db/seed.js';
+import {
+  DEMO_GROUP,
+  DEMO_PLACEHOLDERS,
+  DEMO_TOURNAMENTS,
+  DEMO_USERS,
+  runSeed,
+} from '../src/db/seed.js';
 import { truncateAll } from './helpers.js';
 import { TEST_DATABASE_URL } from './test-env.js';
 
@@ -29,6 +39,10 @@ const tables = {
   playerClaims,
   notifications,
   userAchievements,
+  groups,
+  groupMembers,
+  groupInvites,
+  groupPlayers,
 };
 
 async function rowCounts(db: Database): Promise<Record<string, number>> {
@@ -59,10 +73,15 @@ describe('dev seed', () => {
     const first = await rowCounts(db);
     const expectedGames =
       DEMO_TOURNAMENTS.reduce((n, t) => n + t.games.length, 0) +
+      DEMO_GROUP.tournament.games.length +
       DEMO_PLACEHOLDERS.filter((p) => p.game).length;
     expect(first.users).toBe(DEMO_USERS.length + DEMO_PLACEHOLDERS.length);
     expect(first.playerClaims).toBe(DEMO_PLACEHOLDERS.length);
-    expect(first.tournaments).toBe(DEMO_TOURNAMENTS.length);
+    expect(first.tournaments).toBe(DEMO_TOURNAMENTS.length + 1);
+    expect(first.groups).toBe(1);
+    expect(first.groupMembers).toBe(1 + DEMO_GROUP.members.length);
+    expect(first.groupInvites).toBe(1);
+    expect(first.groupPlayers).toBe(DEMO_PLACEHOLDERS.filter((p) => p.rostered).length);
     expect(first.sports).toBeGreaterThan(0);
     expect(first.games).toBe(expectedGames);
     expect(first.stats).toBeGreaterThan(0);
@@ -100,6 +119,53 @@ describe('dev seed', () => {
         .where(eq(outcomes.userId, user!.id));
       expect(played?.n).toBe(fixture.game ? 1 : 0);
     }
+  });
+
+  it('creates the Shark Tank group with roles, a private tournament, roster and local invite', async () => {
+    const idOf = async (username: string) =>
+      (await db.select().from(users).where(eq(users.username, username)))[0]!.id;
+    const [group] = await db.select().from(groups).where(eq(groups.id, DEMO_GROUP.id));
+    expect(group).toMatchObject({ name: 'Shark Tank', createdByUserId: await idOf('dev-alex') });
+
+    const members = await db
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, DEMO_GROUP.id));
+    expect(Object.fromEntries(members.map((m) => [m.userId, m.role]))).toEqual({
+      [await idOf('dev-alex')]: 'OWNER',
+      [await idOf('dev-sam')]: 'ADMIN',
+      [await idOf('dev-jordan')]: 'MEMBER',
+    });
+
+    const [cup] = await db.select().from(tournaments).where(eq(tournaments.name, 'sharktankcup'));
+    expect(cup?.groupId).toBe(DEMO_GROUP.id);
+    const [cupGames] = await db
+      .select({ n: count() })
+      .from(games)
+      .where(eq(games.tournamentId, cup!.id));
+    expect(cupGames?.n).toBe(DEMO_GROUP.tournament.games.length + 1);
+
+    const robin = await idOf('guest-robin');
+    const roster = await db.select().from(groupPlayers);
+    expect(roster).toEqual([
+      expect.objectContaining({ groupId: DEMO_GROUP.id, placeholderUserId: robin }),
+    ]);
+    const robinGames = await db
+      .select({ tournamentId: games.tournamentId })
+      .from(outcomes)
+      .innerJoin(games, eq(outcomes.gameId, games.id))
+      .where(eq(outcomes.userId, robin));
+    expect(robinGames).toEqual([{ tournamentId: cup!.id }]);
+
+    const [invite] = await db.select().from(groupInvites);
+    const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+    expect(invite).toMatchObject({
+      groupId: DEMO_GROUP.id,
+      tokenHash: sha(DEMO_GROUP.inviteToken),
+      codeHash: sha(DEMO_GROUP.inviteCode),
+      expiresAt: null,
+      revokedAt: null,
+    });
   });
 
   it('seeds read and unread inbox rows: one game_recorded per participant, no duplicates', async () => {
@@ -201,5 +267,25 @@ describe('dev seed', () => {
       ['LOSS', -16],
       ['WIN', 16],
     ]);
+  });
+  it('reruns keep roles changed and invites revoked while testing', async () => {
+    const [jordan] = await db.select().from(users).where(eq(users.username, 'dev-jordan'));
+    await db
+      .update(groupMembers)
+      .set({ role: 'ADMIN' })
+      .where(and(eq(groupMembers.groupId, DEMO_GROUP.id), eq(groupMembers.userId, jordan!.id)));
+    await db.update(groupInvites).set({ revokedAt: new Date() });
+    const before = await rowCounts(db);
+
+    await runSeed(db);
+
+    expect(await rowCounts(db)).toEqual(before);
+    const [membership] = await db
+      .select()
+      .from(groupMembers)
+      .where(and(eq(groupMembers.groupId, DEMO_GROUP.id), eq(groupMembers.userId, jordan!.id)));
+    expect(membership?.role).toBe('ADMIN');
+    const [invite] = await db.select().from(groupInvites);
+    expect(invite?.revokedAt).not.toBeNull();
   });
 });

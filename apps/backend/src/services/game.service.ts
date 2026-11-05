@@ -12,6 +12,7 @@ import {
 } from './stats.service.js';
 import { evaluateGameAchievements, lockAchievementOwners } from './achievement.service.js';
 import { notifyGameRecorded } from './notification.service.js';
+import { authorizeGroupGame, findMemberRole } from './group.service.js';
 import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
 
 type GameRow = typeof games.$inferSelect;
@@ -130,7 +131,11 @@ export interface SubmittedGame {
  */
 export async function submitGame(db: Database, input: SubmitGameInput): Promise<SubmittedGame> {
   const tournament = await findTournamentByName(db, input.tournamentName);
-  if (!tournament) throw ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
+  const groupId = tournament?.tournament.groupId ?? null;
+  // Early answer for outsiders; the authoritative check runs under the group lock below.
+  if (!tournament || (groupId && !(await findMemberRole(db, groupId, input.callerId)))) {
+    throw ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
+  }
 
   const decisive = validateOutcomes(input.outcomes);
   const usernames = decisive.map((o) => o.username);
@@ -155,6 +160,9 @@ export async function submitGame(db: Database, input: SubmitGameInput): Promise<
   });
   const { gameId, notificationIds } = await db.transaction(async (tx) => {
     const participantIds = participants.map((p) => p.userId);
+    if (groupId) {
+      await authorizeGroupGame(tx, { groupId, callerId: input.callerId, participantIds });
+    }
     await lockAchievementOwners(tx, participantIds);
     const recorded = await recordGame(tx, { tournamentId: tournament.tournament.id, participants });
     const gameNotifications = await notifyGameRecorded(tx, {

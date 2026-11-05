@@ -11,6 +11,7 @@ import type { Database, Transaction } from '../db/client.js';
 import {
   achievementSource,
   games,
+  groupMembers,
   outcomes,
   stats,
   tournaments,
@@ -30,6 +31,7 @@ export interface AchievementAward {
   code: AchievementCode;
   sourceType: AchievementSource;
   sourceGameId?: string | null;
+  sourceGroupId?: string | null;
 }
 
 export interface AwardResult {
@@ -62,6 +64,7 @@ export async function awardAchievements(
         achievementCode: a.code,
         sourceType: a.sourceType,
         sourceGameId: a.sourceGameId ?? null,
+        sourceGroupId: a.sourceGroupId ?? null,
       })),
     )
     .onConflictDoNothing({ target: [userAchievements.userId, userAchievements.achievementCode] })
@@ -208,10 +211,28 @@ async function visibleSourceGames(
   return new Set(rows.map((r) => r.id));
 }
 
+/** Ids among `groupIds` of groups the viewer currently belongs to. */
+async function visibleSourceGroups(
+  db: Database,
+  viewerId: string,
+  groupIds: readonly string[],
+): Promise<Set<string>> {
+  if (groupIds.length === 0) return new Set();
+  const rows = await db
+    .select({ id: groupMembers.groupId })
+    .from(groupMembers)
+    .where(
+      and(eq(groupMembers.userId, viewerId), inArray(groupMembers.groupId, [...new Set(groupIds)])),
+    );
+  return new Set(rows.map((r) => r.id));
+}
+
 export interface UnlockView {
   achievement: UserAchievementRow;
   /** Source game id, or null when there is none or the viewer may not see it. */
   visibleSourceGameId: string | null;
+  /** Source group id, or null when there is none or the viewer is not a member. */
+  visibleSourceGroupId: string | null;
 }
 
 async function withVisibleSources(
@@ -219,16 +240,27 @@ async function withVisibleSources(
   viewerId: string,
   rows: readonly UserAchievementRow[],
 ): Promise<UnlockView[]> {
-  const visible = await visibleSourceGames(
-    db,
-    viewerId,
-    rows.flatMap((r) => (r.sourceGameId ? [r.sourceGameId] : [])),
-  );
+  const [visible, visibleGroups] = await Promise.all([
+    visibleSourceGames(
+      db,
+      viewerId,
+      rows.flatMap((r) => (r.sourceGameId ? [r.sourceGameId] : [])),
+    ),
+    visibleSourceGroups(
+      db,
+      viewerId,
+      rows.flatMap((r) => (r.sourceGroupId ? [r.sourceGroupId] : [])),
+    ),
+  ]);
   return rows.map((achievement) => ({
     achievement,
     visibleSourceGameId:
       achievement.sourceGameId && visible.has(achievement.sourceGameId)
         ? achievement.sourceGameId
+        : null,
+    visibleSourceGroupId:
+      achievement.sourceGroupId && visibleGroups.has(achievement.sourceGroupId)
+        ? achievement.sourceGroupId
         : null,
   }));
 }

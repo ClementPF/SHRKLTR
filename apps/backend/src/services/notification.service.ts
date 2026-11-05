@@ -1,8 +1,10 @@
-import { and, asc, count, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Database, Transaction } from '../db/client.js';
 import {
   games,
+  groupMembers,
+  groups,
   notificationCategory,
   notificationPreferences,
   notifications,
@@ -49,6 +51,7 @@ export interface NotificationEvent {
   actorUserId?: string | null;
   subjectUserId?: string | null;
   gameId?: string | null;
+  groupId?: string | null;
   achievementCode?: string | null;
 }
 
@@ -103,6 +106,27 @@ export function notifyPlaceholderClaimed(
   ]);
 }
 
+/**
+ * group_member_joined for the group's OWNER/ADMINs (the joiner excluded by the caller). The join
+ * time is part of the event identity so a later rejoin is a new event.
+ */
+export function notifyGroupMemberJoined(
+  tx: Transaction,
+  input: { groupId: string; joinerId: string; joinedAt: Date; recipientIds: readonly string[] },
+): Promise<string[]> {
+  return insertNotifications(
+    tx,
+    input.recipientIds.map((recipientUserId) => ({
+      recipientUserId,
+      type: 'group_member_joined' as const,
+      dedupeKey: `group_member_joined:${input.groupId}:${input.joinerId}:${input.joinedAt.getTime()}`,
+      actorUserId: input.joinerId,
+      subjectUserId: input.joinerId,
+      groupId: input.groupId,
+    })),
+  );
+}
+
 export interface NotificationView {
   notification: NotificationRow;
   actor: UserRow | null;
@@ -115,12 +139,16 @@ const actors = alias(users, 'actor');
 const subjects = alias(users, 'subject');
 const recipients = alias(users, 'recipient');
 
-/** Rows the viewer owns whose source context they may still read. */
+/** Rows the viewer owns whose source context (game, group) they may still read. */
 function ownVisible(viewerId: string): SQL | undefined {
   const visibleTournament = visibleTournamentsFilter(viewerId);
   return and(
     eq(notifications.recipientUserId, viewerId),
     visibleTournament ? or(isNull(notifications.gameId), visibleTournament) : undefined,
+    or(
+      isNull(notifications.groupId),
+      sql`exists (select 1 from ${groupMembers} where ${groupMembers.groupId} = ${notifications.groupId} and ${groupMembers.userId} = ${viewerId})`,
+    ),
   );
 }
 
@@ -183,10 +211,11 @@ function render(
     subject: UserRow | null;
     recipient: UserRow;
     tournament: typeof tournaments.$inferSelect | null;
+    group: typeof groups.$inferSelect | null;
   },
   outcomesByGame: Map<string, OutcomeWithUser[]>,
 ): NotificationView {
-  const { notification, actor, subject, recipient, tournament } = row;
+  const { notification, actor, subject, recipient, tournament, group } = row;
   const base = { notification, actor };
   switch (notification.type) {
     case 'game_recorded': {
@@ -229,8 +258,17 @@ function render(
     case 'challenge_expiring':
     case 'challenge_expired':
       return { ...base, title: 'Challenge update', body: '', target: null };
-    case 'group_member_joined':
-      return { ...base, title: 'New group member', body: '', target: null };
+    case 'group_member_joined': {
+      const who = subject ? displayName(subject) : 'Someone';
+      return group
+        ? {
+            ...base,
+            title: 'New group member',
+            body: `${who} joined ${group.name}.`,
+            target: { type: 'group', groupId: group.id },
+          }
+        : { ...base, title: 'New group member', body: `${who} joined a group.`, target: null };
+    }
   }
 }
 
@@ -248,6 +286,7 @@ export async function loadNotificationViews(
       subject: subjects,
       recipient: recipients,
       tournament: tournaments,
+      group: groups,
     })
     .from(notifications)
     .innerJoin(recipients, eq(notifications.recipientUserId, recipients.id))
@@ -255,6 +294,7 @@ export async function loadNotificationViews(
     .leftJoin(subjects, eq(notifications.subjectUserId, subjects.id))
     .leftJoin(games, eq(notifications.gameId, games.id))
     .leftJoin(tournaments, eq(games.tournamentId, tournaments.id))
+    .leftJoin(groups, eq(notifications.groupId, groups.id))
     .where(and(ownVisible(viewerId), where))
     .orderBy(desc(notifications.createdAt), desc(notifications.id));
   const rows = page ? await query.limit(page.limit).offset(page.offset) : await query;

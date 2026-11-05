@@ -9,6 +9,7 @@ import { isUniqueViolation } from '../lib/db-errors.js';
 import { ApiError } from '../lib/errors.js';
 import { awardAchievements } from './achievement.service.js';
 import { notifyPlaceholderClaimed } from './notification.service.js';
+import { addMemberships, lockGroups, rosteredGroupIds } from './group.service.js';
 import {
   deriveUsernameBase,
   findAvailableUsername,
@@ -50,6 +51,18 @@ async function lockGoogleSubject(tx: Transaction, sub: string): Promise<void> {
   );
 }
 
+/** The placeholder's roster changed while the claim waited for its row; retry from scratch. */
+class ClaimRosterChanged extends Error {
+  constructor() {
+    super('placeholder roster changed during claim');
+    this.name = 'ClaimRosterChanged';
+  }
+}
+
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 function googleProfile(identity: GoogleIdentity) {
   return {
     email: identity.email,
@@ -87,14 +100,16 @@ async function createRegisteredUser(tx: Transaction, identity: GoogleIdentity): 
 /**
  * Binds the Google subject to the placeholder's existing row, so its id, username, games,
  * stats and rivalries are inherited without moving any history, and consumes the claim.
- * Lock order: placeholder user row, then its claim row; both are rechecked under lock.
+ * Lock order: the groups rostering the placeholder (sorted), the placeholder user row, then its
+ * claim row; all are rechecked under lock. If a roster entry appeared before the placeholder
+ * lock was granted, the whole transaction restarts so no rostered group is left out.
  */
 async function claimPlaceholder(
   tx: Transaction,
   identity: GoogleIdentity,
   claimToken: string,
   now: Date,
-): Promise<{ user: UserRow; creatorId: string }> {
+): Promise<{ user: UserRow; creatorId: string; groupIds: string[] }> {
   const tokenHash = hashCapabilityToken(claimToken);
   const [candidate] = await tx
     .select({ placeholderUserId: playerClaims.placeholderUserId })
@@ -102,6 +117,9 @@ async function claimPlaceholder(
     .where(eq(playerClaims.tokenHash, tokenHash))
     .limit(1);
   if (!candidate) throw claimInvalid();
+
+  const groupIds = await rosteredGroupIds(tx, candidate.placeholderUserId);
+  await lockGroups(tx, groupIds, 'no key update');
 
   const [placeholder] = await tx
     .select()
@@ -124,6 +142,9 @@ async function claimPlaceholder(
   ) {
     throw claimInvalid();
   }
+  if (!sameIds(groupIds, await rosteredGroupIds(tx, placeholder.id))) {
+    throw new ClaimRosterChanged();
+  }
 
   const [claimed] = await tx
     .update(users)
@@ -138,7 +159,7 @@ async function claimPlaceholder(
     .returning();
   if (!claimed) throw claimInvalid();
   await tx.update(playerClaims).set({ consumedAt: now }).where(eq(playerClaims.id, claim.id));
-  return { user: claimed, creatorId: claim.creatorUserId };
+  return { user: claimed, creatorId: claim.creatorUserId, groupIds };
 }
 
 /**
@@ -180,7 +201,16 @@ export async function signInWithGoogle(
           const badges = await awardAchievements(tx, [
             { userId: claimed.creatorId, code: 'invited_player_claimed', sourceType: 'CLAIM' },
           ]);
-          notificationIds = [...claimNotifications, ...badges.notificationIds];
+          const memberships = await addMemberships(tx, {
+            userId: user.id,
+            groupIds: claimed.groupIds,
+            now: opts.now,
+          });
+          notificationIds = [
+            ...claimNotifications,
+            ...badges.notificationIds,
+            ...memberships.notificationIds,
+          ];
         } else if (existing) {
           user = await refreshProfile(tx, existing.id, identity);
         } else {
@@ -192,6 +222,7 @@ export async function signInWithGoogle(
     } catch (err) {
       // Another account took the derived username concurrently; pick the next free one.
       if (isUniqueViolation(err, 'users_username_key')) continue;
+      if (err instanceof ClaimRosterChanged) continue;
       throw err;
     }
   }

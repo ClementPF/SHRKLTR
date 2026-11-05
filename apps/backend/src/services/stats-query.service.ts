@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Database } from '../db/client.js';
-import { rivalryStats, sports, stats, tournaments, users } from '../db/schema.js';
+import { groups, rivalryStats, sports, stats, tournaments, users } from '../db/schema.js';
 import { ApiError } from '../lib/errors.js';
 import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
 import { findUserByUsername } from './user.service.js';
@@ -39,6 +39,7 @@ async function queryRivalries(db: Database, where: SQL | undefined) {
       tournament: tournaments,
       sport: sports,
       owner: owners,
+      group: groups,
     })
     .from(rivalryStats)
     .innerJoin(users, eq(rivalryStats.userId, users.id))
@@ -46,14 +47,17 @@ async function queryRivalries(db: Database, where: SQL | undefined) {
     .innerJoin(tournaments, eq(rivalryStats.tournamentId, tournaments.id))
     .innerJoin(sports, eq(tournaments.sportId, sports.id))
     .leftJoin(owners, eq(tournaments.ownerUserId, owners.id))
+    .leftJoin(groups, eq(tournaments.groupId, groups.id))
     .where(where)
     .orderBy(desc(rivalryStats.score), asc(tournaments.name), asc(rivals.username));
-  return rows.map(({ rivalry, user, rival, tournament, sport, owner }): RivalryWithRelations => ({
-    rivalry,
-    user,
-    rival,
-    tournament: { tournament, sport, owner },
-  }));
+  return rows.map(
+    ({ rivalry, user, rival, tournament, sport, owner, group }): RivalryWithRelations => ({
+      rivalry,
+      user,
+      rival,
+      tournament: { tournament, sport, owner, group },
+    }),
+  );
 }
 
 /** Stats rows matching `where` in the given order, with best/worst rivalries resolved. */
@@ -63,12 +67,20 @@ async function queryStats(
   orderBy: SQL[],
 ): Promise<StatsWithRelations[]> {
   const rows = await db
-    .select({ stats, user: users, tournament: tournaments, sport: sports, owner: owners })
+    .select({
+      stats,
+      user: users,
+      tournament: tournaments,
+      sport: sports,
+      owner: owners,
+      group: groups,
+    })
     .from(stats)
     .innerJoin(users, eq(stats.userId, users.id))
     .innerJoin(tournaments, eq(stats.tournamentId, tournaments.id))
     .innerJoin(sports, eq(tournaments.sportId, sports.id))
     .leftJoin(owners, eq(tournaments.ownerUserId, owners.id))
+    .leftJoin(groups, eq(tournaments.groupId, groups.id))
     .where(where)
     .orderBy(...orderBy);
 
@@ -86,7 +98,7 @@ async function queryStats(
   return rows.map((r) => ({
     stats: r.stats,
     user: r.user,
-    tournament: { tournament: r.tournament, sport: r.sport, owner: r.owner },
+    tournament: { tournament: r.tournament, sport: r.sport, owner: r.owner, group: r.group },
     bestRivalry: resolve(r.stats.bestRivalryId),
     worstRivalry: resolve(r.stats.worstRivalryId),
   }));

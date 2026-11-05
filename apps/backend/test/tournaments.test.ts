@@ -76,6 +76,7 @@ describe('tournament routes', () => {
         isOver: false,
         sport: { id: sport.id, name: 'babyfoot' },
         owner: expect.objectContaining({ id: owner.id, username: 'owner' }),
+        group: null,
       });
       const rows = await app.db.select().from(tournaments);
       expect(rows).toHaveLength(1);
@@ -193,6 +194,7 @@ describe('tournament routes', () => {
           pictureUrl: null,
           locale: null,
         },
+        group: null,
       });
     });
 

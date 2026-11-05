@@ -16,7 +16,13 @@ import {
 } from '../services/placeholder.service.js';
 
 const createPlaceholderSchema = z
-  .object({ displayName: z.string().trim().min(1).max(100) })
+  .object({
+    displayName: z.string().trim().min(1).max(100),
+    groupId: z
+      .uuid()
+      .optional()
+      .describe('Adds the placeholder to this group roster; you must be a member'),
+  })
   .meta({ id: 'CreatePlaceholderRequest' });
 
 const playerParamsSchema = z.object({ id: z.uuid() });
@@ -43,20 +49,27 @@ export const playerRoutes: FastifyPluginAsyncZod = async (app) => {
         summary: 'Add a player by name (placeholder) and issue its one-time claim link',
         description:
           'Creates a PLACEHOLDER user that can be recorded in games right away. claimUrl is ' +
-          'returned only in this response; reissue the link if it is lost.',
+          'returned only in this response; reissue the link if it is lost. With groupId the ' +
+          "placeholder is listed among the group's unclaimed players and claiming it joins the " +
+          'group; an unknown group or one you do not belong to is 404 GROUP_NOT_FOUND.',
         security,
         body: createPlaceholderSchema,
         response: {
           201: claimLinkDtoSchema,
           400: errorResponseSchema,
           401: errorResponseSchema,
+          404: errorResponseSchema,
         },
       },
     },
     async (request, reply) => {
       const issued = await createPlaceholder(
         app.db,
-        { creatorId: request.user.id, displayName: request.body.displayName },
+        {
+          creatorId: request.user.id,
+          displayName: request.body.displayName,
+          groupId: request.body.groupId,
+        },
         claimSettings(),
       );
       return reply.code(201).send(toClaimLinkDto(issued));

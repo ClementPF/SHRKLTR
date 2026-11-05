@@ -12,6 +12,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
   type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
@@ -76,6 +77,88 @@ export const sports = pgTable('sports', {
   name: text('name').notNull().unique(),
 });
 
+export const groups = pgTable(
+  'groups',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    name: text('name').notNull(),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      'groups_name_length_check',
+      sql`char_length(${t.name}) between 1 and 100 and ${t.name} = btrim(${t.name})`,
+    ),
+  ],
+);
+
+export const groupRole = pgEnum('group_role', ['OWNER', 'ADMIN', 'MEMBER']);
+
+/** Role authority of a group; the partial unique index guarantees at most one OWNER. */
+export const groupMembers = pgTable(
+  'group_members',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: groupRole('role').notNull(),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: 'group_members_pk', columns: [t.groupId, t.userId] }),
+    index('group_members_user_group_idx').on(t.userId, t.groupId),
+    uniqueIndex('group_members_one_owner_unique')
+      .on(t.groupId)
+      .where(sql`${t.role} = 'OWNER'`),
+  ],
+);
+
+/** Reusable join links; only SHA-256 hashes of the URL token and the short code are stored. */
+export const groupInvites = pgTable(
+  'group_invites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    createdByUserId: uuid('created_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    tokenHash: text('token_hash').notNull().unique(),
+    codeHash: text('code_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('group_invites_group_created_idx').on(t.groupId, t.createdAt.desc())],
+);
+
+/** Placeholders recorded in a group; grants no permission, only claim auto-join. */
+export const groupPlayers = pgTable(
+  'group_players',
+  {
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => groups.id, { onDelete: 'cascade' }),
+    placeholderUserId: uuid('placeholder_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    addedByUserId: uuid('added_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ name: 'group_players_pk', columns: [t.groupId, t.placeholderUserId] }),
+    index('group_players_placeholder_group_idx').on(t.placeholderUserId, t.groupId),
+  ],
+);
+
 export const tournaments = pgTable(
   'tournaments',
   {
@@ -87,9 +170,14 @@ export const tournaments = pgTable(
       .notNull()
       .references(() => sports.id),
     ownerUserId: uuid('owner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    // Immutable once set: grouped tournaments are readable by current group members only.
+    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'restrict' }),
     createdAt: createdAt(),
   },
-  (t) => [index('tournaments_sport_idx').on(t.sportId)],
+  (t) => [
+    index('tournaments_sport_idx').on(t.sportId),
+    index('tournaments_group_created_idx').on(t.groupId, t.createdAt),
+  ],
 );
 
 export const games = pgTable(
@@ -258,6 +346,7 @@ export const notifications = pgTable(
     actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
     subjectUserId: uuid('subject_user_id').references(() => users.id, { onDelete: 'set null' }),
     gameId: uuid('game_id').references(() => games.id, { onDelete: 'set null' }),
+    groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
     achievementCode: text('achievement_code'),
     createdAt: createdAt(),
     readAt: timestamp('read_at', { withTimezone: true }),
@@ -307,6 +396,7 @@ export const userAchievements = pgTable(
     unlockedAt: timestamp('unlocked_at', { withTimezone: true }).notNull().defaultNow(),
     sourceType: achievementSource('source_type').notNull(),
     sourceGameId: uuid('source_game_id').references(() => games.id, { onDelete: 'set null' }),
+    sourceGroupId: uuid('source_group_id').references(() => groups.id, { onDelete: 'set null' }),
   },
   (t) => [
     primaryKey({ name: 'user_achievements_pk', columns: [t.userId, t.achievementCode] }),

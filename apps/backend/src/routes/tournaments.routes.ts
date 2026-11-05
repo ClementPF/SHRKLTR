@@ -33,6 +33,10 @@ const createTournamentSchema = z
   .object({
     displayName: displayNameSchema,
     sportName: z.string().trim().min(1).max(100),
+    groupId: z
+      .uuid()
+      .optional()
+      .describe('Creates a members-only tournament in this group (owner or admin only)'),
   })
   .meta({ id: 'CreateTournamentRequest' });
 
@@ -40,6 +44,7 @@ const updateTournamentSchema = z
   .object({
     displayName: displayNameSchema.optional(),
     isOver: z.boolean().optional(),
+    groupId: z.never({ error: 'The group of a tournament cannot be changed' }).optional(),
   })
   .refine((b) => b.displayName !== undefined || b.isOver !== undefined, {
     message: 'Provide displayName and/or isOver',
@@ -102,10 +107,18 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         summary: 'Create a tournament owned by the caller',
         description:
           'The URL name is displayName without whitespace, lowercased. An unknown sportName ' +
-          'creates the sport. A duplicate derived name is rejected with 400.',
+          'creates the sport. A duplicate derived name is rejected with 400. With groupId the ' +
+          'tournament is visible to group members only; a member who is not owner or admin ' +
+          'gets 403 GROUP_ROLE_REQUIRED and a non-member 404 GROUP_NOT_FOUND.',
         security,
         body: createTournamentSchema,
-        response: { 201: tournamentDtoSchema, 400: errorResponseSchema, 401: errorResponseSchema },
+        response: {
+          201: tournamentDtoSchema,
+          400: errorResponseSchema,
+          401: errorResponseSchema,
+          403: errorResponseSchema,
+          404: errorResponseSchema,
+        },
       },
     },
     async (request, reply) => {
@@ -140,8 +153,10 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         tags: ['tournaments'],
-        summary: 'Update a tournament in place (owner only)',
-        description: 'A new displayName regenerates the URL name; the id never changes.',
+        summary: 'Update a tournament in place (creator, or group owner/admin)',
+        description:
+          'A new displayName regenerates the URL name; the id and group never change. Grouped ' +
+          'tournaments are managed by the group owner and admins, whoever created them.',
         security,
         params: nameParamsSchema,
         body: updateTournamentSchema,
@@ -165,7 +180,7 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         tags: ['tournaments'],
-        summary: 'Delete a tournament and all its games and stats (owner only)',
+        summary: 'Delete a tournament and its games and stats (creator, or group owner/admin)',
         security,
         params: nameParamsSchema,
         response: {
@@ -274,7 +289,9 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         summary: 'Record a game (submitted by a losing player)',
         description:
           'Needs as many winners as losers, no repeated player and no TIE. The caller must be ' +
-          'one of the losers. Date and outcome scores are computed by the server. Every ' +
+          'one of the losers. In a group tournament every registered player must be a group ' +
+          'member and every placeholder on its roster (400 PLAYER_NOT_GROUP_MEMBER). Date and ' +
+          'outcome scores are computed by the server. Every ' +
           'participant gets a game_recorded inbox notification; push is sent after commit to ' +
           'enabled devices and push failures never fail the submission.',
         security,

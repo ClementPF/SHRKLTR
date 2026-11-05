@@ -5,6 +5,9 @@ import { loadConfig, type AppConfig } from '../src/config.js';
 import type { Database } from '../src/db/client.js';
 import {
   games,
+  groupMembers,
+  groupPlayers,
+  groups,
   notifications,
   outcomes,
   playerClaims,
@@ -261,6 +264,49 @@ export async function achievementCodesOf(db: Database, userId: string): Promise<
     .where(eq(userAchievements.userId, userId));
   return rows.map((r) => r.code).sort();
 }
+type GroupRoleValue = (typeof groupMembers.$inferInsert)['role'];
+
+/** A group with the given OWNER and optional extra members, inserted directly (no badges). */
+export async function createGroup(
+  db: Database,
+  input: { ownerId: string; name?: string; members?: Record<string, GroupRoleValue> },
+) {
+  const group = firstRow(
+    await db
+      .insert(groups)
+      .values({ name: input.name ?? `Group ${nextSeq()}`, createdByUserId: input.ownerId })
+      .returning(),
+  );
+  await db.insert(groupMembers).values([
+    { groupId: group.id, userId: input.ownerId, role: 'OWNER' },
+    ...Object.entries(input.members ?? {}).map(([userId, role]) => ({
+      groupId: group.id,
+      userId,
+      role,
+    })),
+  ]);
+  return group;
+}
+
+export async function addGroupMember(
+  db: Database,
+  groupId: string,
+  userId: string,
+  role: GroupRoleValue = 'MEMBER',
+) {
+  await db.insert(groupMembers).values({ groupId, userId, role });
+}
+
+export async function rosterPlayer(db: Database, groupId: string, placeholderUserId: string) {
+  await db.insert(groupPlayers).values({ groupId, placeholderUserId });
+}
+
+/** Current role per user id of a group. */
+export async function groupRolesOf(db: Database, groupId: string): Promise<Record<string, string>> {
+  const rows = await db.select().from(groupMembers).where(eq(groupMembers.groupId, groupId));
+  return Object.fromEntries(rows.map((r) => [r.userId, r.role]));
+}
+
 /** Valid-looking Expo push token derived from a label (never a real device). */
 export const expoTokenOf = (label: string) => `ExponentPushToken[${label}]`;
 

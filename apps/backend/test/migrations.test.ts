@@ -26,13 +26,17 @@ describe('committed migrations', () => {
     await db.$client.end({ timeout: 5 });
   });
 
-  it('create all 14 tables', async () => {
+  it('create all 18 tables', async () => {
     const rows = await db.execute<{ tablename: string }>(
       sql`select tablename from pg_tables where schemaname = 'public' order by tablename`,
     );
     expect(rows.map((r) => r.tablename)).toEqual([
       'app_invites',
       'games',
+      'group_invites',
+      'group_members',
+      'group_players',
+      'groups',
       'notification_preferences',
       'notifications',
       'outcomes',
@@ -232,6 +236,7 @@ describe('committed migrations', () => {
     );
     expect(fks).toEqual([
       { column: 'source_game_id', on_delete: 'SET NULL' },
+      { column: 'source_group_id', on_delete: 'SET NULL' },
       { column: 'user_id', on_delete: 'CASCADE' },
     ]);
 
@@ -266,6 +271,68 @@ describe('committed migrations', () => {
       sql`select 1 from user_achievements where user_id = '00000000-0000-4000-8000-0000000000a1'`,
     );
     expect(left).toHaveLength(0);
+  });
+
+  it('add group tables with one-owner index, hashed invites, roster and group references', async () => {
+    const roles = await db.execute<{ label: string }>(
+      sql`select e.enumlabel as label from pg_enum e join pg_type t on t.oid = e.enumtypid
+          where t.typname = 'group_role' order by e.enumsortorder`,
+    );
+    expect(roles.map((r) => r.label)).toEqual(['OWNER', 'ADMIN', 'MEMBER']);
+
+    const indexes = await db.execute<{ indexname: string; indexdef: string }>(
+      sql`select indexname, indexdef from pg_indexes where schemaname = 'public'`,
+    );
+    const defs = new Map(indexes.map((r) => [r.indexname, r.indexdef]));
+    expect(defs.get('group_members_pk')).toContain('(group_id, user_id)');
+    expect(defs.get('group_members_user_group_idx')).toContain('(user_id, group_id)');
+    expect(defs.get('group_members_one_owner_unique')).toContain(
+      "UNIQUE INDEX group_members_one_owner_unique ON public.group_members USING btree (group_id) WHERE (role = 'OWNER'::group_role)",
+    );
+    expect(defs.get('group_invites_group_created_idx')).toContain('(group_id, created_at DESC');
+    expect(defs.get('group_players_pk')).toContain('(group_id, placeholder_user_id)');
+    expect(defs.get('group_players_placeholder_group_idx')).toContain(
+      '(placeholder_user_id, group_id)',
+    );
+    expect(defs.get('tournaments_group_created_idx')).toContain('(group_id, created_at)');
+    const uniques = [...defs.values()].filter((d) => d.startsWith('CREATE UNIQUE INDEX'));
+    for (const expected of [
+      'group_invites USING btree (token_hash)',
+      'group_invites USING btree (code_hash)',
+    ]) {
+      expect(uniques.some((d) => d.includes(expected))).toBe(true);
+    }
+
+    const fks = await db.execute<{ table: string; column: string; on_delete: string }>(
+      sql`select kcu.table_name as table, kcu.column_name as column, rc.delete_rule as on_delete
+          from information_schema.referential_constraints rc
+          join information_schema.key_column_usage kcu on kcu.constraint_name = rc.constraint_name
+          where kcu.column_name in ('group_id', 'source_group_id')
+          order by kcu.table_name, kcu.column_name`,
+    );
+    expect(fks).toEqual([
+      { table: 'group_invites', column: 'group_id', on_delete: 'CASCADE' },
+      { table: 'group_members', column: 'group_id', on_delete: 'CASCADE' },
+      { table: 'group_players', column: 'group_id', on_delete: 'CASCADE' },
+      { table: 'notifications', column: 'group_id', on_delete: 'SET NULL' },
+      { table: 'tournaments', column: 'group_id', on_delete: 'RESTRICT' },
+      { table: 'user_achievements', column: 'source_group_id', on_delete: 'SET NULL' },
+    ]);
+
+    const columns = await db.execute<{ column_name: string }>(
+      sql`select column_name from information_schema.columns
+          where table_schema = 'public' and table_name = 'group_invites' order by column_name`,
+    );
+    expect(columns.map((c) => c.column_name)).toEqual([
+      'code_hash',
+      'created_at',
+      'created_by_user_id',
+      'expires_at',
+      'group_id',
+      'id',
+      'revoked_at',
+      'token_hash',
+    ]);
   });
 
   it('keep the legacy longuest_* column spelling', async () => {
@@ -321,7 +388,7 @@ describe('boot-time migrator (runMigrations)', () => {
     await runMigrations(scratchUrl);
     const { names, tables } = await journal(scratchUrl);
     expect(names).toEqual(migrationFolders.map((d) => d.name).sort());
-    expect(tables).toBe(14);
+    expect(tables).toBe(18);
   });
 
   it('is a no-op when every migration is already applied', async () => {

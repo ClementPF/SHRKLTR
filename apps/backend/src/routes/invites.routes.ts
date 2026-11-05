@@ -11,6 +11,8 @@ import {
 import { toUserDto } from '../lib/serializers.js';
 import { issueAppInvite, previewAppInvite } from '../services/invite.service.js';
 import { previewClaim } from '../services/placeholder.service.js';
+import { previewGroupInvite } from '../services/group-invite.service.js';
+import { groupInvitePreviewDtoSchema } from '../lib/group-serializers.js';
 
 const tokenParamsSchema = z.object({ token: z.string().min(1).max(200) });
 
@@ -90,6 +92,26 @@ export const inviteRoutes: FastifyPluginAsyncZod = async (app) => {
       markPrivateCapability(reply);
       const { invitedBy } = await previewAppInvite(app.db, request.params.token);
       return { invitedBy: toUserDto(invitedBy) };
+    },
+  );
+
+  app.get(
+    '/invites/group/:token',
+    {
+      schema: {
+        tags: ['invites'],
+        summary: 'Public preview of a group invite link',
+        description:
+          'Only the group name and expiry; never members or tournaments. Does not join. ' +
+          'Unknown, expired and revoked links answer 404 INVITE_NOT_FOUND.',
+        params: tokenParamsSchema,
+        response: { 200: groupInvitePreviewDtoSchema, 404: errorResponseSchema },
+      },
+    },
+    async (request, reply) => {
+      markPrivateCapability(reply);
+      const preview = await previewGroupInvite(app.db, request.params.token, app.clock());
+      return { groupName: preview.groupName, expiresAt: preview.expiresAt?.toISOString() ?? null };
     },
   );
 };

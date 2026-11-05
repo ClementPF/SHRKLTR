@@ -28,6 +28,10 @@ const achievementSourceDtoSchema = z
       .uuid()
       .nullable()
       .describe('Game that unlocked the badge; null when there is none or you cannot see it'),
+    groupId: z
+      .uuid()
+      .nullable()
+      .describe('Group that unlocked the badge; null when there is none or you are not a member'),
   })
   .meta({ id: 'AchievementSource' });
 
@@ -57,7 +61,11 @@ export function toAchievementDto(definition: AchievementDefinition): Achievement
 }
 
 function toSourceDto(view: UnlockView) {
-  return { type: view.achievement.sourceType, gameId: view.visibleSourceGameId };
+  return {
+    type: view.achievement.sourceType,
+    gameId: view.visibleSourceGameId,
+    groupId: view.visibleSourceGroupId,
+  };
 }
 
 /** The whole catalog in display order, each entry locked or unlocked for this user. */

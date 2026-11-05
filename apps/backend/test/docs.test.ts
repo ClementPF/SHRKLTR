@@ -112,6 +112,18 @@ describe('API docs', () => {
         '/stats',
         '/rivalries',
         '/rivalry',
+        '/groups',
+        '/groups/join',
+        '/groups/{id}',
+        '/groups/{id}/members',
+        '/groups/{id}/members/{userId}',
+        '/groups/{id}/transfer-owner',
+        '/groups/{id}/leave',
+        '/groups/{id}/tournaments',
+        '/groups/{id}/players',
+        '/groups/{id}/invites',
+        '/groups/{id}/invites/{inviteId}',
+        '/invites/group/{token}',
       ]),
     );
     const games = doc.paths['/tournaments/{name}/games'];
@@ -178,6 +190,16 @@ describe('API docs', () => {
       'AchievementSource',
       'UserAchievement',
       'AchievementUnlock',
+      'Group',
+      'GroupRole',
+      'GroupMember',
+      'GroupPlayer',
+      'GroupInvite',
+      'IssuedGroupInvite',
+      'GroupInvitePreview',
+      'GroupJoinResult',
+      'JoinGroupRequest',
+      'TournamentGroup',
     ]) {
       expect(doc.components.schemas[schema]).toBeDefined();
     }
@@ -198,8 +220,14 @@ describe('API docs', () => {
         'invites',
         'notifications',
         'achievements',
+        'groups',
       ]),
     );
+    expect(doc.paths['/invites/group/{token}'].get.security).toBeUndefined();
+    expect(doc.paths['/groups/join'].post.security).toEqual([{ bearerAuth: [] }]);
+    expect(doc.components.schemas.GroupInvite.properties.url).toBeUndefined();
+    expect(doc.components.schemas.GroupInvite.properties.code).toBeUndefined();
+    expect(doc.components.schemas.CreateTournamentRequest.properties.groupId).toBeDefined();
     expect(doc.components.schemas.Achievement.properties.code.enum).toContain('giant_killer');
     expect(
       doc.paths['/users/{username}/achievements'].get.responses['200'].content['application/json']

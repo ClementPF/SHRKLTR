@@ -1,7 +1,7 @@
 import { and, asc, countDistinct, desc, eq, inArray, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Database } from '../db/client.js';
-import { games, outcomes, sports, tournaments, users } from '../db/schema.js';
+import { games, groups, outcomes, sports, tournaments, users } from '../db/schema.js';
 import { ApiError } from '../lib/errors.js';
 import type { PageWindow } from '../lib/pagination.js';
 import type { GameWithRelations } from './game.service.js';
@@ -18,11 +18,12 @@ async function listGames(
   page: PageWindow,
 ): Promise<GameWithRelations[]> {
   const rows = await db
-    .select({ game: games, tournament: tournaments, sport: sports, owner: owners })
+    .select({ game: games, tournament: tournaments, sport: sports, owner: owners, group: groups })
     .from(games)
     .innerJoin(tournaments, eq(games.tournamentId, tournaments.id))
     .innerJoin(sports, eq(tournaments.sportId, sports.id))
     .leftJoin(owners, eq(tournaments.ownerUserId, owners.id))
+    .leftJoin(groups, eq(tournaments.groupId, groups.id))
     .where(where)
     // createdAt and id break ties between games sharing a date so pages never overlap.
     .orderBy(desc(games.date), desc(games.createdAt), desc(games.id))
@@ -48,9 +49,9 @@ async function listGames(
     outcomesByGame.set(row.outcome.gameId, list);
   }
 
-  return rows.map(({ game, tournament, sport, owner }) => ({
+  return rows.map(({ game, tournament, sport, owner, group }) => ({
     game,
-    tournament: { tournament, sport, owner },
+    tournament: { tournament, sport, owner, group },
     outcomes: outcomesByGame.get(game.id) ?? [],
   }));
 }

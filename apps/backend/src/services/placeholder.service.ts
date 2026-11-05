@@ -9,6 +9,7 @@ import type { GameWithRelations } from './game.service.js';
 import { countOpenUserGames, listOpenUserGames } from './game-history.service.js';
 import { listOpenUserStats, type StatsWithRelations } from './stats-query.service.js';
 import { deriveUsernameBase, findAvailableUsername, splitDisplayName } from './user.service.js';
+import { lockGroupAsMember, rosterPlaceholder } from './group.service.js';
 
 type UserRow = typeof users.$inferSelect;
 type ClaimRow = typeof playerClaims.$inferSelect;
@@ -83,17 +84,19 @@ export async function requireRegisteredUser(
 
 /**
  * Creates a PLACEHOLDER user named after displayName, owned by the creator, together with its
- * one-time claim link, in one transaction.
+ * one-time claim link, in one transaction. With a groupId the creator must be a member and the
+ * placeholder joins that group's roster.
  */
 export async function createPlaceholder(
   db: Database,
-  input: { creatorId: string; displayName: string },
+  input: { creatorId: string; displayName: string; groupId?: string | undefined },
   settings: ClaimLinkSettings,
 ): Promise<IssuedClaimLink> {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
       return await db.transaction(async (tx) => {
         await requireRegisteredUser(tx, input.creatorId);
+        if (input.groupId) await lockGroupAsMember(tx, input.groupId, input.creatorId, 'share');
         const username = await findAvailableUsername(tx, deriveUsernameBase(input.displayName));
         const [user] = await tx
           .insert(users)
@@ -112,6 +115,13 @@ export async function createPlaceholder(
           tokenHash: secret.tokenHash,
           expiresAt: secret.expiresAt,
         });
+        if (input.groupId) {
+          await rosterPlaceholder(tx, {
+            groupId: input.groupId,
+            placeholderId: user.id,
+            addedById: input.creatorId,
+          });
+        }
         return {
           user,
           claimUrl: claimUrlFor(settings.publicWebUrl, secret.token),

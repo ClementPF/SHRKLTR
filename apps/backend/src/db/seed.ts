@@ -4,10 +4,15 @@ import { hashCapabilityToken } from '../lib/capability-token.js';
 import { runAchievementsBackfill } from '../scripts/achievements-backfill.js';
 import { recordGame } from '../services/game.service.js';
 import { NOTIFICATION_CATEGORY_BY_TYPE } from '../services/notification.service.js';
+import { hashInviteCode, joinUrlFor } from '../services/group-invite.service.js';
 import { claimUrlFor } from '../services/placeholder.service.js';
 import { createDb, type Database, type Transaction } from './client.js';
 import {
   games,
+  groupInvites,
+  groupMembers,
+  groupPlayers,
+  groups,
   notifications,
   outcomes,
   playerClaims,
@@ -33,6 +38,8 @@ interface DemoTournament {
   sport: string;
   owner: string;
   games: DemoGame[];
+  /** Members-only tournament of this group. */
+  groupId?: string;
 }
 
 export const DEMO_USERS: readonly DemoUser[] = [
@@ -111,6 +118,50 @@ export const DEMO_TOURNAMENTS: readonly DemoTournament[] = [
   },
 ];
 
+interface DemoGroup {
+  /** Fixed id so reruns find the group again (group names are not unique). */
+  id: string;
+  name: string;
+  owner: string;
+  members: readonly { username: string; role: 'ADMIN' | 'MEMBER' }[];
+  /** LOCAL ONLY deterministic invite credentials; only their hashes are stored. */
+  inviteToken: string;
+  inviteCode: string;
+  tournament: DemoTournament;
+}
+
+const DEMO_GROUP_ID = '5ea0c0de-0000-4000-8000-000000000001';
+
+export const DEMO_GROUP: DemoGroup = {
+  id: DEMO_GROUP_ID,
+  name: 'Shark Tank',
+  owner: 'dev-alex',
+  members: [
+    { username: 'dev-sam', role: 'ADMIN' },
+    { username: 'dev-jordan', role: 'MEMBER' },
+  ],
+  inviteToken: 'LOCAL-DEV-ONLY_group_shark-tank_invite',
+  inviteCode: 'SHARKTANK2',
+  tournament: {
+    displayName: 'Shark Tank Cup',
+    sport: 'babyfoot',
+    owner: 'dev-alex',
+    groupId: DEMO_GROUP_ID,
+    games: [
+      game(['dev-sam'], ['dev-alex'], 100),
+      game(['dev-alex'], ['dev-jordan'], 70),
+      game(['dev-jordan'], ['dev-sam'], 40),
+      game(['dev-alex'], ['dev-sam'], 9),
+    ],
+  },
+};
+
+/** Open tournaments followed by the group's private one, in creation order. */
+const ALL_DEMO_TOURNAMENTS: readonly DemoTournament[] = [
+  ...DEMO_TOURNAMENTS,
+  DEMO_GROUP.tournament,
+];
+
 type ClaimFixtureState = 'ACTIVE' | 'EXPIRED' | 'REVOKED' | 'CLAIMED';
 
 interface DemoPlaceholder {
@@ -125,6 +176,8 @@ interface DemoPlaceholder {
   claimToken: string;
   /** One game against the creator in this tournament, recorded once. */
   game?: { tournament: string; placeholderResult: 'WIN' | 'LOSS' };
+  /** Listed among the demo group's unclaimed players; claiming it joins the group. */
+  rostered?: boolean;
 }
 
 const PLACEHOLDER_CREATOR = 'dev-alex';
@@ -161,6 +214,15 @@ export const DEMO_PLACEHOLDERS: readonly DemoPlaceholder[] = [
     state: 'CLAIMED',
     claimToken: 'LOCAL-DEV-ONLY_claim_guest-quinn_claimed',
     game: { tournament: 'Friday Ping Pong', placeholderResult: 'LOSS' },
+  },
+  {
+    username: 'guest-robin',
+    firstName: 'Robin',
+    lastName: 'Guest',
+    state: 'ACTIVE',
+    claimToken: 'LOCAL-DEV-ONLY_claim_guest-robin_active',
+    game: { tournament: 'Shark Tank Cup', placeholderResult: 'LOSS' },
+    rostered: true,
   },
 ];
 
@@ -216,7 +278,7 @@ async function seedNotifications(
     .where(
       inArray(
         tournaments.name,
-        DEMO_TOURNAMENTS.map((t) => tournamentSlug(t.displayName)),
+        ALL_DEMO_TOURNAMENTS.map((t) => tournamentSlug(t.displayName)),
       ),
     );
   const readBefore = now.getTime() - READ_AFTER_HOURS * 3_600_000;
@@ -301,6 +363,20 @@ async function seedPlaceholders(
     );
   const placeholderIds = new Map(rows.map((r) => [r.username, r.id]));
 
+  const rostered = DEMO_PLACEHOLDERS.filter((p) => p.rostered);
+  if (rostered.length > 0) {
+    await tx
+      .insert(groupPlayers)
+      .values(
+        rostered.map((p) => ({
+          groupId: DEMO_GROUP.id,
+          placeholderUserId: requireId(placeholderIds, p.username),
+          addedByUserId: creatorId,
+        })),
+      )
+      .onConflictDoNothing();
+  }
+
   await tx
     .insert(playerClaims)
     .values(
@@ -342,6 +418,41 @@ async function seedPlaceholders(
     gamesAdded += 1;
   }
   return { placeholders: placeholderIds.size, gamesAdded };
+}
+
+/**
+ * The demo group and its reusable invite. Members are inserted only when the group itself is
+ * created, so reruns never reset roles changed while testing, and a revoked fixture invite stays
+ * revoked. Seeded memberships award no badges and send no join events.
+ */
+async function seedGroup(tx: Transaction, userIds: Map<string, string>): Promise<void> {
+  const ownerId = requireId(userIds, DEMO_GROUP.owner);
+  const [created] = await tx
+    .insert(groups)
+    .values({ id: DEMO_GROUP.id, name: DEMO_GROUP.name, createdByUserId: ownerId })
+    .onConflictDoNothing()
+    .returning({ id: groups.id });
+  if (created) {
+    await tx.insert(groupMembers).values([
+      { groupId: created.id, userId: ownerId, role: 'OWNER' as const },
+      ...DEMO_GROUP.members.map((m) => ({
+        groupId: created.id,
+        userId: requireId(userIds, m.username),
+        role: m.role,
+      })),
+    ]);
+  }
+  await tx
+    .insert(groupInvites)
+    .values({
+      groupId: DEMO_GROUP.id,
+      createdByUserId: ownerId,
+      tokenHash: hashCapabilityToken(DEMO_GROUP.inviteToken),
+      codeHash: hashInviteCode(DEMO_GROUP.inviteCode),
+      // Never expires so the printed local link keeps working; real invites default to 30 days.
+      expiresAt: null,
+    })
+    .onConflictDoNothing();
 }
 
 /**
@@ -393,20 +504,23 @@ function seedFixtures(db: Database, now: Date): Promise<Omit<SeedSummary, 'achie
       .where(inArray(sports.name, [...DEMO_SPORTS]));
     const sportIds = new Map(sportRows.map((s) => [s.name, s.id]));
 
+    await seedGroup(tx, userIds);
+
     await tx
       .insert(tournaments)
       .values(
-        DEMO_TOURNAMENTS.map((t) => ({
+        ALL_DEMO_TOURNAMENTS.map((t) => ({
           name: tournamentSlug(t.displayName),
           displayName: t.displayName,
           sportId: requireId(sportIds, t.sport),
           ownerUserId: requireId(userIds, t.owner),
+          groupId: t.groupId ?? null,
         })),
       )
       .onConflictDoNothing();
 
     let tournamentsWithNewGames = 0;
-    for (const demo of DEMO_TOURNAMENTS) {
+    for (const demo of ALL_DEMO_TOURNAMENTS) {
       const [tournament] = await tx
         .select({ id: tournaments.id })
         .from(tournaments)
@@ -429,7 +543,7 @@ function seedFixtures(db: Database, now: Date): Promise<Omit<SeedSummary, 'achie
     return {
       users: userRows.length,
       sports: sportRows.length,
-      tournaments: DEMO_TOURNAMENTS.length,
+      tournaments: ALL_DEMO_TOURNAMENTS.length,
       tournamentsWithNewGames,
       placeholders: placeholders.placeholders,
       placeholderGamesAdded: placeholders.gamesAdded,
@@ -461,6 +575,11 @@ async function main(): Promise<void> {
     for (const p of DEMO_PLACEHOLDERS) {
       console.log(`  [${p.state}] ${p.username}: ${claimUrlFor(webUrl, p.claimToken)}`);
     }
+    console.log(
+      `LOCAL ONLY invite to group "${DEMO_GROUP.name}" (${DEMO_GROUP.owner} OWNER; dev fixture, not a secret):`,
+    );
+    console.log(`  link: ${joinUrlFor(webUrl, DEMO_GROUP.inviteToken)}`);
+    console.log(`  code: ${DEMO_GROUP.inviteCode}`);
   } finally {
     await db.$client.end({ timeout: 5 });
   }

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   games,
+  groups,
   outcomes,
   rivalryStats,
   sports,
@@ -54,6 +55,10 @@ export function toSportDto(row: SportRow): SportDto {
   return { id: row.id, name: row.name };
 }
 
+export const tournamentGroupDtoSchema = z
+  .object({ id: z.uuid(), name: z.string() })
+  .meta({ id: 'TournamentGroup' });
+
 export const tournamentDtoSchema = z
   .object({
     id: z.uuid(),
@@ -62,6 +67,9 @@ export const tournamentDtoSchema = z
     isOver: z.boolean(),
     sport: sportDtoSchema,
     owner: userDtoSchema.nullable(),
+    group: tournamentGroupDtoSchema
+      .nullable()
+      .describe('Owning group of a members-only tournament; null for open tournaments'),
   })
   .meta({ id: 'Tournament' });
 
@@ -71,6 +79,7 @@ export function toTournamentDto(row: {
   tournament: typeof tournaments.$inferSelect;
   sport: SportRow;
   owner: UserRow | null;
+  group: typeof groups.$inferSelect | null;
 }): TournamentDto {
   return {
     id: row.tournament.id,
@@ -79,6 +88,7 @@ export function toTournamentDto(row: {
     isOver: row.tournament.isOver,
     sport: toSportDto(row.sport),
     owner: row.owner ? toUserDto(row.owner) : null,
+    group: row.group ? { id: row.group.id, name: row.group.name } : null,
   };
 }
 
