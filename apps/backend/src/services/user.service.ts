@@ -1,7 +1,9 @@
-import { asc, eq, like, or } from 'drizzle-orm';
+import { and, asc, eq, like, or } from 'drizzle-orm';
 import type { GoogleIdentity } from '../auth/google.verify.js';
 import type { Database } from '../db/client.js';
 import { users } from '../db/schema.js';
+import { ApiError } from '../lib/errors.js';
+import { discoverableUsersFilter } from './visibility.service.js';
 
 type UserRow = typeof users.$inferSelect;
 
@@ -101,8 +103,38 @@ export async function findUserById(db: Database, id: string): Promise<UserRow | 
   return row;
 }
 
-export async function listUsers(db: Database): Promise<UserRow[]> {
-  return db.select().from(users).orderBy(asc(users.username));
+/** The user if the viewer may discover it (see discoverableUsersFilter). */
+export async function findVisibleUserByUsername(
+  db: Database,
+  username: string,
+  viewerId: string,
+): Promise<UserRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.username, username), discoverableUsersFilter(viewerId)))
+    .limit(1);
+  return row;
+}
+
+/** Unknown users and private placeholders the viewer may not discover are both 404. */
+export async function requireVisibleUser(
+  db: Database,
+  username: string,
+  viewerId: string,
+): Promise<UserRow> {
+  const user = await findVisibleUserByUsername(db, username, viewerId);
+  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+  return user;
+}
+
+/** Every user the viewer may discover, by username. */
+export async function listUsers(db: Database, viewerId: string): Promise<UserRow[]> {
+  return db
+    .select()
+    .from(users)
+    .where(discoverableUsersFilter(viewerId))
+    .orderBy(asc(users.username));
 }
 
 export interface ProfileUpdate {

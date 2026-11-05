@@ -12,7 +12,7 @@ import {
 import { ApiError, errorResponseSchema } from '../lib/errors.js';
 import { pageQuerySchema, parsePage } from '../lib/pagination.js';
 import { listRecentUnlocks, listUnlocks } from '../services/achievement.service.js';
-import { findUserById, findUserByUsername } from '../services/user.service.js';
+import { findUserById, requireVisibleUser } from '../services/user.service.js';
 
 const security = [{ bearerAuth: [] }];
 
@@ -83,8 +83,7 @@ export const achievementRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) => {
-      const user = await findUserByUsername(app.db, request.params.username);
-      if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+      const user = await requireVisibleUser(app.db, request.params.username, request.user.id);
       return toUserAchievementDtos(await listUnlocks(app.db, request.user.id, user.id));
     },
   );

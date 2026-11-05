@@ -141,10 +141,9 @@ const recipients = alias(users, 'recipient');
 
 /** Rows the viewer owns whose source context (game, group) they may still read. */
 function ownVisible(viewerId: string): SQL | undefined {
-  const visibleTournament = visibleTournamentsFilter(viewerId);
   return and(
     eq(notifications.recipientUserId, viewerId),
-    visibleTournament ? or(isNull(notifications.gameId), visibleTournament) : undefined,
+    or(isNull(notifications.gameId), visibleTournamentsFilter(viewerId)),
     or(
       isNull(notifications.groupId),
       sql`exists (select 1 from ${groupMembers} where ${groupMembers.groupId} = ${notifications.groupId} and ${groupMembers.userId} = ${viewerId})`,

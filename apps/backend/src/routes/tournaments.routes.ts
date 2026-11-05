@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from '@fastify/type-provider-zod';
-import { ApiError, errorResponseSchema } from '../lib/errors.js';
+import { errorResponseSchema } from '../lib/errors.js';
 import { pageQuerySchema, parsePage } from '../lib/pagination.js';
 import {
   gameDtoSchema,
@@ -17,9 +17,9 @@ import {
 import {
   createTournament,
   deleteTournament,
-  findTournamentByName,
   listTournamentUsers,
   listTournaments,
+  requireVisibleTournament,
   updateTournament,
 } from '../services/tournament.service.js';
 import { submitGame } from '../services/game.service.js';
@@ -96,7 +96,9 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) =>
-      (await listTournaments(app.db, { sportName: request.query.sport })).map(toTournamentDto),
+      (await listTournaments(app.db, request.user.id, { sportName: request.query.sport })).map(
+        toTournamentDto,
+      ),
   );
 
   app.post(
@@ -141,11 +143,8 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         response: { 200: tournamentDtoSchema, 401: errorResponseSchema, 404: errorResponseSchema },
       },
     },
-    async (request) => {
-      const found = await findTournamentByName(app.db, request.params.name);
-      if (!found) throw ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
-      return toTournamentDto(found);
-    },
+    async (request) =>
+      toTournamentDto(await requireVisibleTournament(app.db, request.params.name, request.user.id)),
   );
 
   app.put(
@@ -212,7 +211,8 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       },
     },
-    async (request) => (await listTournamentUsers(app.db, request.params.name)).map(toUserDto),
+    async (request) =>
+      (await listTournamentUsers(app.db, request.params.name, request.user.id)).map(toUserDto),
   );
 
   app.get(
@@ -230,7 +230,8 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       },
     },
-    async (request) => (await listTournamentStats(app.db, request.params.name)).map(toStatsDto),
+    async (request) =>
+      (await listTournamentStats(app.db, request.params.name, request.user.id)).map(toStatsDto),
   );
 
   app.get(
@@ -251,9 +252,13 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) =>
-      (await listRivalries(app.db, { ...request.query, tournamentName: request.params.name })).map(
-        toRivalryStatsDto,
-      ),
+      (
+        await listRivalries(
+          app.db,
+          { ...request.query, tournamentName: request.params.name },
+          request.user.id,
+        )
+      ).map(toRivalryStatsDto),
   );
 
   app.get(
@@ -276,9 +281,14 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) =>
-      (await listTournamentGames(app.db, request.params.name, parsePage(request.query))).map(
-        toGameDto,
-      ),
+      (
+        await listTournamentGames(
+          app.db,
+          request.params.name,
+          parsePage(request.query),
+          request.user.id,
+        )
+      ).map(toGameDto),
   );
 
   app.post(

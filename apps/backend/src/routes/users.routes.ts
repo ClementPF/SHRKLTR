@@ -17,8 +17,8 @@ import {
 import { listTournamentsForUser } from '../services/tournament.service.js';
 import {
   findUserById,
-  findUserByUsername,
   listUsers,
+  requireVisibleUser,
   updateUserProfile,
 } from '../services/user.service.js';
 import { challengeUser } from '../services/challenge.service.js';
@@ -64,12 +64,15 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
     {
       schema: {
         tags: ['users'],
-        summary: 'List all users',
+        summary: 'List the users you can discover',
+        description:
+          'Every registered user, plus placeholders unless they only exist in groups you do not ' +
+          'belong to (you created them, share their group or they have open-tournament history).',
         security,
         response: { 200: z.array(userDtoSchema), 401: errorResponseSchema },
       },
     },
-    async () => (await listUsers(app.db)).map(toUserDto),
+    async (request) => (await listUsers(app.db, request.user.id)).map(toUserDto),
   );
 
   app.get(
@@ -119,11 +122,8 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
         response: { 200: userDtoSchema, 401: errorResponseSchema, 404: errorResponseSchema },
       },
     },
-    async (request) => {
-      const user = await findUserByUsername(app.db, request.params.username);
-      if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
-      return toUserDto(user);
-    },
+    async (request) =>
+      toUserDto(await requireVisibleUser(app.db, request.params.username, request.user.id)),
   );
 
   app.get(
@@ -132,7 +132,9 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         tags: ['users'],
         summary: 'Tournaments the user has played in',
-        description: 'Tournaments where the user has a stats row.',
+        description:
+          'Tournaments where the user has a stats row, limited to those you can see (open ' +
+          'tournaments and those of your groups).',
         security,
         params: usernameParamsSchema,
         response: {
@@ -143,9 +145,8 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     },
     async (request) => {
-      const user = await findUserByUsername(app.db, request.params.username);
-      if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
-      return (await listTournamentsForUser(app.db, user.id)).map(toTournamentDto);
+      const user = await requireVisibleUser(app.db, request.params.username, request.user.id);
+      return (await listTournamentsForUser(app.db, user.id, request.user.id)).map(toTournamentDto);
     },
   );
 
@@ -164,7 +165,8 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       },
     },
-    async (request) => (await listUserStats(app.db, request.params.username)).map(toStatsDto),
+    async (request) =>
+      (await listUserStats(app.db, request.params.username, request.user.id)).map(toStatsDto),
   );
 
   app.get(
@@ -186,10 +188,11 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request) =>
       (
-        await listRivalries(app.db, {
-          userName: request.params.username,
-          tournamentName: request.query.tournamentName,
-        })
+        await listRivalries(
+          app.db,
+          { userName: request.params.username, tournamentName: request.query.tournamentName },
+          request.user.id,
+        )
       ).map(toRivalryStatsDto),
   );
 
@@ -201,7 +204,8 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
         summary: 'Games the user played, newest first',
         description:
           'Paginated with zero-based page (default 0) and pageSize (default 20, max 100). ' +
-          'An unknown tournamentName filter returns 404.',
+          'Only games of tournaments you can see; an unknown or invisible tournamentName ' +
+          'filter returns 404.',
         security,
         params: usernameParamsSchema,
         querystring: userGamesQuerySchema,
@@ -220,6 +224,7 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
         request.params.username,
         { tournamentName },
         parsePage(page),
+        request.user.id,
       );
       return found.map(toGameDto);
     },

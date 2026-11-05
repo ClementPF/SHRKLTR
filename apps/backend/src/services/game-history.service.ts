@@ -5,8 +5,8 @@ import { games, groups, outcomes, sports, tournaments, users } from '../db/schem
 import { ApiError } from '../lib/errors.js';
 import type { PageWindow } from '../lib/pagination.js';
 import type { GameWithRelations } from './game.service.js';
-import { findTournamentByName } from './tournament.service.js';
-import { findUserByUsername } from './user.service.js';
+import { requireVisibleTournament } from './tournament.service.js';
+import { requireVisibleUser } from './user.service.js';
 import { openTournamentsFilter, visibleTournamentsFilter } from './visibility.service.js';
 
 const owners = alias(users, 'owner');
@@ -56,40 +56,39 @@ async function listGames(
   }));
 }
 
-function tournamentNotFound(): ApiError {
-  return ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
-}
-
-/** Games of a tournament, newest first. Unknown tournament → 404. */
+/** Games of a tournament, newest first. Unknown or invisible tournament → 404. */
 export async function listTournamentGames(
   db: Database,
   tournamentName: string,
   page: PageWindow,
+  viewerId: string,
 ): Promise<GameWithRelations[]> {
-  const found = await findTournamentByName(db, tournamentName);
-  if (!found) throw tournamentNotFound();
+  const found = await requireVisibleTournament(db, tournamentName, viewerId);
   return listGames(db, eq(games.tournamentId, found.tournament.id), page);
 }
 
-/** Games the user took part in, newest first, optionally within one tournament. */
+/**
+ * Games the user took part in within tournaments the viewer may read, newest first, optionally
+ * within one tournament (unknown or invisible → 404).
+ */
 export async function listUserGames(
   db: Database,
   username: string,
   filter: { tournamentName?: string | undefined },
   page: PageWindow,
+  viewerId: string,
 ): Promise<GameWithRelations[]> {
-  const user = await findUserByUsername(db, username);
-  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+  const user = await requireVisibleUser(db, username, viewerId);
 
   const conditions: SQL[] = [
     inArray(
       games.id,
       db.select({ id: outcomes.gameId }).from(outcomes).where(eq(outcomes.userId, user.id)),
     ),
+    visibleTournamentsFilter(viewerId),
   ];
   if (filter.tournamentName !== undefined) {
-    const found = await findTournamentByName(db, filter.tournamentName);
-    if (!found) throw tournamentNotFound();
+    const found = await requireVisibleTournament(db, filter.tournamentName, viewerId);
     conditions.push(eq(games.tournamentId, found.tournament.id));
   }
   return listGames(db, and(...conditions), page);

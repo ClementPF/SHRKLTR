@@ -3,9 +3,9 @@ import { alias } from 'drizzle-orm/pg-core';
 import type { Database } from '../db/client.js';
 import { groups, rivalryStats, sports, stats, tournaments, users } from '../db/schema.js';
 import { ApiError } from '../lib/errors.js';
-import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
-import { findUserByUsername } from './user.service.js';
-import { openTournamentsFilter } from './visibility.service.js';
+import { requireVisibleTournament, type TournamentWithRelations } from './tournament.service.js';
+import { requireVisibleUser } from './user.service.js';
+import { openTournamentsFilter, visibleTournamentsFilter } from './visibility.service.js';
 
 type StatsRow = typeof stats.$inferSelect;
 type RivalryRow = typeof rivalryStats.$inferSelect;
@@ -104,34 +104,29 @@ async function queryStats(
   }));
 }
 
-async function requireTournament(db: Database, name: string): Promise<TournamentWithRelations> {
-  const found = await findTournamentByName(db, name);
-  if (!found) throw ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
-  return found;
-}
-
-async function requireUser(db: Database, username: string): Promise<UserRow> {
-  const user = await findUserByUsername(db, username);
-  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
-  return user;
-}
-
 /** Tournament leaderboard: stats rows sorted by score, highest first. */
 export async function listTournamentStats(
   db: Database,
   tournamentName: string,
+  viewerId: string,
 ): Promise<StatsWithRelations[]> {
-  const { tournament } = await requireTournament(db, tournamentName);
+  const { tournament } = await requireVisibleTournament(db, tournamentName, viewerId);
   return queryStats(db, eq(stats.tournamentId, tournament.id), [
     desc(stats.score),
     asc(users.username),
   ]);
 }
 
-/** Every stats row of a user, one per tournament played, by tournament name. */
-export async function listUserStats(db: Database, username: string): Promise<StatsWithRelations[]> {
-  const user = await requireUser(db, username);
-  return queryStats(db, eq(stats.userId, user.id), [asc(tournaments.name)]);
+/** Stats rows of a user in tournaments the viewer may read, one per tournament, by name. */
+export async function listUserStats(
+  db: Database,
+  username: string,
+  viewerId: string,
+): Promise<StatsWithRelations[]> {
+  const user = await requireVisibleUser(db, username, viewerId);
+  return queryStats(db, and(eq(stats.userId, user.id), visibleTournamentsFilter(viewerId)), [
+    asc(tournaments.name),
+  ]);
 }
 
 /** A user's stats in open tournaments only, for anonymous previews. */
@@ -144,14 +139,18 @@ export async function listOpenUserStats(
   ]);
 }
 
-/** Stats of one user in one tournament; 404 when either is unknown or the user never played. */
+/**
+ * Stats of one user in one tournament; 404 when either is unknown or invisible to the viewer or
+ * the user never played.
+ */
 export async function getUserTournamentStats(
   db: Database,
   username: string,
   tournamentName: string,
+  viewerId: string,
 ): Promise<StatsWithRelations> {
-  const user = await requireUser(db, username);
-  const { tournament } = await requireTournament(db, tournamentName);
+  const user = await requireVisibleUser(db, username, viewerId);
+  const { tournament } = await requireVisibleTournament(db, tournamentName, viewerId);
   const [row] = await queryStats(
     db,
     and(eq(stats.userId, user.id), eq(stats.tournamentId, tournament.id)),
@@ -168,24 +167,25 @@ export interface RivalryFilter {
 }
 
 /**
- * Directional rivalries matching every given filter, best score first. Any named user or
- * tournament that does not exist → 404.
+ * Directional rivalries in tournaments the viewer may read, matching every given filter, best
+ * score first. Any named user or tournament that does not exist or is invisible → 404.
  */
 export async function listRivalries(
   db: Database,
   filter: RivalryFilter,
+  viewerId: string,
 ): Promise<RivalryWithRelations[]> {
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [visibleTournamentsFilter(viewerId)];
   if (filter.tournamentName !== undefined) {
-    const { tournament } = await requireTournament(db, filter.tournamentName);
+    const { tournament } = await requireVisibleTournament(db, filter.tournamentName, viewerId);
     conditions.push(eq(rivalryStats.tournamentId, tournament.id));
   }
   if (filter.userName !== undefined) {
-    const user = await requireUser(db, filter.userName);
+    const user = await requireVisibleUser(db, filter.userName, viewerId);
     conditions.push(eq(rivalryStats.userId, user.id));
   }
   if (filter.rivalName !== undefined) {
-    const rival = await requireUser(db, filter.rivalName);
+    const rival = await requireVisibleUser(db, filter.rivalName, viewerId);
     conditions.push(eq(rivalryStats.rivalId, rival.id));
   }
   return queryRivalries(db, and(...conditions));
@@ -195,8 +195,9 @@ export async function listRivalries(
 export async function getRivalry(
   db: Database,
   filter: Required<RivalryFilter>,
+  viewerId: string,
 ): Promise<RivalryWithRelations> {
-  const [row] = await listRivalries(db, filter);
+  const [row] = await listRivalries(db, filter, viewerId);
   if (!row) throw ApiError.notFound('Rivalry not found', 'RIVALRY_NOT_FOUND');
   return row;
 }

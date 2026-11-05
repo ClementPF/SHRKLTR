@@ -4,6 +4,7 @@ import { games, groups, sports, stats, tournaments, users } from '../db/schema.j
 import { ApiError } from '../lib/errors.js';
 import { isUniqueViolation } from '../lib/db-errors.js';
 import { findMemberRole, lockGroupAsManager, lockGroups, MANAGER_ROLES } from './group.service.js';
+import { visibleTournamentsFilter } from './visibility.service.js';
 
 type TournamentRow = typeof tournaments.$inferSelect;
 type SportRow = typeof sports.$inferSelect;
@@ -50,8 +51,25 @@ export async function findTournamentByName(
   return row;
 }
 
-async function requireTournament(db: Database, name: string): Promise<TournamentWithRelations> {
-  const found = await findTournamentByName(db, name);
+/** The tournament if the viewer may read it; grouped tournaments need current membership. */
+export async function findVisibleTournamentByName(
+  db: Pick<Database, 'select'>,
+  name: string,
+  viewerId: string,
+): Promise<TournamentWithRelations | undefined> {
+  const [row] = await selectWithRelations(db)
+    .where(and(eq(tournaments.name, name), visibleTournamentsFilter(viewerId)))
+    .limit(1);
+  return row;
+}
+
+/** Unknown tournaments and tournaments the viewer may not read are both 404. */
+export async function requireVisibleTournament(
+  db: Pick<Database, 'select'>,
+  name: string,
+  viewerId: string,
+): Promise<TournamentWithRelations> {
+  const found = await findVisibleTournamentByName(db, name, viewerId);
   if (!found) throw notFound();
   return found;
 }
@@ -90,12 +108,16 @@ async function requireManageableTournament(
   return found;
 }
 
-/** All tournaments (optionally of one sport), most played first. Unknown sport → 404. */
+/**
+ * Tournaments the viewer may read (optionally of one sport), most played first. Unknown sport →
+ * 404.
+ */
 export async function listTournaments(
   db: Database,
+  viewerId: string,
   filter: { sportName?: string | undefined } = {},
 ): Promise<TournamentWithRelations[]> {
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [visibleTournamentsFilter(viewerId)];
   if (filter.sportName) {
     const [sport] = await db
       .select({ id: sports.id })
@@ -118,20 +140,25 @@ export async function listTournaments(
     .orderBy(desc(sql`coalesce(${gameCounts.gameCount}, 0)`), asc(tournaments.name));
 }
 
-/** Tournaments in which the user has a stats row (i.e. has played). */
+/** Tournaments the viewer may read in which the user has a stats row (i.e. has played). */
 export async function listTournamentsForUser(
   db: Database,
   userId: string,
+  viewerId: string,
 ): Promise<TournamentWithRelations[]> {
   return selectWithRelations(db)
     .innerJoin(stats, eq(stats.tournamentId, tournaments.id))
-    .where(eq(stats.userId, userId))
+    .where(and(eq(stats.userId, userId), visibleTournamentsFilter(viewerId)))
     .orderBy(asc(tournaments.name));
 }
 
-/** Users having a stats row in the tournament. Unknown tournament → 404. */
-export async function listTournamentUsers(db: Database, name: string): Promise<UserRow[]> {
-  const { tournament } = await requireTournament(db, name);
+/** Users having a stats row in the tournament. Unknown or invisible tournament → 404. */
+export async function listTournamentUsers(
+  db: Database,
+  name: string,
+  viewerId: string,
+): Promise<UserRow[]> {
+  const { tournament } = await requireVisibleTournament(db, name, viewerId);
   const rows = await db
     .select({ user: users })
     .from(stats)
