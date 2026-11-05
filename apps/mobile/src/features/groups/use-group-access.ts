@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 import { evictGroupData, evictTournamentData, isGroupMissing, useGroup } from './queries';
 
@@ -29,7 +29,11 @@ export function useEvictWhenDenied(
   groupId?: string | null,
 ) {
   const queryClient = useQueryClient();
+  // The eviction clears the refused query's data, which may be where the tournament came from:
+  // evicting again for the now-unknown tournament would only refetch app-wide lists once more.
+  const evicted = useRef(false);
   useEffect(() => {
-    if (denied) evictTournamentData(queryClient, tournamentName, groupId);
+    if (denied && !evicted.current) evictTournamentData(queryClient, tournamentName, groupId);
+    evicted.current = denied;
   }, [denied, queryClient, tournamentName, groupId]);
 }

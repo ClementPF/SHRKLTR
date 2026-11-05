@@ -164,7 +164,7 @@ describe('GameRow', () => {
   });
 
   it('shows a notice when the two players have no rivalry yet', async () => {
-    api.getRivalry.mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'nope'));
+    api.getRivalry.mockRejectedValue(new ApiError(404, 'RIVALRY_NOT_FOUND', 'Rivalry not found'));
     await renderWithClient(<GameRow game={game} />);
     await fireEvent.press(screen.getByTestId('game-row-g1'));
     expect(

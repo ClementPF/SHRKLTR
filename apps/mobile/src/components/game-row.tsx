@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Game } from '@/api/types';
+import { isNotFound } from '@/features/groups/queries';
+import { useEvictWhenDenied } from '@/features/groups/use-group-access';
 import { useRivalry } from '@/features/users/queries';
 import { formatPoints, fromNow } from '@/lib/format';
 import { isPlaceholder } from '@/lib/users';
@@ -19,7 +21,8 @@ function LiveRivalry({
   rivalName: string;
   tournamentName: string;
 }) {
-  const { data, isPending, isError } = useRivalry(username, rivalName, tournamentName, true);
+  const { data, isPending, isError, error } = useRivalry(username, rivalName, tournamentName, true);
+  useEvictWhenDenied(isNotFound(error), tournamentName);
   if (isPending) return <ActivityIndicator color={Colors.text} />;
   if (isError) return <Text style={styles.notice}>Failed to load the rivalry.</Text>;
   if (!data) {

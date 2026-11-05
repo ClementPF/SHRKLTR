@@ -115,7 +115,10 @@ export function useUserGames(
   });
 }
 
-/** Directional rivalry, or null when the two players never met in that tournament. */
+/**
+ * Directional rivalry, or null when the two players never met in that tournament. Any other 404
+ * means the tournament or a player is out of reach.
+ */
 export function useRivalry(
   username: string,
   rivalName: string,
@@ -128,11 +131,13 @@ export function useRivalry(
       try {
         return await getRivalry(username, rivalName, tournamentName);
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null;
+        if (err instanceof ApiError && err.code === 'RIVALRY_NOT_FOUND') return null;
         throw err;
       }
     },
     enabled,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 404) && failureCount < 1,
     // Expanding a row should always show the live rivalry, not a cached snapshot.
     staleTime: 0,
   });
