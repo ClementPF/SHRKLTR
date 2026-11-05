@@ -14,7 +14,13 @@ import { displayName } from '@/lib/users';
 import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
 
 import { GroupLoadFailed, GroupNotFound } from './group-parts';
-import { canManage, useCreateGroupInvite, useGroupInvites, useRevokeGroupInvite } from './queries';
+import {
+  canManage,
+  useCreateGroupInvite,
+  useGroup,
+  useGroupInvites,
+  useRevokeGroupInvite,
+} from './queries';
 import { useGroupAccess } from './use-group-access';
 
 export const INVITE_MANAGERS_ONLY_TEXT = 'Only the group owner and admins can invite people.';
@@ -121,8 +127,15 @@ function InviteRow({
   );
 }
 
-function InviteManager({ id, groupName }: { id: string; groupName: string }) {
-  const invites = useGroupInvites(id, true);
+function InviteManager({
+  id,
+  groupName,
+  invites,
+}: {
+  id: string;
+  groupName: string;
+  invites: ReturnType<typeof useGroupInvites>;
+}) {
   const create = useCreateGroupInvite(id);
   const revoke = useRevokeGroupInvite(id);
   const [expiry, setExpiry] = useState<Expiry>('default');
@@ -218,7 +231,9 @@ function InviteManager({ id, groupName }: { id: string; groupName: string }) {
 
 /** Invite management for owners and admins; members only see that they can't invite. */
 export function GroupInviteScreen({ id }: { id: string }) {
-  const { group, missing } = useGroupAccess(id);
+  // A denied invite list means access was lost even while the cached summary is still fresh.
+  const invites = useGroupInvites(id, canManage(useGroup(id).data?.role));
+  const { group, missing } = useGroupAccess(id, invites);
   if (missing) return <GroupNotFound />;
   if (group.isPending) return <CenteredLoading />;
   if (!group.data) return <GroupLoadFailed onRetry={() => void group.refetch()} />;
@@ -231,7 +246,7 @@ export function GroupInviteScreen({ id }: { id: string }) {
       </View>
     );
   }
-  return <InviteManager id={id} groupName={group.data.name} />;
+  return <InviteManager id={id} groupName={group.data.name} invites={invites} />;
 }
 
 const styles = StyleSheet.create({

@@ -1,25 +1,38 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import type { ReactElement } from 'react';
 import { View } from 'react-native';
 
 import * as endpoints from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
-import type { Game, RivalryStats, Stats, Tournament, User } from '@/api/types';
+import type { Game, Group, GroupMember, RivalryStats, Stats, Tournament, User } from '@/api/types';
 import { ProfileScreen } from '@/features/feed/profile-screen';
+import { AddPlayers } from '@/features/game-form/add-players';
+import { useGameFormStore } from '@/features/game-form/store';
 import { GAME_NOT_FOUND_TEXT, GameDetailScreen } from '@/features/games/game-detail-screen';
+import { GROUP_NOT_FOUND_TEXT } from '@/features/groups/group-parts';
+import { GroupInviteScreen, INVITE_MANAGERS_ONLY_TEXT } from '@/features/groups/invite-screen';
 import { groupKeys } from '@/features/groups/queries';
 import {
   TOURNAMENT_NOT_FOUND_TEXT,
   TournamentScreen,
 } from '@/features/tournaments/tournament-screen';
 import { tournamentKeys } from '@/features/tournaments/queries';
+import { statsKeys, userKeys } from '@/features/users/queries';
 
 jest.mock('@/api/endpoints');
 jest.mock('expo-router', () => ({ router: { push: jest.fn(), navigate: jest.fn() } }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
+jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => true) }));
+jest.mock('react-native-qrcode-svg', () => {
+  const { Text } = jest.requireActual<typeof import('react-native')>('react-native');
+  return {
+    __esModule: true,
+    default: ({ value }: { value: string }) => <Text testID="qr-svg">{value}</Text>,
+  };
+});
 
 const api = jest.mocked(endpoints);
 
@@ -240,3 +253,180 @@ describe('losing access to a private tournament', () => {
     expect(Math.max(...settled)).toBeLessThanOrEqual(4);
   });
 });
+
+describe('losing access through a group subquery', () => {
+  const groupNotFound = () => new ApiError(404, 'GROUP_NOT_FOUND', 'Group not found');
+  const roleRequired = () =>
+    new ApiError(403, 'GROUP_ROLE_REQUIRED', 'Only owners and admins can do this');
+
+  const summary = (role: Group['role']): Group => ({
+    id: GROUP_ID,
+    name: 'Shark Tank',
+    role,
+    memberCount: 3,
+    createdAt: '2026-11-01T00:00:00.000Z',
+  });
+  const members: GroupMember[] = ['dev-alex', 'dev-sam', 'dev-jordan'].map((username) => ({
+    user: user(username),
+    role: username === 'dev-alex' ? 'OWNER' : 'MEMBER',
+    joinedAt: '2026-11-01T00:00:00.000Z',
+  }));
+
+  const feedKey = userKeys.games('dev-sam', undefined, 20);
+  const scopedStatsKey = statsKeys.tournament('dev-sam', cup.name);
+
+  /** Matches the app's 30 s freshness: the cached group summary is not refetched meanwhile. */
+  function useAppFreshness() {
+    client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false, gcTime: Infinity, staleTime: 30_000 },
+        mutations: { gcTime: Infinity },
+      },
+    });
+  }
+
+  /** Private data cached while the viewer was still a member, held by no mounted screen. */
+  function cacheInactivePrivateData() {
+    client.setQueryData(groupKeys.tournaments(GROUP_ID), [cup]);
+    client.setQueryData(feedKey, { pages: [[privateGame]], pageParams: [0] });
+    client.setQueryData(scopedStatsKey, stat('dev-sam', 1016));
+  }
+
+  function expectInactivePrivateDataEvicted() {
+    return waitFor(() => {
+      expect(client.getQueryData(feedKey)).toBeUndefined();
+      expect(client.getQueryData(scopedStatsKey)).toBeUndefined();
+      expect(client.getQueryData(groupKeys.tournaments(GROUP_ID))).toBeUndefined();
+    });
+  }
+
+  /** Game -> its tournament -> grouped game entry for that tournament, all kept mounted. */
+  async function openGroupedGameEntry() {
+    useGameFormStore.setState({
+      owner: 'dev-sam',
+      tournament: cup,
+      outcomes: [{ username: 'dev-sam', result: 'WIN' }],
+    });
+    await renderWithClient(
+      <View>
+        <GameDetailScreen id={privateGame.id} viewer="dev-sam" />
+        <TournamentScreen name={cup.name} viewer="dev-sam" />
+        <AddPlayers ownerId="id-dev-sam" />
+      </View>,
+    );
+    expect(await screen.findByTestId('game-detail-g-private')).toBeTruthy();
+    expect(await screen.findByText('RANKING')).toBeTruthy();
+  }
+
+  async function expectGroupedGameEntryDenied() {
+    expect(await screen.findByTestId('player-search-denied')).toHaveTextContent(
+      TOURNAMENT_NOT_FOUND_TEXT,
+    );
+    expect(screen.queryByText(/Couldn't load players/)).toBeNull();
+    // Mounted screens further back stop showing their cached private results.
+    expect(await screen.findByText(GAME_NOT_FOUND_TEXT)).toBeTruthy();
+    expect(screen.queryByTestId('game-detail-g-private')).toBeNull();
+    expect(screen.queryByText('RANKING')).toBeNull();
+    await expectInactivePrivateDataEvicted();
+  }
+
+  beforeEach(() => {
+    useAppFreshness();
+    api.getGroup.mockResolvedValue(summary('ADMIN'));
+  });
+
+  it('evicts private data and shows not-found when the member list is denied in game entry', async () => {
+    cacheInactivePrivateData();
+    await openGroupedGameEntry();
+
+    loseMembership();
+    api.listGroupMembers.mockRejectedValue(groupNotFound());
+    api.listGroupPlayers.mockRejectedValue(groupNotFound());
+    await fireEvent.changeText(screen.getByLabelText('Find a player'), 'dev');
+
+    await expectGroupedGameEntryDenied();
+    // The refused list is not refetched by its own eviction.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 100)));
+    expect(api.listGroupMembers).toHaveBeenCalledTimes(1);
+  });
+
+  it('evicts private data and shows not-found when the group roster is denied in game entry', async () => {
+    cacheInactivePrivateData();
+    await openGroupedGameEntry();
+
+    loseMembership();
+    api.listGroupMembers.mockResolvedValue(members);
+    api.listGroupPlayers.mockRejectedValue(groupNotFound());
+    await fireEvent.changeText(screen.getByLabelText('Find a player'), 'dev');
+
+    await expectGroupedGameEntryDenied();
+    expect(screen.queryByLabelText('Add dev-jordan')).toBeNull();
+  });
+
+  it('evicts private data and shows not-found when the invite list is denied', async () => {
+    cacheInactivePrivateData();
+    // The summary still says admin: it was cached moments before the removal.
+    client.setQueryData(groupKeys.detail(GROUP_ID), summary('ADMIN'));
+    api.getGroup.mockRejectedValue(groupNotFound());
+    loseMembershipAfterFirstGameLoad();
+    api.listGroupInvites.mockRejectedValue(groupNotFound());
+
+    await renderWithClient(
+      <View>
+        <GameDetailScreen id={privateGame.id} viewer="dev-sam" />
+        <GroupInviteScreen id={GROUP_ID} />
+      </View>,
+    );
+
+    expect(await screen.findByText(GROUP_NOT_FOUND_TEXT)).toBeTruthy();
+    expect(screen.queryByText(/Couldn't load the invites/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Create invite' })).toBeNull();
+    expect(await screen.findByText(GAME_NOT_FOUND_TEXT)).toBeTruthy();
+    expect(screen.queryByTestId('game-detail-g-private')).toBeNull();
+    await expectInactivePrivateDataEvicted();
+  });
+
+  it('keeps private data when an admin-only invite read is refused for the role', async () => {
+    cacheInactivePrivateData();
+    client.setQueryData(groupKeys.detail(GROUP_ID), summary('ADMIN'));
+    api.listGroupInvites.mockRejectedValue(roleRequired());
+
+    await renderWithClient(
+      <View>
+        <GameDetailScreen id={privateGame.id} viewer="dev-sam" />
+        <GroupInviteScreen id={GROUP_ID} />
+      </View>,
+    );
+
+    // Non-404 failures are retried once, after the default one second delay.
+    expect(
+      await screen.findByText(/Couldn't load the invites/, {}, { timeout: 3000 }),
+    ).toBeTruthy();
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(screen.queryByText(GROUP_NOT_FOUND_TEXT)).toBeNull();
+    expect(screen.getByTestId('game-detail-g-private')).toBeTruthy();
+    expect(api.getGame).toHaveBeenCalledTimes(1);
+    expect(client.getQueryData(feedKey)).toBeDefined();
+    expect(client.getQueryData(scopedStatsKey)).toBeDefined();
+    expect(client.getQueryData(groupKeys.tournaments(GROUP_ID))).toEqual([cup]);
+  });
+
+  it('still shows members the managers-only text without evicting anything', async () => {
+    cacheInactivePrivateData();
+    api.getGroup.mockResolvedValue(summary('MEMBER'));
+
+    await renderWithClient(<GroupInviteScreen id={GROUP_ID} />);
+
+    expect(await screen.findByText(INVITE_MANAGERS_ONLY_TEXT)).toBeTruthy();
+    expect(api.listGroupInvites).not.toHaveBeenCalled();
+    expect(screen.queryByText(GROUP_NOT_FOUND_TEXT)).toBeNull();
+    expect(client.getQueryData(feedKey)).toBeDefined();
+    expect(client.getQueryData(groupKeys.tournaments(GROUP_ID))).toEqual([cup]);
+  });
+});
+
+/** The first game load still succeeds; every later private read is refused. */
+function loseMembershipAfterFirstGameLoad() {
+  loseMembership();
+  api.getGame.mockResolvedValueOnce(privateGame).mockRejectedValue(gameNotFound());
+}

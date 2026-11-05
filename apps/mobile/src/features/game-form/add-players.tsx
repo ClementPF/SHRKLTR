@@ -5,8 +5,10 @@ import type { User } from '@/api/types';
 import { Button } from '@/components/button';
 import { showAlert } from '@/components/dropdown-alert';
 import { UnclaimedBadge } from '@/components/unclaimed-badge';
-import { useGroupMembers, useGroupPlayers } from '@/features/groups/queries';
+import { isGroupMissing, useGroupMembers, useGroupPlayers } from '@/features/groups/queries';
+import { useEvictWhenDenied } from '@/features/groups/use-group-access';
 import { useCreatePlaceholder } from '@/features/invites/queries';
+import { TOURNAMENT_NOT_FOUND_TEXT } from '@/features/tournaments/tournament-screen';
 import { flattenPages, useUsers } from '@/features/users/queries';
 import type { QrResult } from '@/lib/qr';
 import { displayName, isPlaceholder } from '@/lib/users';
@@ -64,9 +66,14 @@ function matches(user: User, query: string): boolean {
 
 /**
  * Who can play in the draft's tournament: everyone for an open tournament; for a group's
- * tournament only its members and its unclaimed players.
+ * tournament only its members and its unclaimed players. `denied` means the group refused its
+ * member or roster list: the account lost access, so the tournament's private data is evicted.
  */
-function useCandidates(groupId: string | undefined, enabled: boolean) {
+function useCandidates(
+  groupId: string | undefined,
+  tournamentName: string | undefined,
+  enabled: boolean,
+) {
   const users = useUsers(enabled && !groupId);
   const members = useGroupMembers(groupId ?? '', enabled && !!groupId);
   const players = useGroupPlayers(groupId ?? '', enabled && !!groupId);
@@ -76,7 +83,12 @@ function useCandidates(groupId: string | undefined, enabled: boolean) {
   useEffect(() => {
     if (loadMore) void fetchNextPage();
   }, [loadMore, fetchNextPage]);
-  if (!groupId) return users;
+  const denied = !!groupId && (isGroupMissing(members.error) || isGroupMissing(players.error));
+  useEvictWhenDenied(denied, tournamentName, groupId);
+  if (!groupId) {
+    const { data, isPending, isSuccess, isError, error } = users;
+    return { data, isPending, isSuccess, isError, error, denied };
+  }
   const error = members.error ?? players.error;
   const allMembers = members.isSuccess && !hasNextPage;
   return {
@@ -88,14 +100,23 @@ function useCandidates(groupId: string | undefined, enabled: boolean) {
     isSuccess: allMembers && players.isSuccess,
     isError: !!error,
     error,
+    denied,
   };
 }
 
-function PlayerPicker({ side, groupId }: { side: QrResult; groupId: string | undefined }) {
+function PlayerPicker({
+  side,
+  groupId,
+  tournamentName,
+}: {
+  side: QrResult;
+  groupId: string | undefined;
+  tournamentName: string | undefined;
+}) {
   const [query, setQuery] = useState('');
   const outcomes = useGameFormStore((s) => s.outcomes);
   const search = query.trim();
-  const users = useCandidates(groupId, search.length > 0);
+  const users = useCandidates(groupId, tournamentName, search.length > 0);
   const taken = new Set(outcomes.map((o) => o.username));
   const found = (users.data ?? [])
     .filter((u) => !taken.has(u.username) && matches(u, search))
@@ -122,7 +143,12 @@ function PlayerPicker({ side, groupId }: { side: QrResult; groupId: string | und
         style={styles.input}
       />
       {search.length > 0 && users.isPending && <Text style={styles.caption}>Searching…</Text>}
-      {search.length > 0 && users.isError && (
+      {search.length > 0 && users.denied && (
+        <Text style={styles.caption} accessibilityRole="alert" testID="player-search-denied">
+          {TOURNAMENT_NOT_FOUND_TEXT}
+        </Text>
+      )}
+      {search.length > 0 && users.isError && !users.denied && (
         <Text style={styles.caption}>Couldn't load players: {users.error?.message}</Text>
       )}
       {search.length > 0 && users.isSuccess && found.length === 0 && (
@@ -229,6 +255,7 @@ function AddByName({
 /** Adds players to the draft without scanning: an existing player, or a new one by name. */
 export function AddPlayers({ ownerId }: { ownerId: string | undefined }) {
   const [side, setSide] = useState<QrResult>('WIN');
+  const tournamentName = useGameFormStore((s) => s.tournament?.name);
   const group = useGameFormStore((s) => s.tournament?.group ?? null);
   const groupId = group?.id;
   return (
@@ -241,7 +268,12 @@ export function AddPlayers({ ownerId }: { ownerId: string | undefined }) {
         </Text>
       )}
       <SideChoice side={side} onChange={setSide} />
-      <PlayerPicker key={`picker-${groupId ?? 'open'}`} side={side} groupId={groupId} />
+      <PlayerPicker
+        key={`picker-${groupId ?? 'open'}`}
+        side={side}
+        groupId={groupId}
+        tournamentName={tournamentName}
+      />
       <AddByName
         key={`name-${groupId ?? 'open'}`}
         side={side}
