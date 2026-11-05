@@ -8,13 +8,18 @@ through a Cloudflare Tunnel. `docker-compose.prod.yml` starts four containers:
 | `db`          | Postgres 17, data in the `sharkulator_prod_pgdata` volume | compose network only     |
 | `api`         | `Dockerfile` `prod` target, `APP_ENV=production`          | `https://<API_HOSTNAME>` |
 | `web`         | Static Expo web export served by nginx (`docker/web/`)    | `https://<APP_HOSTNAME>` |
-| `cloudflared` | Cloudflare Tunnel connector, authenticated by a token     | outbound connection only |
+| `cloudflared` | Optional Cloudflare Tunnel connector (`tunnel` profile)   | outbound connection only |
 
-No port is published on the host: Cloudflare forwards traffic through the tunnel to `api` and
-`web` over the compose network. The api applies database migrations on boot, and
+With the bundled tunnel no port is published on the host: Cloudflare forwards traffic to `api`
+and `web` over the compose network. If a reverse proxy and tunnel already run on another
+machine, publish `api` and `web` on the local network instead (option B below). The api applies database migrations on boot, and
 `/auth/dev-token` does not exist in production, so users sign in with Google.
 
 ## 1. Cloudflare Tunnel
+
+Pick the option that matches your network.
+
+### Option A: tunnel in this stack (one machine)
 
 1. In the Cloudflare dashboard, open **Zero Trust → Networks → Tunnels** and create a tunnel of
    type **Cloudflared** (for example `sharkulator`). Use a dedicated tunnel: your other tunnels'
@@ -28,7 +33,44 @@ No port is published on the host: Cloudflare forwards traffic through the tunnel
    | `app.<your-domain>` | HTTP         | `web:80`   |
    | `api.<your-domain>` | HTTP         | `api:3100` |
 
-Cloudflare terminates HTTPS, so both hostnames are served over `https://`.
+### Option B: existing tunnel and reverse proxy on another machine
+
+`docker-compose.lan.yml` publishes the api on port `3100` and the web app on port `8080` of the
+server, and the `cloudflared` service stays off. Leave `CLOUDFLARE_TUNNEL_TOKEN` empty. If either
+port is taken, set `API_PORT` / `WEB_PORT` in `.env.production` and use those in the proxy.
+
+1. On the proxy machine, route both hostnames to the server (`<server-ip>` below). With nginx:
+
+   ```nginx
+   server {
+     listen 80;
+     server_name app.<your-domain>;
+     location / {
+       proxy_pass http://<server-ip>:8080;
+       proxy_set_header Host $host;
+     }
+   }
+   server {
+     listen 80;
+     server_name api.<your-domain>;
+     location / {
+       proxy_pass http://<server-ip>:3100;
+       proxy_set_header Host $host;
+     }
+   }
+   ```
+
+2. In your existing tunnel, add `app.<your-domain>` and `api.<your-domain>` as public hostnames
+   pointing at the proxy (the same service URL your other hostnames use, for example
+   `http://localhost:80`).
+3. Reserve both machines' IP addresses in your router so the proxy keeps reaching the server.
+
+Ports 3100 and 8080 are open to the whole local network; restrict them to the proxy's address in
+the server's firewall if that matters.
+
+Either way, Cloudflare terminates HTTPS, so both hostnames are served over `https://`. Cloudflare's
+free certificate only covers one subdomain level (`*.<your-domain>`): use names like
+`app.<your-domain>`, not `app.sub.<your-domain>`, which fail the TLS handshake.
 
 ## 2. Google OAuth client
 
@@ -47,8 +89,8 @@ cp .env.production.example .env.production
 for k in POSTGRES_PASSWORD JWT_ACCESS_SECRET JWT_REFRESH_SECRET DEV_AUTH_SECRET; do sed -i '' "s|^$k=.*|$k=$(openssl rand -hex 32)|" .env.production; done
 ```
 
-Then edit `.env.production` and set `APP_HOSTNAME`, `API_HOSTNAME`, `CLOUDFLARE_TUNNEL_TOKEN` and
-`GOOGLE_CLIENT_SECRET`. The file is gitignored; never commit it. Use the production secrets only
+Then edit `.env.production` and set `APP_HOSTNAME`, `API_HOSTNAME`, `GOOGLE_CLIENT_SECRET` and,
+for option A, `CLOUDFLARE_TUNNEL_TOKEN`. The file is gitignored; never commit it. Use the production secrets only
 here, not the ones from your development `.env`.
 
 The compose file derives the rest from these values: the api allows CORS and Google redirects
@@ -57,15 +99,29 @@ with dev sign-in removed.
 
 ## 4. Start
 
+Option A (tunnel in this stack):
+
 ```sh
-npm run prod -- up -d --build
+npm run prod -- --profile tunnel up -d --build
+```
+
+Option B (reverse proxy on another machine):
+
+```sh
+npm run prod:lan -- up -d --build
+curl http://localhost:3100/health   # also from the proxy machine: http://<server-ip>:3100/health
+```
+
+Then check:
+
+```sh
 npm run prod -- ps          # api, db and web should become healthy
 curl https://api.<your-domain>/health
 ```
 
-`npm run prod --` wraps `docker compose -f docker-compose.prod.yml --env-file .env.production`, so
-any compose command works: `npm run prod -- logs -f api`, `npm run prod -- down`.
-
+`npm run prod --` wraps `docker compose -f docker-compose.prod.yml --env-file .env.production`
+(`prod:lan` adds `-f docker-compose.lan.yml`), so any compose command works:
+`npm run prod -- logs -f api`, `npm run prod -- down`.
 Open `https://app.<your-domain>` and sign in with Google. On a phone, open the same URL in
 Safari and use **Share → Add to Home Screen**. Expo Go cannot sign in against this server:
 Google rejects its `exp://` redirect and dev sign-in is disabled in production.
@@ -74,7 +130,7 @@ Google rejects its `exp://` redirect and dev sign-in is disabled in production.
 
 ```sh
 git pull
-npm run prod -- up -d --build
+npm run prod -- --profile tunnel up -d --build   # option B: npm run prod:lan -- up -d --build
 ```
 
 The web image inlines `APP_HOSTNAME`/`API_HOSTNAME`/`GOOGLE_CLIENT_ID` at build time, so rebuild
