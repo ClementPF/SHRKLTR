@@ -3,7 +3,11 @@ import { count, eq } from 'drizzle-orm';
 import { decodeJwt } from 'jose';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { refreshTokens, users } from '../src/db/schema.js';
-import { deriveUsernameBase, pickAvailableUsername } from '../src/services/user.service.js';
+import {
+  deriveUsernameBase,
+  pickAvailableUsername,
+  RESERVED_USERNAMES,
+} from '../src/services/user.service.js';
 import { startTestGoogleJwks, type TestGoogleJwks } from './google-jwks.js';
 import { buildTestApp, createUser, truncateAll } from './helpers.js';
 
@@ -220,5 +224,11 @@ describe('username derivation', () => {
     expect(pickAvailableUsername('sam', new Set())).toBe('sam');
     expect(pickAvailableUsername('sam', new Set(['sam']))).toBe('sam-1');
     expect(pickAvailableUsername('sam', new Set(['sam', 'sam-1', 'sam-2']))).toBe('sam-3');
+  });
+
+  it('skips reserved route segments and falls back to suffixing', () => {
+    expect(RESERVED_USERNAMES.has('me')).toBe(true);
+    expect(pickAvailableUsername('me', new Set())).toBe('me-1');
+    expect(pickAvailableUsername('me', new Set(['me-1']))).toBe('me-2');
   });
 });

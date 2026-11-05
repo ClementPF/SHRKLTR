@@ -155,6 +155,23 @@ describe('placeholder players and claim links', () => {
       expect(again.json().user.username).toBe('riley-guest-1');
     });
 
+    it('never allocates a username that a static /users/* route shadows', async () => {
+      const first = await create('Me');
+      expect(first.statusCode).toBe(201);
+      const placeholder = first.json<{ user: { id: string; username: string } }>().user;
+      expect(placeholder.username).toBe('me-1');
+      const second = await create('ME');
+      expect(second.json().user.username).toBe('me-2');
+
+      const profile = await app.inject({
+        method: 'GET',
+        url: `/users/${placeholder.username}`,
+        headers: await authHeadersFor(app, creator.id),
+      });
+      expect(profile.statusCode).toBe(200);
+      expect(profile.json()).toMatchObject({ id: placeholder.id, accountType: 'PLACEHOLDER' });
+    });
+
     it('validates the body and requires authentication', async () => {
       expect((await create('   ')).statusCode).toBe(400);
       const anon = await app.inject({

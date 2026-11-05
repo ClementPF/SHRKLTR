@@ -8,6 +8,12 @@ type UserRow = typeof users.$inferSelect;
 const FALLBACK_USERNAME = 'player';
 
 /**
+ * Static segments registered next to /users/:username (e.g. /users/me). A user holding one of
+ * these names would be unreachable by username because the static route always wins.
+ */
+export const RESERVED_USERNAMES: ReadonlySet<string> = new Set(['me']);
+
+/**
  * Display name → username base: accents stripped (NFD), lowercased, whitespace runs → '-'.
  * Characters other than letters, digits, '.', '_' and '-' are dropped because usernames are
  * used as URL path segments.
@@ -25,12 +31,13 @@ export function deriveUsernameBase(displayName: string): string {
   return base === '' ? FALLBACK_USERNAME : base;
 }
 
-/** First free name in base, base-1, base-2, ... given the names already taken. */
+/** First free, non-reserved name in base, base-1, base-2, ... given the names already taken. */
 export function pickAvailableUsername(base: string, taken: ReadonlySet<string>): string {
-  if (!taken.has(base)) return base;
+  const isFree = (name: string) => !taken.has(name) && !RESERVED_USERNAMES.has(name);
+  if (isFree(base)) return base;
   for (let i = 1; ; i++) {
     const candidate = `${base}-${i}`;
-    if (!taken.has(candidate)) return candidate;
+    if (isFree(candidate)) return candidate;
   }
 }
 

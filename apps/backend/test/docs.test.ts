@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from '@fastify/type-provider-zod';
 import { z } from 'zod';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { RESERVED_USERNAMES } from '../src/services/user.service.js';
 import { buildTestApp } from './helpers.js';
 
 describe('API docs', () => {
@@ -55,6 +56,16 @@ describe('API docs', () => {
     expect(bodySchema.required).toEqual(['size']);
     expect(widget.responses['201']).toBeDefined();
     expect(Object.keys(doc.paths).some((p) => p.startsWith('/docs'))).toBe(false);
+  });
+
+  it('reserves every static segment that shadows /users/{username}', async () => {
+    const doc = (await app.inject({ method: 'GET', url: '/docs/json' })).json();
+    const staticSegments = Object.keys(doc.paths)
+      .map((p) => p.split('/'))
+      .filter((parts) => parts[1] === 'users' && parts[2] && !parts[2].startsWith('{'))
+      .map((parts) => parts[2] as string);
+    expect(staticSegments).toContain('me');
+    for (const segment of staticSegments) expect(RESERVED_USERNAMES.has(segment)).toBe(true);
   });
 
   it('documents every route group with zod-derived schemas', async () => {
