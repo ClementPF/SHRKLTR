@@ -122,8 +122,9 @@ export function LoginScreen({
   devSignInEnabled = isDevSessionEnabled(),
   ordinarySignIn = false,
 }: LoginScreenProps) {
-  const { pending, discard } = usePendingClaim(!ordinarySignIn);
-  const google = useClaimSignIn(pending);
+  const pendingClaim = usePendingClaim(!ordinarySignIn);
+  const { pending, discard } = pendingClaim;
+  const google = useClaimSignIn(pendingClaim);
   const googleTitle = pending ? 'Claim with Google' : 'Continue with Google';
 
   return (

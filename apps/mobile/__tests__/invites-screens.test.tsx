@@ -337,8 +337,34 @@ describe('AppInviteScreen', () => {
     await fireEvent.press(await screen.findByLabelText('Copy link'));
     expect(await screen.findByText(COPY_FAILED_TEXT)).toBeTruthy();
   });
-});
 
+  it('never claims success on web when the browser refuses both clipboard paths', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    const execCommand = jest.fn(() => false);
+    const restore = stubBrowserClipboard({
+      writeText: async () => {
+        throw new Error('NotAllowedError');
+      },
+      execCommand,
+    });
+    try {
+      api.issueAppInvite.mockResolvedValue({ url: 'http://localhost:8081/invite/app/first' });
+      await renderWithClient(<AppInviteScreen ownerId={ALEX} />);
+      await waitFor(() => expect(screen.getByLabelText('Create invite link')).toBeEnabled());
+      await fireEvent.press(screen.getByLabelText('Create invite link'));
+      await fireEvent.press(await screen.findByLabelText('Copy link'));
+
+      expect(await screen.findByText(COPY_FAILED_TEXT)).toBeTruthy();
+      expect(screen.queryByText(COPIED_TEXT)).toBeNull();
+      expect(execCommand).toHaveBeenCalledWith('copy');
+      const url = screen.getByTestId('app-invite-link-url');
+      expect(url).toHaveTextContent('http://localhost:8081/invite/app/first');
+      expect(url.props.selectable).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+});
 describe('AppInviteLanding', () => {
   const signedOut = () =>
     mockedSession.mockReturnValue({
@@ -418,3 +444,29 @@ describe('AppInviteLanding', () => {
     expect(router.replace).toHaveBeenCalledWith('/feed');
   });
 });
+
+/** Fakes the browser's async clipboard and legacy execCommand copy; returns a restore function. */
+function stubBrowserClipboard(fake: { writeText(): Promise<void>; execCommand(): boolean }) {
+  const saved = (['navigator', 'document'] as const).map(
+    (name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
+  );
+  const define = (name: string, value: unknown) =>
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  define('navigator', { clipboard: { writeText: fake.writeText } });
+  define('document', {
+    body: { appendChild: () => undefined, removeChild: () => undefined },
+    createElement: () => ({
+      value: '',
+      select: () => undefined,
+      setAttribute: () => undefined,
+      style: {},
+    }),
+    execCommand: fake.execCommand,
+  });
+  return () => {
+    for (const [name, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete (globalThis as Record<string, unknown>)[name];
+    }
+  };
+}

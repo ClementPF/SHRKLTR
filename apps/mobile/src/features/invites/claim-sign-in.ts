@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '@/api/errors';
 import type { GoogleCodeExchangeRequest } from '@/api/types';
@@ -41,25 +41,40 @@ export interface ClaimSignIn extends GoogleSignIn {
 
 const ignore = () => undefined;
 
+function isPendingClaimState(
+  target: ClaimTarget | PendingClaimState | null,
+): target is PendingClaimState {
+  return target !== null && 'resolve' in target;
+}
+
 /**
  * Google sign-in that claims `target` when given one: the claim is recorded as a pending intent
  * before leaving for Google (so it survives a reload or app restart) and its token is sent with
  * the code exchange. Without a target this is the ordinary sign-in and sends no claim token.
+ *
+ * Given a stored pending claim (`usePendingClaim`), sign-in stays unavailable until the stored
+ * claim has been read, and a Google result that arrives earlier waits for that read before the
+ * code is exchanged, so a resumed claim is never downgraded to an ordinary sign-in.
  */
-export function useClaimSignIn(target: ClaimTarget | null): ClaimSignIn {
+export function useClaimSignIn(target: ClaimTarget | PendingClaimState | null): ClaimSignIn {
   const { loginWithGoogleCode } = useSession();
   const [claimed, setClaimed] = useState(false);
-  const token = target?.token ?? null;
-  const playerName = target?.playerName ?? '';
+  const stored = isPendingClaimState(target) ? target : null;
+  const current = stored ? stored.pending : (target as ClaimTarget | null);
+  const hydrated = stored ? stored.hydrated : true;
+  const resolveStored = stored?.resolve;
+  const token = current?.token ?? null;
+  const playerName = current?.playerName ?? '';
 
   const onCode = useCallback(
     async (exchange: GoogleCodeExchangeRequest) => {
-      if (!token) {
+      const claimToken = resolveStored ? ((await resolveStored())?.token ?? null) : token;
+      if (!claimToken) {
         await loginWithGoogleCode(exchange);
         return;
       }
       try {
-        await loginWithGoogleCode({ ...exchange, claimToken: token });
+        await loginWithGoogleCode({ ...exchange, claimToken });
       } catch (err) {
         // A dead link cannot be resumed; any other failure keeps the claim for a retry.
         if (err instanceof ApiError && err.code === CLAIM_INVALID) {
@@ -70,44 +85,73 @@ export function useClaimSignIn(target: ClaimTarget | null): ClaimSignIn {
       await clearPendingClaim().catch(ignore);
       setClaimed(true);
     },
-    [token, loginWithGoogleCode],
+    [token, resolveStored, loginWithGoogleCode],
   );
 
   const google = useGoogleSignIn(onCode);
   const startGoogle = google.signIn;
   const signIn = useCallback(async () => {
+    if (!hydrated) return;
     // Not awaited: the Google popup must open within the click's user activation on web.
     if (token) void savePendingClaim({ token, playerName }).catch(ignore);
     await startGoogle();
-  }, [token, playerName, startGoogle]);
+  }, [hydrated, token, playerName, startGoogle]);
 
-  return { ...google, signIn, claimed };
+  return { ...google, ready: google.ready && hydrated, signIn, claimed };
+}
+
+export interface PendingClaimState {
+  /** The stored claim once read; null while reading, when there is none, or when disabled. */
+  pending: PendingClaim | null;
+  /** False until the stored claim has been read. Always true when disabled. */
+  hydrated: boolean;
+  /** The current claim, waiting for the storage read if it is still in flight. */
+  resolve(): Promise<PendingClaim | null>;
+  /** Abandons the claim. */
+  discard(): void;
 }
 
 /**
  * The claim left pending by an interrupted sign-in, with a way to abandon it. Disabled, it never
  * reads the stored claim (and so never resumes it).
  */
-export function usePendingClaim(enabled = true) {
+export function usePendingClaim(enabled = true): PendingClaimState {
   const [pending, setPending] = useState<PendingClaim | null>(null);
+  const [readDone, setReadDone] = useState(false);
+  const latest = useRef<PendingClaim | null>(null);
+  const reading = useRef<Promise<void> | null>(null);
+
+  const hydrate = useCallback(() => {
+    reading.current ??= readPendingClaim()
+      .catch(() => null)
+      .then((claim) => {
+        latest.current = claim;
+        setPending(claim);
+        setReadDone(true);
+      });
+    return reading.current;
+  }, []);
 
   useEffect(() => {
-    if (!enabled) return;
-    let active = true;
-    readPendingClaim()
-      .then((claim) => {
-        if (active) setPending(claim);
-      })
-      .catch(ignore);
-    return () => {
-      active = false;
-    };
-  }, [enabled]);
+    if (enabled) void hydrate();
+  }, [enabled, hydrate]);
+
+  const resolve = useCallback(async () => {
+    if (!enabled) return null;
+    await hydrate();
+    return latest.current;
+  }, [enabled, hydrate]);
 
   const discard = useCallback(() => {
+    latest.current = null;
     setPending(null);
     void clearPendingClaim().catch(ignore);
   }, []);
 
-  return { pending, discard };
+  return {
+    pending: enabled ? pending : null,
+    hydrated: !enabled || readDone,
+    resolve,
+    discard,
+  };
 }

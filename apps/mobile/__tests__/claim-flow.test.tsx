@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as AuthSession from 'expo-auth-session';
+import * as SecureStore from 'expo-secure-store';
 import type { AuthSessionResult } from 'expo-auth-session';
 import { router, useLocalSearchParams } from 'expo-router';
 import type { ReactElement } from 'react';
@@ -30,7 +31,7 @@ import {
 } from '@/features/invites/claim-sign-in';
 import { CLAIM_UNUSABLE_TITLE, ClaimScreen } from '@/features/invites/claim-screen';
 
-import { jsonResponse, makeSession, memoryStorage } from '../test-utils/session';
+import { deferred, jsonResponse, makeSession, memoryStorage } from '../test-utils/session';
 
 const mockSecureStore = new Map<string, string>();
 jest.mock('expo-secure-store', () => ({
@@ -523,6 +524,128 @@ describe('General app invitation after a cancelled claim', () => {
     await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
     expect(loginWithGoogleCode.mock.calls[0]).toEqual([
       expect.not.objectContaining({ claimToken: expect.anything() }),
+    ]);
+  });
+});
+
+describe('LoginScreen before the pending claim has been read', () => {
+  const defaultGetItem = async (key: string) => mockSecureStore.get(key) ?? null;
+  let restoreSessionStorage: (() => void) | null = null;
+
+  afterEach(() => {
+    jest.mocked(SecureStore.getItemAsync).mockImplementation(defaultGetItem);
+    restoreSessionStorage?.();
+    restoreSessionStorage = null;
+  });
+
+  function useWebSessionStorage() {
+    const values = new Map<string, string>();
+    const original = Object.getOwnPropertyDescriptor(window, 'sessionStorage');
+    Object.defineProperty(window, 'sessionStorage', {
+      configurable: true,
+      value: {
+        getItem: (k: string) => values.get(k) ?? null,
+        setItem: (k: string, v: string) => void values.set(k, v),
+        removeItem: (k: string) => void values.delete(k),
+      },
+    });
+    restoreSessionStorage = () => {
+      if (original) Object.defineProperty(window, 'sessionStorage', original);
+      else delete (window as { sessionStorage?: unknown }).sessionStorage;
+    };
+  }
+
+  /** Holds the native pending-claim read until the returned gate is resolved. */
+  function slowNativeClaimRead() {
+    const gate = deferred<void>();
+    jest.mocked(SecureStore.getItemAsync).mockImplementation(async (key: string) => {
+      if (key === PENDING_CLAIM_KEY) await gate.promise;
+      return defaultGetItem(key);
+    });
+    return gate;
+  }
+
+  it.each(['web', 'ios'] as const)(
+    'sends claimToken when the Google result is already there on mount (%s)',
+    async (os) => {
+      jest.replaceProperty(Platform, 'OS', os);
+      if (os === 'web') useWebSessionStorage();
+      await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+      const loginWithGoogleCode = jest.fn(async () => undefined);
+      mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+      googleReturns(success);
+
+      await render(<LoginScreen devSignInEnabled={false} />);
+
+      await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+      expect(loginWithGoogleCode).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'auth-code', claimToken: TOKEN }),
+      );
+      await waitFor(async () => expect(await readPendingClaim()).toBeNull());
+    },
+  );
+
+  it('waits for a slow native read before exchanging and keeps sign-in disabled meanwhile', async () => {
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+    const gate = slowNativeClaimRead();
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await render(<LoginScreen devSignInEnabled={false} />);
+
+    const button = screen.getByRole('button', { name: 'Continue with Google' });
+    expect(button).toBeDisabled();
+    await fireEvent.press(button);
+    expect(promptAsync).not.toHaveBeenCalled();
+
+    // A Google result that lands while the read is still pending must not be exchanged yet.
+    googleReturns(success);
+    await view.rerender(<LoginScreen devSignInEnabled={false} />);
+    await act(async () => undefined);
+    expect(loginWithGoogleCode).not.toHaveBeenCalled();
+
+    await act(async () => gate.resolve());
+    await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+    expect(loginWithGoogleCode).toHaveBeenCalledWith({
+      code: 'auth-code',
+      codeVerifier: 'v'.repeat(43),
+      redirectUri: 'com.elo.sharkulator:/oauthredirect',
+      claimToken: TOKEN,
+    });
+    await waitFor(async () => expect(await readPendingClaim()).toBeNull());
+  });
+
+  it('enables claiming once the slow read completes', async () => {
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+    const gate = slowNativeClaimRead();
+    mockedSession.mockReturnValue(sessionValue());
+    await render(<LoginScreen devSignInEnabled={false} />);
+    expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeDisabled();
+
+    await act(async () => gate.resolve());
+    expect(await screen.findByTestId('pending-claim')).toHaveTextContent(/Riley Guest/);
+    const button = screen.getByRole('button', { name: 'Claim with Google' });
+    expect(button).toBeEnabled();
+    await fireEvent.press(button);
+    expect(promptAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('signs in normally once a slow read finds no pending claim', async () => {
+    const gate = slowNativeClaimRead();
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    googleReturns(success);
+    await render(<LoginScreen devSignInEnabled={false} />);
+    await act(async () => undefined);
+    expect(loginWithGoogleCode).not.toHaveBeenCalled();
+
+    await act(async () => gate.resolve());
+    await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+    expect(loginWithGoogleCode.mock.calls[0]).toStrictEqual([
+      {
+        code: 'auth-code',
+        codeVerifier: 'v'.repeat(43),
+        redirectUri: 'com.elo.sharkulator:/oauthredirect',
+      },
     ]);
   });
 });
