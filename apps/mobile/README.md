@@ -135,8 +135,11 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
   helpers in `src/lib/qr.ts` (required keys, same tournament, username dedupe, outcomes seeded with
   the scanner's own LOSS); the zustand draft (`store.ts`) holds the tournament and scanned outcomes.
   Both screens default to the tournament of the player's latest game and re-pick it through EDIT
-  (`/game-form/tournament`: recent + all tournaments, searchable). "All good" stays disabled until
-  the teams are complete, then asks for confirmation, POSTs `/tournaments/:name/games`, opens
+  (`/game-form/tournament`: recent + all tournaments, searchable). The scanner header respects the
+  device safe area. A scan that completes the teams automatically opens a popup showing the
+  tournament, winners and losers, and pauses the camera. Cancel keeps the draft for more players;
+  "Review game" reopens the popup (disabled until teams are complete). "Confirm game"
+  POSTs `/tournaments/:name/games`, opens
   `/game-form/result?id=` (the game detail screen plus next-step buttons, pre-filled from the
   submission response) and invalidates the `users`, `stats` and `tournaments` queries so mounted
   feed/history lists refetch immediately. Non-production builds print the QR payload under each

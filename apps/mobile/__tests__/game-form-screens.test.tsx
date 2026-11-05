@@ -215,14 +215,23 @@ describe('ScannerScreen', () => {
       barcodeTypes: ['qr'],
     });
     expect(screen.getByTestId('scanned-outcomes-losers')).toHaveTextContent('dev-sam');
-    expect(screen.getByLabelText('All good')).toBeDisabled();
+    expect(screen.getByLabelText('Review game')).toBeDisabled();
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
 
     await waitFor(() => scan(winnerCode));
+    expect(await screen.findByTestId('game-confirmation-summary')).toHaveTextContent(
+      'TOURNAMENTOffice BabyfootWinnersdev-alexLosersdev-sam',
+    );
+    expect(screen.getByLabelText('Confirm game')).toBeEnabled();
+    expect(screen.queryByTestId('scanner-camera')).toBeNull();
+    expect(api.submitGame).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByLabelText('Cancel'));
+    await waitFor(() => expect(screen.getByTestId('scanner-camera')).toBeTruthy());
     expect(await screen.findByTestId('scanned-outcomes-winners')).toHaveTextContent('dev-alex');
     expect(screen.getByTestId('dropdown-alert')).toHaveTextContent(
       'Scanneddev-alex added as winner.',
     );
-    expect(screen.getByLabelText('All good')).toBeEnabled();
+    expect(screen.getByLabelText('Review game')).toBeEnabled();
 
     await waitFor(() => scan(encodeQrPayload(buildQrPayload('dev-jordan', 'lunchdarts', 'WIN'))));
     expect(await screen.findByText(WRONG_TOURNAMENT_MESSAGE)).toBeTruthy();
@@ -236,7 +245,28 @@ describe('ScannerScreen', () => {
     await renderScanner();
     await fireEvent.changeText(screen.getByTestId('manual-code-input'), winnerCode);
     await fireEvent.press(screen.getByLabelText('Add code'));
-    expect(await screen.findByTestId('scanned-outcomes-winners')).toHaveTextContent('dev-alex');
+    expect(await screen.findByTestId('game-confirmation-summary')).toHaveTextContent(/dev-alex/);
+  });
+
+  it('waits for complete teams and includes every player in the popup', async () => {
+    await renderScanner();
+    await waitFor(() =>
+      scan(encodeQrPayload(buildQrPayload('dev-jordan', 'officebabyfoot', 'LOSS'))),
+    );
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    await waitFor(() => scan(winnerCode));
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(screen.getByLabelText('Review game')).toBeDisabled();
+    await waitFor(() => scan(encodeQrPayload(buildQrPayload('dev-lee', 'officebabyfoot', 'WIN'))));
+    expect(await screen.findByTestId('game-confirmation-summary')).toHaveTextContent(
+      'TOURNAMENTOffice BabyfootWinnersdev-alexdev-leeLosersdev-samdev-jordan',
+    );
+    expect(api.submitGame).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByLabelText('Cancel'));
+    await waitFor(() => expect(screen.getByTestId('scanner-camera')).toBeTruthy());
+    await waitFor(() => scan(winnerCode));
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(useGameFormStore.getState().outcomes).toHaveLength(4);
   });
 
   it('submits only after confirmation, opens the result and invalidates feed queries', async () => {
@@ -245,17 +275,19 @@ describe('ScannerScreen', () => {
     await renderScanner();
     await fireEvent.changeText(screen.getByTestId('manual-code-input'), winnerCode);
     await fireEvent.press(screen.getByLabelText('Add code'));
-    await screen.findByText('dev-alex');
+    await screen.findByTestId('game-confirmation-summary');
     const invalidate = jest.spyOn(client, 'invalidateQueries');
 
-    await fireEvent.press(screen.getByLabelText('All good'));
     expect(screen.getByText(CONFIRM_MESSAGE)).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Cancel'));
     expect(screen.queryByText(CONFIRM_MESSAGE)).toBeNull();
     expect(api.submitGame).not.toHaveBeenCalled();
 
-    await fireEvent.press(screen.getByLabelText('All good'));
-    await fireEvent.press(screen.getByLabelText('Submit'));
+    await fireEvent.press(screen.getByLabelText('Review game'));
+    expect(screen.getByTestId('game-confirmation-summary')).toHaveTextContent(
+      'TOURNAMENTOffice BabyfootWinnersdev-alexLosersdev-sam',
+    );
+    await fireEvent.press(screen.getByLabelText('Confirm game'));
     await waitFor(() =>
       expect(mockedRouter.replace).toHaveBeenCalledWith({
         pathname: '/game-form/result',
@@ -281,8 +313,7 @@ describe('ScannerScreen', () => {
     await renderScanner();
     await fireEvent.changeText(screen.getByTestId('manual-code-input'), winnerCode);
     await fireEvent.press(screen.getByLabelText('Add code'));
-    await fireEvent.press(screen.getByLabelText('All good'));
-    await fireEvent.press(screen.getByLabelText('Submit'));
+    await fireEvent.press(screen.getByLabelText('Confirm game'));
     expect(
       await screen.findByText('Failed to submit the game: Only a loser can submit'),
     ).toBeTruthy();
