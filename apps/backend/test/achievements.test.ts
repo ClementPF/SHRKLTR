@@ -661,7 +661,7 @@ describe('achievements API', () => {
       description: 'Win a game.',
       unlocked: true,
       unlockedAt: row!.unlockedAt.toISOString(),
-      source: { type: 'GAME', gameId: game.id, groupId: null },
+      source: { type: 'GAME', gameId: game.id, groupId: null, challengeId: null },
     });
     for (const entry of body.slice(1)) {
       expect(entry).toMatchObject({ unlocked: false, unlockedAt: null, source: null });
@@ -729,7 +729,7 @@ describe('achievements API', () => {
         user: expect.objectContaining({ username: 'alice' }),
         achievement: { code: 'first_win', title: 'First win', description: 'Win a game.' },
         unlockedAt: '2026-10-03T00:00:00.000Z',
-        source: { type: 'BACKFILL', gameId: null, groupId: null },
+        source: { type: 'BACKFILL', gameId: null, groupId: null, challengeId: null },
       },
       expect.objectContaining({ achievement: expect.objectContaining({ code: 'explorer_3' }) }),
       expect.objectContaining({ achievement: expect.objectContaining({ code: 'games_10' }) }),

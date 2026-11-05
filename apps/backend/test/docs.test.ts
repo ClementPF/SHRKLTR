@@ -94,7 +94,9 @@ describe('API docs', () => {
         '/achievements',
         '/achievements/recent',
         '/users/{username}/achievements',
-        '/users/{username}/challenge',
+        '/challenges',
+        '/challenges/{id}',
+        '/challenges/{id}/response',
         '/sports',
         '/tournaments',
         '/tournaments/{name}',
@@ -154,6 +156,19 @@ describe('API docs', () => {
     expect(doc.components.schemas.TokenRequest.properties.claimToken).toBeDefined();
     expect(doc.components.schemas.GoogleCodeExchangeRequest.properties.claimToken).toBeDefined();
     expect(paths).not.toContain('/users/me/push-token');
+    expect(paths).not.toContain('/users/{username}/challenge');
+    expect(doc.components.schemas.ChallengeRequest).toBeUndefined();
+    expect(doc.paths['/challenges'].post.security).toEqual([{ bearerAuth: [] }]);
+    expect(
+      doc.paths['/challenges/{id}'].get.responses['200'].content['application/json'].schema.$ref,
+    ).toBe('#/components/schemas/Challenge');
+    expect(doc.components.schemas.ChallengeStatus.enum).toEqual([
+      'PENDING',
+      'ACCEPTED',
+      'DECLINED',
+      'COMPLETED',
+      'EXPIRED',
+    ]);
     expect(doc.paths['/invites/claim/{token}'].get.security).toBeUndefined();
     expect(doc.paths['/notifications'].get.security).toEqual([{ bearerAuth: [] }]);
     expect(
@@ -200,6 +215,10 @@ describe('API docs', () => {
       'GroupJoinResult',
       'JoinGroupRequest',
       'TournamentGroup',
+      'Challenge',
+      'ChallengeStatus',
+      'CreateChallengeRequest',
+      'ChallengeResponseRequest',
     ]) {
       expect(doc.components.schemas[schema]).toBeDefined();
     }
@@ -221,6 +240,7 @@ describe('API docs', () => {
         'notifications',
         'achievements',
         'groups',
+        'challenges',
       ]),
     );
     expect(doc.paths['/invites/group/{token}'].get.security).toBeUndefined();

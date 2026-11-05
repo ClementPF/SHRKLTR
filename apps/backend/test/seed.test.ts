@@ -3,6 +3,7 @@ import { and, count, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb, type Database } from '../src/db/client.js';
 import {
+  challenges,
   games,
   groupInvites,
   groupMembers,
@@ -19,6 +20,7 @@ import {
   users,
 } from '../src/db/schema.js';
 import {
+  DEMO_CHALLENGES,
   DEMO_GROUP,
   DEMO_PLACEHOLDERS,
   DEMO_TOURNAMENTS,
@@ -43,6 +45,7 @@ const tables = {
   groupMembers,
   groupInvites,
   groupPlayers,
+  challenges,
 };
 
 async function rowCounts(db: Database): Promise<Record<string, number>> {
@@ -86,6 +89,7 @@ describe('dev seed', () => {
     expect(first.games).toBe(expectedGames);
     expect(first.stats).toBeGreaterThan(0);
     expect(first.rivalryStats).toBeGreaterThan(0);
+    expect(first.challenges).toBe(DEMO_CHALLENGES.length);
 
     const claimsBefore = await db.select().from(playerClaims).orderBy(playerClaims.id);
     const second = await runSeed(db);
@@ -212,6 +216,48 @@ describe('dev seed', () => {
     expect(
       await db.select().from(notifications).where(eq(notifications.type, 'achievement_unlocked')),
     ).toEqual([]);
+  });
+
+  it('seeds challenges in every state, the completed one linked to its eligible game', async () => {
+    const rows = await db.select().from(challenges);
+    expect(new Set(rows.map((r) => r.status))).toEqual(
+      new Set(['PENDING', 'ACCEPTED', 'DECLINED', 'COMPLETED', 'EXPIRED']),
+    );
+    const now = Date.now();
+    for (const row of rows) {
+      // Active fixtures stay outside the 24-hour reminder window of a fresh seed.
+      if (row.status === 'PENDING' || row.status === 'ACCEPTED') {
+        expect(row.deadlineAt.getTime() - now).toBeGreaterThan(24 * 3_600_000);
+      }
+      if (row.status === 'EXPIRED') expect(row.deadlineAt.getTime()).toBeLessThan(now);
+    }
+
+    const completed = rows.find((r) => r.status === 'COMPLETED')!;
+    const [game] = await db.select().from(games).where(eq(games.id, completed.gameId!));
+    expect(game?.tournamentId).toBe(completed.tournamentId);
+    const results = await db.select().from(outcomes).where(eq(outcomes.gameId, game!.id));
+    const resultOf = (userId: string) => results.find((o) => o.userId === userId)?.result;
+    expect(resultOf(completed.winnerUserId!)).toBe('WIN');
+    const loser =
+      completed.winnerUserId === completed.challengerUserId
+        ? completed.opponentUserId
+        : completed.challengerUserId;
+    expect(resultOf(loser)).toBe('LOSS');
+    expect(completed.acceptedAt!.getTime()).toBeLessThanOrEqual(game!.date.getTime());
+    expect(game!.date.getTime()).toBeLessThan(completed.deadlineAt.getTime());
+
+    const [sharkCup] = await db
+      .select()
+      .from(tournaments)
+      .where(eq(tournaments.name, 'sharktankcup'));
+    expect(rows.some((r) => r.tournamentId === sharkCup!.id)).toBe(true);
+
+    const events = await db.select().from(notifications);
+    for (const row of rows) {
+      expect(
+        events.filter((n) => n.challengeId === row.id && n.type === 'challenge_received'),
+      ).toEqual([expect.objectContaining({ recipientUserId: row.opponentUserId })]);
+    }
   });
 
   it('creates the dev-token subjects', async () => {

@@ -697,7 +697,12 @@ describe('groups', () => {
       const badge = (await call(pat, 'GET', '/users/pat/achievements'))
         .json<{ code: string; source: unknown }[]>()
         .find((a) => a.code === 'first_group_joined');
-      expect(badge?.source).toEqual({ type: 'GROUP', gameId: null, groupId: null });
+      expect(badge?.source).toEqual({
+        type: 'GROUP',
+        gameId: null,
+        groupId: null,
+        challengeId: null,
+      });
     });
   });
 

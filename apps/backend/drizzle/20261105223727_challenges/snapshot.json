@@ -1,0 +1,996 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "4236694c-c682-4c60-8462-88c927c87387",
+  "prevIds": [
+    "9b438ca3-654c-47bf-9529-127239653949"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "challenge_status"
+      ],
+      "writes": [
+        "s|enum|public.challenge_status",
+        "n|enum|public.challenge_status",
+        "e|enum|public.challenge_status",
+        "n|type|public.challenge_status"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "challenges"
+      ],
+      "writes": [
+        "s|tbl|public.challenges",
+        "n|tbl|public.challenges",
+        "e|tbl|public.challenges",
+        "n|rel|public.challenges",
+        "n|type|public.challenges",
+        "n|rel|public.challenges_pkey"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.challenge_status"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "notifications",
+        "challenge_id"
+      ],
+      "writes": [
+        "s|col|public.notifications.challenge_id",
+        "n|col|public.notifications.challenge_id",
+        "e|col|public.notifications.challenge_id"
+      ],
+      "reads": [
+        "n|tbl|public.notifications",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "user_achievements",
+        "source_challenge_id"
+      ],
+      "writes": [
+        "s|col|public.user_achievements.source_challenge_id",
+        "n|col|public.user_achievements.source_challenge_id",
+        "e|col|public.user_achievements.source_challenge_id"
+      ],
+      "reads": [
+        "n|tbl|public.user_achievements",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "challenges",
+        "challenges_active_pair_unique"
+      ],
+      "writes": [
+        "s|idx|public.challenges_active_pair_unique",
+        "n|idx|public.challenges_active_pair_unique",
+        "e|idx|public.challenges_active_pair_unique",
+        "n|rel|public.challenges_active_pair_unique"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|col|public.challenges.tournament_id",
+        "n|col|public.challenges.pair_low_user_id",
+        "n|col|public.challenges.pair_high_user_id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "challenges",
+        "challenges_status_deadline_idx"
+      ],
+      "writes": [
+        "s|idx|public.challenges_status_deadline_idx",
+        "n|idx|public.challenges_status_deadline_idx",
+        "e|idx|public.challenges_status_deadline_idx",
+        "n|rel|public.challenges_status_deadline_idx"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|col|public.challenges.status",
+        "n|col|public.challenges.deadline_at",
+        "n|col|public.challenges.id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "challenges",
+        "challenges_challenger_created_idx"
+      ],
+      "writes": [
+        "s|idx|public.challenges_challenger_created_idx",
+        "n|idx|public.challenges_challenger_created_idx",
+        "e|idx|public.challenges_challenger_created_idx",
+        "n|rel|public.challenges_challenger_created_idx"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|col|public.challenges.challenger_user_id",
+        "n|col|public.challenges.created_at",
+        "n|col|public.challenges.id"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "challenges",
+        "challenges_opponent_created_idx"
+      ],
+      "writes": [
+        "s|idx|public.challenges_opponent_created_idx",
+        "n|idx|public.challenges_opponent_created_idx",
+        "e|idx|public.challenges_opponent_created_idx",
+        "n|rel|public.challenges_opponent_created_idx"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|col|public.challenges.opponent_user_id",
+        "n|col|public.challenges.created_at",
+        "n|col|public.challenges.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "challenges"
+      ],
+      "writes": [
+        "s|fk|public.challenges.challenges_tournament_id_tournaments_id_fkey",
+        "n|fk|public.challenges.challenges_tournament_id_tournaments_id_fkey",
+        "e|fk|public.challenges.challenges_tournament_id_tournaments_id_fkey",
+        "n|con|public.challenges.challenges_tournament_id_tournaments_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|tbl|public.tournaments",
+        "n|sch|public",
+        "n|col|public.challenges.tournament_id",
+        "n|col|public.tournaments.id",
+        "e|uniqueness|public.tournaments.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "challenges"
+      ],
+      "writes": [
+        "s|fk|public.challenges.challenges_challenger_user_id_users_id_fkey",
+        "n|fk|public.challenges.challenges_challenger_user_id_users_id_fkey",
+        "e|fk|public.challenges.challenges_challenger_user_id_users_id_fkey",
+        "n|con|public.challenges.challenges_challenger_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.challenges.challenger_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "challenges"
+      ],
+      "writes": [
+        "s|fk|public.challenges.challenges_opponent_user_id_users_id_fkey",
+        "n|fk|public.challenges.challenges_opponent_user_id_users_id_fkey",
+        "e|fk|public.challenges.challenges_opponent_user_id_users_id_fkey",
+        "n|con|public.challenges.challenges_opponent_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.challenges.opponent_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "challenges"
+      ],
+      "writes": [
+        "s|fk|public.challenges.challenges_game_id_games_id_fkey",
+        "n|fk|public.challenges.challenges_game_id_games_id_fkey",
+        "e|fk|public.challenges.challenges_game_id_games_id_fkey",
+        "n|con|public.challenges.challenges_game_id_games_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|tbl|public.games",
+        "n|sch|public",
+        "n|col|public.challenges.game_id",
+        "n|col|public.games.id",
+        "e|uniqueness|public.games.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "challenges"
+      ],
+      "writes": [
+        "s|fk|public.challenges.challenges_winner_user_id_users_id_fkey",
+        "n|fk|public.challenges.challenges_winner_user_id_users_id_fkey",
+        "e|fk|public.challenges.challenges_winner_user_id_users_id_fkey",
+        "n|con|public.challenges.challenges_winner_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.challenges.winner_user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "notifications"
+      ],
+      "writes": [
+        "s|fk|public.notifications.notifications_challenge_id_challenges_id_fkey",
+        "n|fk|public.notifications.notifications_challenge_id_challenges_id_fkey",
+        "e|fk|public.notifications.notifications_challenge_id_challenges_id_fkey",
+        "n|con|public.notifications.notifications_challenge_id_challenges_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.notifications",
+        "n|sch|public",
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|col|public.notifications.challenge_id",
+        "n|col|public.challenges.id",
+        "e|uniqueness|public.challenges.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "user_achievements"
+      ],
+      "writes": [
+        "s|fk|public.user_achievements.user_achievements_source_challenge_id_challenges_id_fkey",
+        "n|fk|public.user_achievements.user_achievements_source_challenge_id_challenges_id_fkey",
+        "e|fk|public.user_achievements.user_achievements_source_challenge_id_challenges_id_fkey",
+        "n|con|public.user_achievements.user_achievements_source_challenge_id_challenges_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.user_achievements",
+        "n|sch|public",
+        "n|tbl|public.challenges",
+        "n|sch|public",
+        "n|col|public.user_achievements.source_challenge_id",
+        "n|col|public.challenges.id",
+        "e|uniqueness|public.challenges.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "challenges",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "challenge_status",
+        "values": [
+          "PENDING",
+          "ACCEPTED",
+          "DECLINED",
+          "COMPLETED",
+          "EXPIRED"
+        ],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "gen_random_uuid()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "tournament_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenger_user_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "opponent_user_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "pair_low_user_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "pair_high_user_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "status",
+        "type": "challenge_status",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'PENDING'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "deadline_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "accepted_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "resolved_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "expiring_notified_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "game_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "winner_user_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "notifications",
+        "name": "challenge_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "source_challenge_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_active_pair_unique",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "tournament_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "pair_low_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "pair_high_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": "\"status\" in ('PENDING', 'ACCEPTED')",
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_status_deadline_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "status",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "deadline_at",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_challenger_created_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "challenger_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": false,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_opponent_created_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "opponent_user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "created_at",
+            "isExpression": false,
+            "asc": false,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_tournament_id_tournaments_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "tournament_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "tournaments",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_challenger_user_id_users_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "challenger_user_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_opponent_user_id_users_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "opponent_user_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_game_id_games_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "game_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "games",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_winner_user_id_users_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "winner_user_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "notifications",
+        "name": "notifications_challenge_id_challenges_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "challenge_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "challenges",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "user_achievements_source_challenge_id_challenges_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "source_challenge_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "challenges",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_pkey",
+        "columns": [
+          "id"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_distinct_players_check",
+        "value": "\"challenger_user_id\" <> \"opponent_user_id\"",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_canonical_pair_check",
+        "value": "\"pair_low_user_id\" = least(\"challenger_user_id\", \"opponent_user_id\") and \"pair_high_user_id\" = greatest(\"challenger_user_id\", \"opponent_user_id\")",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_deadline_check",
+        "value": "\"deadline_at\" > \"created_at\"",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_accepted_at_check",
+        "value": "\"status\" not in ('ACCEPTED', 'COMPLETED') or \"accepted_at\" is not null",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_resolved_at_check",
+        "value": "(\"status\" in ('PENDING', 'ACCEPTED')) = (\"resolved_at\" is null)",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "challenges",
+        "name": "challenges_completed_winner_check",
+        "value": "\"status\" <> 'COMPLETED' or \"winner_user_id\" is not null",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

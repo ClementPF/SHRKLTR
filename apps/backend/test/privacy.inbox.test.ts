@@ -378,7 +378,12 @@ describe('grouped data in groups, pagination, inbox and badges', () => {
       const rows =
         res.json<{ achievement: { code: string }; source: UserAchievementBody['source'] }[]>();
       const firstWin = rows.find((r) => r.achievement.code === 'first_win');
-      expect(firstWin?.source).toEqual({ type: 'GAME', gameId: null, groupId: null });
+      expect(firstWin?.source).toEqual({
+        type: 'GAME',
+        gameId: null,
+        groupId: null,
+        challengeId: null,
+      });
       for (const id of [...privateGameIds(), f.group.id]) expect(res.body).not.toContain(id);
     });
 
@@ -388,11 +393,13 @@ describe('grouped data in groups, pagination, inbox and badges', () => {
         type: 'GAME',
         gameId: f.franFirstWinGameId,
         groupId: null,
+        challengeId: null,
       });
       expect(badge(rows, 'first_group_joined')?.source).toEqual({
         type: 'GROUP',
         gameId: null,
         groupId: f.group.id,
+        challengeId: null,
       });
     });
   });

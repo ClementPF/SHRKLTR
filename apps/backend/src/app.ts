@@ -19,6 +19,8 @@ import { createGoogleVerifier } from './auth/google.verify.js';
 import { registerJwt } from './auth/jwt.js';
 import { authGuard } from './auth/guard.js';
 import { createPushNotifier, type PushNotifier } from './services/push.service.js';
+import { createMaintenance, type Maintenance } from './services/maintenance.service.js';
+import { challengeRoutes } from './routes/challenges.routes.js';
 import { achievementRoutes } from './routes/achievements.routes.js';
 import { notificationRoutes } from './routes/notifications.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
@@ -40,6 +42,8 @@ declare module 'fastify' {
     clock: () => Date;
     /** Post-commit, best-effort Expo push delivery. */
     push: PushNotifier;
+    /** Challenge expiry/reminder sweep; scheduled only when MAINTENANCE_ENABLED. */
+    maintenance: Maintenance;
   }
 }
 
@@ -88,7 +92,16 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     clock,
   });
   app.decorate('push', push);
+  const maintenance = createMaintenance({ db, push, clock, log: app.log });
+  app.decorate('maintenance', maintenance);
+  if (config.MAINTENANCE_ENABLED) {
+    app.addHook('onReady', async () => {
+      maintenance.start();
+    });
+  }
   app.addHook('onClose', async () => {
+    // A running sweep still writes rows and dispatches pushes, so it settles first.
+    await maintenance.stop();
     // In-flight deliveries still write device state, so they finish before the pool closes.
     await push.drain();
     await db.$client.end({ timeout: 5 });
@@ -142,6 +155,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(notificationRoutes);
   await app.register(achievementRoutes);
   await app.register(groupRoutes);
+  await app.register(challengeRoutes);
 
   return app;
 }

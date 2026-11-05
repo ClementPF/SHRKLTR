@@ -11,6 +11,7 @@ import {
   type ParticipantResult,
 } from './stats.service.js';
 import { evaluateGameAchievements, lockAchievementOwners } from './achievement.service.js';
+import { completeChallengesForGame } from './challenge.service.js';
 import { notifyGameRecorded } from './notification.service.js';
 import { authorizeGroupGame, findMemberRole } from './group.service.js';
 import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
@@ -115,6 +116,11 @@ export interface SubmitGameInput {
   tournamentName: string;
   callerId: string;
   outcomes: readonly SubmittedOutcome[];
+  /**
+   * Game operation time for challenge eligibility, read once the participants' stats are locked.
+   * Defaults to the system clock.
+   */
+  clock?: () => Date;
 }
 
 export interface SubmittedGame {
@@ -124,10 +130,10 @@ export interface SubmittedGame {
 }
 
 /**
- * Records a game submitted by one of its losers. The game, its outcomes, the badges it unlocks
- * and every inbox row (game_recorded for each participant, achievement_unlocked per new badge)
- * are written in a single transaction; outcome scoreValues are the Elo deltas from current
- * tournament ratings.
+ * Records a game submitted by one of its losers. The game, its outcomes, the accepted challenges
+ * it completes, the badges it unlocks and every inbox row (game_recorded for each participant,
+ * achievement_unlocked per new badge) are written in a single transaction; outcome scoreValues
+ * are the Elo deltas from current tournament ratings.
  */
 export async function submitGame(db: Database, input: SubmitGameInput): Promise<SubmittedGame> {
   const tournament = await findTournamentByName(db, input.tournamentName);
@@ -165,6 +171,12 @@ export async function submitGame(db: Database, input: SubmitGameInput): Promise<
     }
     await lockAchievementOwners(tx, participantIds);
     const recorded = await recordGame(tx, { tournamentId: tournament.tournament.id, participants });
+    const challengeResults = await completeChallengesForGame(tx, {
+      gameId: recorded,
+      tournamentId: tournament.tournament.id,
+      participants,
+      at: (input.clock ?? (() => new Date()))(),
+    });
     const gameNotifications = await notifyGameRecorded(tx, {
       gameId: recorded,
       submitterId: input.callerId,
@@ -173,7 +185,11 @@ export async function submitGame(db: Database, input: SubmitGameInput): Promise<
     const badges = await evaluateGameAchievements(tx, recorded);
     return {
       gameId: recorded,
-      notificationIds: [...gameNotifications, ...badges.notificationIds],
+      notificationIds: [
+        ...gameNotifications,
+        ...challengeResults.notificationIds,
+        ...badges.notificationIds,
+      ],
     };
   });
 

@@ -1,4 +1,4 @@
-import { and, asc, countDistinct, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, countDistinct, desc, eq, inArray, or } from 'drizzle-orm';
 import {
   crossedThresholds,
   GAME_COUNT_THRESHOLDS,
@@ -10,6 +10,7 @@ import {
 import type { Database, Transaction } from '../db/client.js';
 import {
   achievementSource,
+  challenges,
   games,
   groupMembers,
   outcomes,
@@ -32,6 +33,7 @@ export interface AchievementAward {
   sourceType: AchievementSource;
   sourceGameId?: string | null;
   sourceGroupId?: string | null;
+  sourceChallengeId?: string | null;
 }
 
 export interface AwardResult {
@@ -65,6 +67,7 @@ export async function awardAchievements(
         sourceType: a.sourceType,
         sourceGameId: a.sourceGameId ?? null,
         sourceGroupId: a.sourceGroupId ?? null,
+        sourceChallengeId: a.sourceChallengeId ?? null,
       })),
     )
     .onConflictDoNothing({ target: [userAchievements.userId, userAchievements.achievementCode] })
@@ -227,12 +230,38 @@ async function visibleSourceGroups(
   return new Set(rows.map((r) => r.id));
 }
 
+/**
+ * Ids among `challengeIds` the viewer may open: challenges they took part in, in tournaments they
+ * can currently read.
+ */
+async function visibleSourceChallenges(
+  db: Database,
+  viewerId: string,
+  challengeIds: readonly string[],
+): Promise<Set<string>> {
+  if (challengeIds.length === 0) return new Set();
+  const rows = await db
+    .select({ id: challenges.id })
+    .from(challenges)
+    .innerJoin(tournaments, eq(challenges.tournamentId, tournaments.id))
+    .where(
+      and(
+        inArray(challenges.id, [...new Set(challengeIds)]),
+        or(eq(challenges.challengerUserId, viewerId), eq(challenges.opponentUserId, viewerId)),
+        visibleTournamentsFilter(viewerId),
+      ),
+    );
+  return new Set(rows.map((r) => r.id));
+}
+
 export interface UnlockView {
   achievement: UserAchievementRow;
   /** Source game id, or null when there is none or the viewer may not see it. */
   visibleSourceGameId: string | null;
   /** Source group id, or null when there is none or the viewer is not a member. */
   visibleSourceGroupId: string | null;
+  /** Source challenge id, or null when there is none or the viewer may not open it. */
+  visibleSourceChallengeId: string | null;
 }
 
 async function withVisibleSources(
@@ -240,7 +269,7 @@ async function withVisibleSources(
   viewerId: string,
   rows: readonly UserAchievementRow[],
 ): Promise<UnlockView[]> {
-  const [visible, visibleGroups] = await Promise.all([
+  const [visible, visibleGroups, visibleChallenges] = await Promise.all([
     visibleSourceGames(
       db,
       viewerId,
@@ -250,6 +279,11 @@ async function withVisibleSources(
       db,
       viewerId,
       rows.flatMap((r) => (r.sourceGroupId ? [r.sourceGroupId] : [])),
+    ),
+    visibleSourceChallenges(
+      db,
+      viewerId,
+      rows.flatMap((r) => (r.sourceChallengeId ? [r.sourceChallengeId] : [])),
     ),
   ]);
   return rows.map((achievement) => ({
@@ -261,6 +295,10 @@ async function withVisibleSources(
     visibleSourceGroupId:
       achievement.sourceGroupId && visibleGroups.has(achievement.sourceGroupId)
         ? achievement.sourceGroupId
+        : null,
+    visibleSourceChallengeId:
+      achievement.sourceChallengeId && visibleChallenges.has(achievement.sourceChallengeId)
+        ? achievement.sourceChallengeId
         : null,
   }));
 }

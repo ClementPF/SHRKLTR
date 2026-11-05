@@ -270,6 +270,73 @@ export const rivalryStats = pgTable(
   ],
 );
 
+export const challengeStatus = pgEnum('challenge_status', [
+  'PENDING',
+  'ACCEPTED',
+  'DECLINED',
+  'COMPLETED',
+  'EXPIRED',
+]);
+
+/**
+ * A challenge between two registered players in one tournament. pair_low/pair_high hold the two
+ * user ids sorted, so the partial unique index allows one active (PENDING/ACCEPTED) challenge per
+ * pair and tournament whichever player issued it.
+ */
+export const challenges = pgTable(
+  'challenges',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tournamentId: uuid('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    challengerUserId: uuid('challenger_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    opponentUserId: uuid('opponent_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    pairLowUserId: uuid('pair_low_user_id').notNull(),
+    pairHighUserId: uuid('pair_high_user_id').notNull(),
+    status: challengeStatus('status').notNull().default('PENDING'),
+    deadlineAt: timestamp('deadline_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    expiringNotifiedAt: timestamp('expiring_notified_at', { withTimezone: true }),
+    // Not unique: one team game can complete several pair challenges.
+    gameId: uuid('game_id').references(() => games.id, { onDelete: 'set null' }),
+    winnerUserId: uuid('winner_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: createdAt(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('challenges_distinct_players_check', sql`${t.challengerUserId} <> ${t.opponentUserId}`),
+    check(
+      'challenges_canonical_pair_check',
+      sql`${t.pairLowUserId} = least(${t.challengerUserId}, ${t.opponentUserId}) and ${t.pairHighUserId} = greatest(${t.challengerUserId}, ${t.opponentUserId})`,
+    ),
+    check('challenges_deadline_check', sql`${t.deadlineAt} > ${t.createdAt}`),
+    check(
+      'challenges_accepted_at_check',
+      sql`${t.status} not in ('ACCEPTED', 'COMPLETED') or ${t.acceptedAt} is not null`,
+    ),
+    check(
+      'challenges_resolved_at_check',
+      sql`(${t.status} in ('PENDING', 'ACCEPTED')) = (${t.resolvedAt} is null)`,
+    ),
+    check(
+      'challenges_completed_winner_check',
+      sql`${t.status} <> 'COMPLETED' or ${t.winnerUserId} is not null`,
+    ),
+    uniqueIndex('challenges_active_pair_unique')
+      .on(t.tournamentId, t.pairLowUserId, t.pairHighUserId)
+      .where(sql`${t.status} in ('PENDING', 'ACCEPTED')`),
+    index('challenges_status_deadline_idx').on(t.status, t.deadlineAt, t.id),
+    index('challenges_challenger_created_idx').on(t.challengerUserId, t.createdAt.desc(), t.id),
+    index('challenges_opponent_created_idx').on(t.opponentUserId, t.createdAt.desc(), t.id),
+  ],
+);
+
 /** One current one-time claim link per placeholder; only the SHA-256 of the token is stored. */
 export const playerClaims = pgTable(
   'player_claims',
@@ -347,6 +414,9 @@ export const notifications = pgTable(
     subjectUserId: uuid('subject_user_id').references(() => users.id, { onDelete: 'set null' }),
     gameId: uuid('game_id').references(() => games.id, { onDelete: 'set null' }),
     groupId: uuid('group_id').references(() => groups.id, { onDelete: 'set null' }),
+    challengeId: uuid('challenge_id').references((): AnyPgColumn => challenges.id, {
+      onDelete: 'set null',
+    }),
     achievementCode: text('achievement_code'),
     createdAt: createdAt(),
     readAt: timestamp('read_at', { withTimezone: true }),
@@ -397,6 +467,9 @@ export const userAchievements = pgTable(
     sourceType: achievementSource('source_type').notNull(),
     sourceGameId: uuid('source_game_id').references(() => games.id, { onDelete: 'set null' }),
     sourceGroupId: uuid('source_group_id').references(() => groups.id, { onDelete: 'set null' }),
+    sourceChallengeId: uuid('source_challenge_id').references((): AnyPgColumn => challenges.id, {
+      onDelete: 'set null',
+    }),
   },
   (t) => [
     primaryKey({ name: 'user_achievements_pk', columns: [t.userId, t.achievementCode] }),

@@ -4,6 +4,7 @@ import { buildApp } from '../src/app.js';
 import { loadConfig, type AppConfig } from '../src/config.js';
 import type { Database } from '../src/db/client.js';
 import {
+  challenges,
   games,
   groupMembers,
   groupPlayers,
@@ -338,6 +339,39 @@ export async function createNotification(
         category: 'claims',
         dedupeKey: `fixture:${n}`,
         ...values,
+      })
+      .returning(),
+  );
+}
+
+type ChallengeInsert = typeof challenges.$inferInsert;
+
+/**
+ * A challenge row inserted directly in any state. createdAt defaults to now and deadlineAt to
+ * seven days later; ACCEPTED/COMPLETED rows get acceptedAt = createdAt and resolved ones
+ * resolvedAt = createdAt unless given.
+ */
+export async function createChallengeRow(
+  db: Database,
+  values: Pick<ChallengeInsert, 'tournamentId' | 'challengerUserId' | 'opponentUserId'> &
+    Partial<ChallengeInsert>,
+) {
+  const status = values.status ?? 'PENDING';
+  const createdAt = values.createdAt ?? new Date();
+  const [pairLowUserId, pairHighUserId] = [values.challengerUserId, values.opponentUserId].sort();
+  return firstRow(
+    await db
+      .insert(challenges)
+      .values({
+        deadlineAt: new Date(createdAt.getTime() + 7 * 24 * 60 * 60 * 1000),
+        acceptedAt: status === 'ACCEPTED' || status === 'COMPLETED' ? createdAt : null,
+        resolvedAt: status === 'PENDING' || status === 'ACCEPTED' ? null : createdAt,
+        updatedAt: createdAt,
+        ...values,
+        status,
+        createdAt,
+        pairLowUserId: pairLowUserId!,
+        pairHighUserId: pairHighUserId!,
       })
       .returning(),
   );

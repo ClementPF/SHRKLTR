@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { count, eq, inArray } from 'drizzle-orm';
+import { and, count, desc, eq, inArray } from 'drizzle-orm';
 import { hashCapabilityToken } from '../lib/capability-token.js';
 import { runAchievementsBackfill } from '../scripts/achievements-backfill.js';
 import { recordGame } from '../services/game.service.js';
@@ -8,6 +8,7 @@ import { hashInviteCode, joinUrlFor } from '../services/group-invite.service.js'
 import { claimUrlFor } from '../services/placeholder.service.js';
 import { createDb, type Database, type Transaction } from './client.js';
 import {
+  challenges,
   games,
   groupInvites,
   groupMembers,
@@ -314,6 +315,214 @@ async function seedNotifications(
     .onConflictDoNothing();
 }
 
+type ChallengeFixtureState = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'COMPLETED' | 'EXPIRED';
+
+interface DemoChallenge {
+  /** Fixed id so reruns find the challenge again. */
+  id: string;
+  state: ChallengeFixtureState;
+  tournament: string;
+  challenger: string;
+  opponent: string;
+  /** Creation time relative to the seed clock (ignored for COMPLETED, which follows its game). */
+  createdHoursAgo: number;
+  /** Deadline relative to creation. */
+  durationHours: number;
+}
+
+/**
+ * One challenge per lifecycle state around dev-alex (sent and received), plus a pending one in
+ * the Shark Tank group's private tournament. Active deadlines stay well beyond the 24-hour
+ * reminder window of a fresh seed.
+ */
+export const DEMO_CHALLENGES: readonly DemoChallenge[] = [
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000101',
+    state: 'PENDING',
+    tournament: 'Office Babyfoot',
+    challenger: 'dev-morgan',
+    opponent: 'dev-alex',
+    createdHoursAgo: 2,
+    durationHours: 5 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000102',
+    state: 'ACCEPTED',
+    tournament: 'Chess Club',
+    challenger: 'dev-alex',
+    opponent: 'dev-jordan',
+    createdHoursAgo: 24,
+    durationHours: 7 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000103',
+    state: 'DECLINED',
+    tournament: 'Lunch Darts',
+    challenger: 'dev-alex',
+    opponent: 'dev-morgan',
+    createdHoursAgo: 72,
+    durationHours: 7 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000104',
+    state: 'COMPLETED',
+    tournament: 'Office Babyfoot',
+    challenger: 'dev-sam',
+    opponent: 'dev-alex',
+    createdHoursAgo: 0,
+    durationHours: 7 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000105',
+    state: 'EXPIRED',
+    tournament: 'Friday Ping Pong',
+    challenger: 'dev-taylor',
+    opponent: 'dev-alex',
+    createdHoursAgo: 10 * 24,
+    durationHours: 3 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000106',
+    state: 'PENDING',
+    tournament: 'Shark Tank Cup',
+    challenger: 'dev-alex',
+    opponent: 'dev-sam',
+    createdHoursAgo: 1,
+    durationHours: 3 * 24,
+  },
+];
+
+/**
+ * Demo challenges with their inbox events, inserted directly (no push, no badge). The COMPLETED
+ * fixture is linked to the latest demo game its players played on opposite teams, with the
+ * challenge created and accepted shortly before that game. Rows that already exist, or would
+ * collide with an active challenge created while testing, are left alone.
+ */
+async function seedChallenges(
+  tx: Transaction,
+  userIds: Map<string, string>,
+  now: Date,
+): Promise<void> {
+  const hoursBefore = (base: Date, hours: number) => new Date(base.getTime() - hours * 3_600_000);
+  const rows: (typeof challenges.$inferInsert)[] = [];
+  for (const demo of DEMO_CHALLENGES) {
+    const challengerUserId = requireId(userIds, demo.challenger);
+    const opponentUserId = requireId(userIds, demo.opponent);
+    const [tournament] = await tx
+      .select({ id: tournaments.id })
+      .from(tournaments)
+      .where(eq(tournaments.name, tournamentSlug(demo.tournament)));
+    if (!tournament) throw new Error(`tournament ${demo.tournament} missing`);
+    const [pairLowUserId, pairHighUserId] = [challengerUserId, opponentUserId].sort() as [
+      string,
+      string,
+    ];
+    const base = { id: demo.id, tournamentId: tournament.id, challengerUserId, opponentUserId };
+    if (demo.state === 'COMPLETED') {
+      const winners = await tx
+        .select({ gameId: outcomes.gameId, userId: outcomes.userId, date: games.date })
+        .from(outcomes)
+        .innerJoin(games, eq(outcomes.gameId, games.id))
+        .where(
+          and(
+            eq(games.tournamentId, tournament.id),
+            eq(outcomes.result, 'WIN'),
+            inArray(outcomes.userId, [challengerUserId, opponentUserId]),
+          ),
+        )
+        .orderBy(desc(games.date));
+      let linked: { gameId: string; userId: string; date: Date } | undefined;
+      for (const win of winners) {
+        const otherId = win.userId === challengerUserId ? opponentUserId : challengerUserId;
+        const [lost] = await tx
+          .select({ n: count() })
+          .from(outcomes)
+          .where(
+            and(
+              eq(outcomes.gameId, win.gameId),
+              eq(outcomes.userId, otherId),
+              eq(outcomes.result, 'LOSS'),
+            ),
+          );
+        if ((lost?.n ?? 0) > 0) {
+          linked = win;
+          break;
+        }
+      }
+      if (!linked) continue;
+      const createdAt = hoursBefore(linked.date, 10);
+      rows.push({
+        ...base,
+        pairLowUserId,
+        pairHighUserId,
+        status: 'COMPLETED',
+        createdAt,
+        updatedAt: linked.date,
+        acceptedAt: hoursBefore(linked.date, 8),
+        deadlineAt: new Date(createdAt.getTime() + demo.durationHours * 3_600_000),
+        resolvedAt: linked.date,
+        gameId: linked.gameId,
+        winnerUserId: linked.userId,
+      });
+      continue;
+    }
+    const createdAt = hoursBefore(now, demo.createdHoursAgo);
+    const deadlineAt = new Date(createdAt.getTime() + demo.durationHours * 3_600_000);
+    const answeredAt = new Date(createdAt.getTime() + 3_600_000);
+    rows.push({
+      ...base,
+      pairLowUserId,
+      pairHighUserId,
+      status: demo.state,
+      createdAt,
+      updatedAt: createdAt,
+      deadlineAt,
+      acceptedAt: demo.state === 'ACCEPTED' ? answeredAt : null,
+      resolvedAt:
+        demo.state === 'DECLINED' ? answeredAt : demo.state === 'EXPIRED' ? deadlineAt : null,
+    });
+  }
+  if (rows.length === 0) return;
+  const inserted = await tx.insert(challenges).values(rows).onConflictDoNothing().returning();
+
+  const readBefore = now.getTime() - READ_AFTER_HOURS * 3_600_000;
+  const event = (
+    challenge: (typeof inserted)[number],
+    type: 'challenge_received' | 'challenge_accepted' | 'challenge_declined' | 'challenge_expired',
+    recipientUserId: string,
+    createdAt: Date,
+  ) => {
+    const other =
+      recipientUserId === challenge.challengerUserId
+        ? challenge.opponentUserId
+        : challenge.challengerUserId;
+    return {
+      recipientUserId,
+      type,
+      category: NOTIFICATION_CATEGORY_BY_TYPE[type],
+      dedupeKey: `${type}:${challenge.id}`,
+      actorUserId: type === 'challenge_expired' ? null : other,
+      subjectUserId: other,
+      challengeId: challenge.id,
+      createdAt,
+      readAt: createdAt.getTime() < readBefore ? new Date(createdAt.getTime() + 3_600_000) : null,
+    };
+  };
+  const events = inserted.flatMap((c) => {
+    const list = [event(c, 'challenge_received', c.opponentUserId, c.createdAt)];
+    if (c.acceptedAt) list.push(event(c, 'challenge_accepted', c.challengerUserId, c.acceptedAt));
+    if (c.status === 'DECLINED' && c.resolvedAt) {
+      list.push(event(c, 'challenge_declined', c.challengerUserId, c.resolvedAt));
+    }
+    if (c.status === 'EXPIRED' && c.resolvedAt) {
+      list.push(event(c, 'challenge_expired', c.challengerUserId, c.resolvedAt));
+      list.push(event(c, 'challenge_expired', c.opponentUserId, c.resolvedAt));
+    }
+    return list;
+  });
+  if (events.length > 0) await tx.insert(notifications).values(events).onConflictDoNothing();
+}
+
 export interface SeedSummary {
   users: number;
   sports: number;
@@ -539,6 +748,7 @@ function seedFixtures(db: Database, now: Date): Promise<Omit<SeedSummary, 'achie
 
     const placeholders = await seedPlaceholders(tx, userIds, now);
     await seedNotifications(tx, userIds, now);
+    await seedChallenges(tx, userIds, now);
 
     return {
       users: userRows.length,

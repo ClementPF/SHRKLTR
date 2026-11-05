@@ -262,6 +262,8 @@ export interface AchievementSource {
   gameId: string | null;
   /** Null when there is none or the viewer is not a member. */
   groupId?: string | null;
+  /** Null when there is none or the viewer cannot open that challenge. */
+  challengeId?: string | null;
 }
 
 /** GET /users/:username/achievements entry: the catalog with this user's unlock state. */
