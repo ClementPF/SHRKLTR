@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { outcomes, stats } from '../src/db/schema.js';
 import {
@@ -86,10 +86,10 @@ describe('GET /games/:id and outcome rating snapshots', () => {
 
   const scoreOf = async (user: UserRow, t: TournamentRow = tournament) => {
     const [row] = await app.db
-      .select({ score: stats.score, tournamentId: stats.tournamentId })
+      .select({ score: stats.score })
       .from(stats)
-      .where(eq(stats.userId, user.id));
-    return row && row.tournamentId === t.id ? row.score : 1000;
+      .where(and(eq(stats.userId, user.id), eq(stats.tournamentId, t.id)));
+    return row ? row.score : 1000;
   };
 
   it('requires authentication → 401', async () => {
