@@ -1,5 +1,6 @@
 import { api } from './client';
 import type {
+  AchievementUnlock,
   AppInvite,
   AppInvitePreview,
   ClaimPreview,
@@ -136,3 +137,5 @@ export const unregisterPushDevice = (installationId: string) =>
 // Achievements
 export const getUserAchievements = (username: string) =>
   api.get<UserAchievement[]>(`/users/${seg(username)}/achievements`);
+export const getRecentAchievements = (params: PageParams = {}) =>
+  api.get<AchievementUnlock[]>('/achievements/recent', { query: { ...params } });

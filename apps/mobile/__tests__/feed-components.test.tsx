@@ -206,6 +206,7 @@ describe('ProfileScreen (tournament user detail)', () => {
     ]);
     api.getUserGames.mockResolvedValue([game]);
     api.getUser.mockResolvedValue(user('dev-sam'));
+    api.getUserAchievements.mockResolvedValue([]);
   });
 
   async function renderDetail() {

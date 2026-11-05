@@ -275,6 +275,7 @@ describe('placeholder labels', () => {
     api.getUserRivalries.mockResolvedValue([]);
     api.getUserGames.mockResolvedValue([game]);
     api.getUser.mockResolvedValue(person('guest-riley', 'PLACEHOLDER'));
+    api.getUserAchievements.mockResolvedValue([]);
 
     await renderWithClient(<ProfileScreen username="guest-riley" viewer="dev-alex" />);
     expect(await screen.findByTestId('user-tile-unclaimed')).toBeTruthy();

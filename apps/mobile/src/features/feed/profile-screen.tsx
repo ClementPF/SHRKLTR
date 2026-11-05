@@ -5,6 +5,8 @@ import type { Stats } from '@/api/types';
 import { showAlert } from '@/components/dropdown-alert';
 import { CenteredLoading, EmptyState, ListFooter, SectionTitle } from '@/components/list-parts';
 import { UserTile } from '@/components/user-tile';
+import { BadgeStrip } from '@/features/achievements/badge-strip';
+import { useUserAchievements } from '@/features/achievements/queries';
 import {
   DETAIL_PAGE_SIZE,
   challengeFailureMessage,
@@ -47,6 +49,7 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const rivalries = useUserRivalries(username, tournamentName);
   const games = useUserGames(username, { tournamentName, pageSize: DETAIL_PAGE_SIZE });
   const profile = useUser(username);
+  const badges = useUserAchievements(username);
   const challenge = useChallenge(username);
   const [challenged, setChallenged] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -97,6 +100,7 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
             />
           ),
         },
+        { kind: 'node', key: 'badge-strip', node: <BadgeStrip username={username} /> },
       ],
     },
     { title: 'STATS', data: statsItems(statsList, tournamentName ? undefined : 'user') },
@@ -119,7 +123,7 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([stats.refetch(), rivalries.refetch(), games.refetch()]);
+      await Promise.all([stats.refetch(), rivalries.refetch(), games.refetch(), badges.refetch()]);
     } finally {
       setRefreshing(false);
     }
@@ -136,6 +140,8 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
           section.title ? <SectionTitle title={section.title} /> : null
         }
         stickySectionHeadersEnabled={false}
+        // Covers the tile, badge strip, stats and both rivalry charts on the first render pass.
+        initialNumToRender={15}
         contentContainerStyle={styles.content}
         ItemSeparatorComponent={Separator}
         refreshControl={

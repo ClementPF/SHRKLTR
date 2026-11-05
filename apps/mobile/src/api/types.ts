@@ -258,3 +258,11 @@ export interface UserAchievement extends Achievement {
   /** Null while locked. */
   source: AchievementSource | null;
 }
+
+/** GET /achievements/recent entry: one of the signed-in user's own unlocks. */
+export interface AchievementUnlock {
+  user: User;
+  achievement: Achievement;
+  unlockedAt: string;
+  source: AchievementSource;
+}
