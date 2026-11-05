@@ -51,6 +51,19 @@ CI=true npx expo start --port 8081   # web at http://localhost:8081, Expo Go via
 The first web compile takes 1-3 minutes. Drop `CI=true` to get the interactive terminal with
 the Expo Go QR code. Restart with `--clear` after changing `apps/mobile/.env`.
 
+## Add the web app to your home screen
+
+On iPhone, open the deployed HTTPS site in Safari, then choose **Share → Add to Home Screen**.
+Keep **Open as Web App** enabled if Safari offers it. Launching the saved icon opens Sharkulator
+without the browser address bar or bottom toolbar; the system status bar remains visible.
+Android browsers can install it using **Install app** or **Add to Home screen**.
+
+The single-page HTML template, standalone manifest, and home-screen icons live in `public/`.
+The layout uses the device safe areas to keep navigation clear of the notch and home indicator.
+After deploying changes to the install metadata or icons, remove any old home-screen shortcut
+and add it again, since iOS can cache those details. Rebuild the web image to deploy these files.
+This does not add offline support.
+
 ## Expo Go on a physical device
 
 Expo Go loads the JavaScript bundle from the Mac's dev server. The iPhone and the Mac must be on
