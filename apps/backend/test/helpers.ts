@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { buildApp } from '../src/app.js';
 import { loadConfig, type AppConfig } from '../src/config.js';
 import type { Database } from '../src/db/client.js';
@@ -12,6 +12,7 @@ import {
   sports,
   stats,
   tournaments,
+  userAchievements,
   users,
 } from '../src/db/schema.js';
 import { generateCapabilityToken, hashCapabilityToken } from '../src/lib/capability-token.js';
@@ -206,6 +207,60 @@ export async function createGameRow(db: Database, input: GameRowInput) {
   });
 }
 
+export interface HistoryInput {
+  tournamentId: string;
+  userId: string;
+  opponentId: string;
+  /** Results of `userId`, oldest first; the opponent gets the opposite result. */
+  results: readonly ('WIN' | 'LOSS')[];
+  /** Date of the first game; later games are one minute apart. */
+  start?: Date;
+}
+
+/**
+ * Bulk-inserts historical 1v1 games without ratings, stats or rivalries (like games recorded
+ * before rating snapshots existed). Returns the games oldest first.
+ */
+export async function playHistory(db: Database, input: HistoryInput) {
+  if (input.results.length === 0) return [];
+  const start = input.start ?? new Date('2026-01-01T00:00:00Z');
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .insert(games)
+      .values(
+        input.results.map((_, i) => ({
+          tournamentId: input.tournamentId,
+          date: new Date(start.getTime() + i * 60_000),
+        })),
+      )
+      .returning();
+    const ordered = [...rows].sort((a, b) => a.date.getTime() - b.date.getTime());
+    await tx.insert(outcomes).values(
+      ordered.flatMap((game, i) => {
+        const result = input.results[i]!;
+        return [
+          { gameId: game.id, userId: input.userId, result, scoreValue: 0 },
+          {
+            gameId: game.id,
+            userId: input.opponentId,
+            result: result === 'WIN' ? ('LOSS' as const) : ('WIN' as const),
+            scoreValue: 0,
+          },
+        ];
+      }),
+    );
+    return ordered;
+  });
+}
+
+/** Achievement codes the user has unlocked, sorted. */
+export async function achievementCodesOf(db: Database, userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ code: userAchievements.achievementCode })
+    .from(userAchievements)
+    .where(eq(userAchievements.userId, userId));
+  return rows.map((r) => r.code).sort();
+}
 /** Valid-looking Expo push token derived from a label (never a real device). */
 export const expoTokenOf = (label: string) => `ExponentPushToken[${label}]`;
 

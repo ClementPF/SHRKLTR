@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { count, eq, inArray } from 'drizzle-orm';
 import { hashCapabilityToken } from '../lib/capability-token.js';
+import { runAchievementsBackfill } from '../scripts/achievements-backfill.js';
 import { recordGame } from '../services/game.service.js';
 import { NOTIFICATION_CATEGORY_BY_TYPE } from '../services/notification.service.js';
 import { claimUrlFor } from '../services/placeholder.service.js';
@@ -258,6 +259,7 @@ export interface SeedSummary {
   tournamentsWithNewGames: number;
   placeholders: number;
   placeholderGamesAdded: number;
+  achievementsAwarded: number;
 }
 
 /**
@@ -344,9 +346,17 @@ async function seedPlaceholders(
 
 /**
  * Idempotent: rows are keyed by their unique natural keys (username, sport name, tournament
- * slug), and a tournament only receives demo games while it has none.
+ * slug), and a tournament only receives demo games while it has none. Badges earned by the
+ * demo history come from the silent achievements backfill (no inbox rows, no push).
  */
 export async function runSeed(db: Database, now: Date = new Date()): Promise<SeedSummary> {
+  const summary = await seedFixtures(db, now);
+  const backfill = await runAchievementsBackfill(db, { dryRun: false, now });
+  const achievementsAwarded = Object.values(backfill.awards).reduce((n, v) => n + v, 0);
+  return { ...summary, achievementsAwarded };
+}
+
+function seedFixtures(db: Database, now: Date): Promise<Omit<SeedSummary, 'achievementsAwarded'>> {
   return db.transaction(async (tx) => {
     await tx
       .insert(users)
@@ -441,7 +451,8 @@ async function main(): Promise<void> {
     console.log(
       `Seed complete: ${summary.users} demo users, ${summary.sports} sports, ` +
         `${summary.tournaments} tournaments (${summary.tournamentsWithNewGames} received demo games), ` +
-        `${summary.placeholders} invited players (${summary.placeholderGamesAdded} new placeholder games).`,
+        `${summary.placeholders} invited players (${summary.placeholderGamesAdded} new placeholder games), ` +
+        `${summary.achievementsAwarded} historical badges backfilled.`,
     );
     const webUrl = (process.env.PUBLIC_WEB_URL ?? 'http://localhost:8081').replace(/\/+$/, '');
     console.log(

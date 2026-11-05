@@ -7,6 +7,7 @@ import { playerClaims, users } from '../db/schema.js';
 import { hashCapabilityToken } from '../lib/capability-token.js';
 import { isUniqueViolation } from '../lib/db-errors.js';
 import { ApiError } from '../lib/errors.js';
+import { awardAchievements } from './achievement.service.js';
 import { notifyPlaceholderClaimed } from './notification.service.js';
 import {
   deriveUsernameBase,
@@ -172,10 +173,14 @@ export async function signInWithGoogle(
           }
           const claimed = await claimPlaceholder(tx, identity, opts.claimToken, opts.now);
           user = claimed.user;
-          notificationIds = await notifyPlaceholderClaimed(tx, {
+          const claimNotifications = await notifyPlaceholderClaimed(tx, {
             creatorId: claimed.creatorId,
             claimedUserId: user.id,
           });
+          const badges = await awardAchievements(tx, [
+            { userId: claimed.creatorId, code: 'invited_player_claimed', sourceType: 'CLAIM' },
+          ]);
+          notificationIds = [...claimNotifications, ...badges.notificationIds];
         } else if (existing) {
           user = await refreshProfile(tx, existing.id, identity);
         } else {

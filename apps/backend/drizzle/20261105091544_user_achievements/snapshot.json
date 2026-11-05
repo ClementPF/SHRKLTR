@@ -1,0 +1,324 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "a1a0edfb-70f9-4602-be3e-68463a0c2609",
+  "prevIds": [
+    "b422ed77-1709-4998-ae87-b198b21dd3c7"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": [
+        "enum",
+        "public",
+        "achievement_source"
+      ],
+      "writes": [
+        "s|enum|public.achievement_source",
+        "n|enum|public.achievement_source",
+        "e|enum|public.achievement_source",
+        "n|type|public.achievement_source"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "user_achievements"
+      ],
+      "writes": [
+        "s|tbl|public.user_achievements",
+        "n|tbl|public.user_achievements",
+        "e|tbl|public.user_achievements",
+        "n|rel|public.user_achievements",
+        "n|type|public.user_achievements",
+        "n|rel|public.user_achievements_pk"
+      ],
+      "reads": [
+        "n|sch|public",
+        "n|enum|public.achievement_source"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "user_achievements",
+        "user_achievements_user_unlocked_idx"
+      ],
+      "writes": [
+        "s|idx|public.user_achievements_user_unlocked_idx",
+        "n|idx|public.user_achievements_user_unlocked_idx",
+        "e|idx|public.user_achievements_user_unlocked_idx",
+        "n|rel|public.user_achievements_user_unlocked_idx"
+      ],
+      "reads": [
+        "n|tbl|public.user_achievements",
+        "n|sch|public",
+        "n|col|public.user_achievements.user_id",
+        "n|col|public.user_achievements.unlocked_at",
+        "n|col|public.user_achievements.achievement_code"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "user_achievements"
+      ],
+      "writes": [
+        "s|fk|public.user_achievements.user_achievements_user_id_users_id_fkey",
+        "n|fk|public.user_achievements.user_achievements_user_id_users_id_fkey",
+        "e|fk|public.user_achievements.user_achievements_user_id_users_id_fkey",
+        "n|con|public.user_achievements.user_achievements_user_id_users_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.user_achievements",
+        "n|sch|public",
+        "n|tbl|public.users",
+        "n|sch|public",
+        "n|col|public.user_achievements.user_id",
+        "n|col|public.users.id",
+        "e|uniqueness|public.users.id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "user_achievements"
+      ],
+      "writes": [
+        "s|fk|public.user_achievements.user_achievements_source_game_id_games_id_fkey",
+        "n|fk|public.user_achievements.user_achievements_source_game_id_games_id_fkey",
+        "e|fk|public.user_achievements.user_achievements_source_game_id_games_id_fkey",
+        "n|con|public.user_achievements.user_achievements_source_game_id_games_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.user_achievements",
+        "n|sch|public",
+        "n|tbl|public.games",
+        "n|sch|public",
+        "n|col|public.user_achievements.source_game_id",
+        "n|col|public.games.id",
+        "e|uniqueness|public.games.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "user_achievements",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "achievement_source",
+        "values": [
+          "GAME",
+          "CHALLENGE",
+          "GROUP",
+          "CLAIM",
+          "BACKFILL"
+        ],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "user_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "achievement_code",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "unlocked_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "source_type",
+        "type": "achievement_source",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "source_game_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "user_achievements_user_unlocked_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "user_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "unlocked_at",
+            "isExpression": false,
+            "asc": false,
+            "nullsFirst": false,
+            "opclass": null
+          },
+          {
+            "value": "achievement_code",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": false,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "user_achievements_user_id_users_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "user_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "users",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "user_achievements_source_game_id_games_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "source_game_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "games",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "SET NULL",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "user_achievements_pk",
+        "columns": [
+          "user_id",
+          "achievement_code"
+        ],
+        "nameExplicit": true,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "user_achievements",
+        "name": "user_achievements_code_check",
+        "value": "achievement_code in ('first_win', 'win_streak_3', 'win_streak_5', 'win_streak_10', 'games_10', 'games_50', 'games_100', 'giant_killer', 'explorer_3', 'explorer_5', 'first_challenge_won', 'first_group_joined', 'invited_player_claimed')",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

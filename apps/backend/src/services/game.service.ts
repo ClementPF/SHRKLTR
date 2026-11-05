@@ -10,6 +10,7 @@ import {
   refreshRivalrySelection,
   type ParticipantResult,
 } from './stats.service.js';
+import { evaluateGameAchievements, lockAchievementOwners } from './achievement.service.js';
 import { notifyGameRecorded } from './notification.service.js';
 import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
 
@@ -122,9 +123,10 @@ export interface SubmittedGame {
 }
 
 /**
- * Records a game submitted by one of its losers. The game, its outcomes and every participant's
- * game_recorded inbox row are written in a single transaction; outcome scoreValues are the Elo
- * deltas from current tournament ratings.
+ * Records a game submitted by one of its losers. The game, its outcomes, the badges it unlocks
+ * and every inbox row (game_recorded for each participant, achievement_unlocked per new badge)
+ * are written in a single transaction; outcome scoreValues are the Elo deltas from current
+ * tournament ratings.
  */
 export async function submitGame(db: Database, input: SubmitGameInput): Promise<SubmittedGame> {
   const tournament = await findTournamentByName(db, input.tournamentName);
@@ -152,13 +154,19 @@ export async function submitGame(db: Database, input: SubmitGameInput): Promise<
     return { userId: user.id, result: o.result };
   });
   const { gameId, notificationIds } = await db.transaction(async (tx) => {
+    const participantIds = participants.map((p) => p.userId);
+    await lockAchievementOwners(tx, participantIds);
     const recorded = await recordGame(tx, { tournamentId: tournament.tournament.id, participants });
-    const inserted = await notifyGameRecorded(tx, {
+    const gameNotifications = await notifyGameRecorded(tx, {
       gameId: recorded,
       submitterId: input.callerId,
-      participantIds: participants.map((p) => p.userId),
+      participantIds,
     });
-    return { gameId: recorded, notificationIds: inserted };
+    const badges = await evaluateGameAchievements(tx, recorded);
+    return {
+      gameId: recorded,
+      notificationIds: [...gameNotifications, ...badges.notificationIds],
+    };
   });
 
   const [game] = await db.select().from(games).where(eq(games.id, gameId)).limit(1);

@@ -91,6 +91,9 @@ describe('API docs', () => {
         '/notifications/unread-count',
         '/notifications/{id}/read',
         '/notifications/read-all',
+        '/achievements',
+        '/achievements/recent',
+        '/users/{username}/achievements',
         '/users/{username}/challenge',
         '/sports',
         '/tournaments',
@@ -171,6 +174,10 @@ describe('API docs', () => {
       'UpdateNotificationPreferencesRequest',
       'RegisterPushDeviceRequest',
       'UnreadCount',
+      'Achievement',
+      'AchievementSource',
+      'UserAchievement',
+      'AchievementUnlock',
     ]) {
       expect(doc.components.schemas[schema]).toBeDefined();
     }
@@ -190,7 +197,14 @@ describe('API docs', () => {
         'players',
         'invites',
         'notifications',
+        'achievements',
       ]),
     );
+    expect(doc.components.schemas.Achievement.properties.code.enum).toContain('giant_killer');
+    expect(
+      doc.paths['/users/{username}/achievements'].get.responses['200'].content['application/json']
+        .schema.items.$ref,
+    ).toBe('#/components/schemas/UserAchievement');
+    expect(doc.paths['/achievements/recent'].get.security).toEqual([{ bearerAuth: [] }]);
   });
 });

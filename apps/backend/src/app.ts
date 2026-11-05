@@ -19,6 +19,7 @@ import { createGoogleVerifier } from './auth/google.verify.js';
 import { registerJwt } from './auth/jwt.js';
 import { authGuard } from './auth/guard.js';
 import { createPushNotifier, type PushNotifier } from './services/push.service.js';
+import { achievementRoutes } from './routes/achievements.routes.js';
 import { notificationRoutes } from './routes/notifications.routes.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { gameRoutes } from './routes/games.routes.js';
@@ -138,6 +139,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   await app.register(playerRoutes);
   await app.register(inviteRoutes);
   await app.register(notificationRoutes);
+  await app.register(achievementRoutes);
 
   return app;
 }

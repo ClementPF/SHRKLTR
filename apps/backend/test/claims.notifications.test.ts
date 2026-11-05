@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { notifications } from '../src/db/schema.js';
 import { startTestGoogleJwks, type TestGoogleJwks } from './google-jwks.js';
@@ -68,7 +68,13 @@ describe('placeholder_claimed notification (VAL-NOTIF-007)', () => {
       },
     });
 
-  const all = () => app.db.select().from(notifications);
+  // The creator's invited_player_claimed badge notification is covered by achievements tests.
+  const all = () =>
+    app.db.select().from(notifications).where(eq(notifications.type, 'placeholder_claimed'));
+  const claimMessages = () =>
+    collector
+      .messages()
+      .filter((m) => (m.data as { target?: { type?: string } }).target?.type === 'user');
 
   it('notifies the creator once, targeting the retained claimed identity, and pushes it', async () => {
     const res = await signIn('brand-new-sub', claimToken);
@@ -90,7 +96,10 @@ describe('placeholder_claimed notification (VAL-NOTIF-007)', () => {
       url: '/notifications',
       headers: await authHeadersFor(app, creator.id),
     });
-    expect(inbox.json()).toEqual([
+    const claimRows = inbox
+      .json()
+      .filter((n: { type: string }) => n.type !== 'achievement_unlocked');
+    expect(claimRows).toEqual([
       expect.objectContaining({
         type: 'placeholder_claimed',
         category: 'claims',
@@ -98,15 +107,14 @@ describe('placeholder_claimed notification (VAL-NOTIF-007)', () => {
         target: { type: 'user', username: 'riley' },
       }),
     ]);
-    expect(inbox.json()[0].body).toContain('claimed their player profile');
-    expect(inbox.json()[0].body).not.toContain(claimToken);
+    expect(claimRows[0].body).toContain('claimed their player profile');
+    expect(claimRows[0].body).not.toContain(claimToken);
 
-    const messages = collector.messages();
-    expect(messages).toEqual([
+    expect(claimMessages()).toEqual([
       {
         to: expoTokenOf('alex-phone'),
         title: 'Invite accepted',
-        body: inbox.json()[0].body,
+        body: claimRows[0].body,
         sound: 'default',
         data: { notificationId: rows[0]!.id, target: { type: 'user', username: 'riley' } },
       },
@@ -139,7 +147,7 @@ describe('placeholder_claimed notification (VAL-NOTIF-007)', () => {
     expect(again.statusCode).toBe(400);
     expect(again.json().error.code).toBe('CLAIM_INVALID');
     expect(await all()).toHaveLength(1);
-    expect(collector.messages()).toHaveLength(1);
+    expect(claimMessages()).toHaveLength(1);
   });
 
   it('ordinary sign-in creates no claim notification', async () => {
@@ -163,8 +171,18 @@ describe('placeholder_claimed notification (VAL-NOTIF-007)', () => {
       await app.db
         .select()
         .from(notifications)
-        .where(eq(notifications.recipientUserId, creator.id)),
+        .where(
+          and(
+            eq(notifications.recipientUserId, creator.id),
+            eq(notifications.type, 'placeholder_claimed'),
+          ),
+        ),
     ).toHaveLength(1);
-    expect(collector.received).toHaveLength(0);
+    expect(claimMessages()).toHaveLength(0);
+    // The achievements category is still enabled, so the creator's badge is pushed.
+    expect(collector.messages()).toHaveLength(1);
+    expect(collector.messages()[0]?.data).toMatchObject({
+      target: { type: 'achievements', username: 'alex' },
+    });
   });
 });

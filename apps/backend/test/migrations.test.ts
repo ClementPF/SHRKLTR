@@ -26,7 +26,7 @@ describe('committed migrations', () => {
     await db.$client.end({ timeout: 5 });
   });
 
-  it('create all 13 tables', async () => {
+  it('create all 14 tables', async () => {
     const rows = await db.execute<{ tablename: string }>(
       sql`select tablename from pg_tables where schemaname = 'public' order by tablename`,
     );
@@ -43,6 +43,7 @@ describe('committed migrations', () => {
       'sports',
       'stats',
       'tournaments',
+      'user_achievements',
       'users',
     ]);
   });
@@ -199,6 +200,74 @@ describe('committed migrations', () => {
     expect(legacyColumn).toHaveLength(0);
   });
 
+  it('add user_achievements with insert-once key, code check, index and FK behaviour', async () => {
+    const enumRows = await db.execute<{ label: string }>(
+      sql`select e.enumlabel as label from pg_enum e join pg_type t on t.oid = e.enumtypid
+          where t.typname = 'achievement_source' order by e.enumsortorder`,
+    );
+    expect(enumRows.map((r) => r.label)).toEqual([
+      'GAME',
+      'CHALLENGE',
+      'GROUP',
+      'CLAIM',
+      'BACKFILL',
+    ]);
+
+    const indexes = await db.execute<{ indexname: string; indexdef: string }>(
+      sql`select indexname, indexdef from pg_indexes where schemaname = 'public'`,
+    );
+    const defs = new Map(indexes.map((r) => [r.indexname, r.indexdef]));
+    expect(defs.get('user_achievements_pk')).toContain(
+      'UNIQUE INDEX user_achievements_pk ON public.user_achievements USING btree (user_id, achievement_code)',
+    );
+    expect(defs.get('user_achievements_user_unlocked_idx')).toContain(
+      '(user_id, unlocked_at DESC NULLS LAST, achievement_code)',
+    );
+
+    const fks = await db.execute<{ column: string; on_delete: string }>(
+      sql`select kcu.column_name as column, rc.delete_rule as on_delete
+          from information_schema.referential_constraints rc
+          join information_schema.key_column_usage kcu on kcu.constraint_name = rc.constraint_name
+          where kcu.table_name = 'user_achievements' order by kcu.column_name`,
+    );
+    expect(fks).toEqual([
+      { column: 'source_game_id', on_delete: 'SET NULL' },
+      { column: 'user_id', on_delete: 'CASCADE' },
+    ]);
+
+    await db.execute(sql`
+      insert into users (id, google_sub, username)
+      values ('00000000-0000-4000-8000-0000000000a1', 'badge-sub', 'badge-owner')`);
+    await db.execute(sql`
+      insert into user_achievements (user_id, achievement_code, source_type)
+      values ('00000000-0000-4000-8000-0000000000a1', 'first_win', 'GAME')`);
+    const duplicate = await db
+      .execute(
+        sql`insert into user_achievements (user_id, achievement_code, source_type)
+            values ('00000000-0000-4000-8000-0000000000a1', 'first_win', 'BACKFILL')`,
+      )
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(duplicate).not.toBeNull();
+    const unknownCode = await db
+      .execute(
+        sql`insert into user_achievements (user_id, achievement_code, source_type)
+            values ('00000000-0000-4000-8000-0000000000a1', 'made_up', 'GAME')`,
+      )
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(isCheckViolation(unknownCode, 'user_achievements_code_check')).toBe(true);
+    await db.execute(sql`delete from users where id = '00000000-0000-4000-8000-0000000000a1'`);
+    const left = await db.execute(
+      sql`select 1 from user_achievements where user_id = '00000000-0000-4000-8000-0000000000a1'`,
+    );
+    expect(left).toHaveLength(0);
+  });
+
   it('keep the legacy longuest_* column spelling', async () => {
     const rows = await db.execute<{ column_name: string }>(
       sql`select column_name from information_schema.columns
@@ -252,7 +321,7 @@ describe('boot-time migrator (runMigrations)', () => {
     await runMigrations(scratchUrl);
     const { names, tables } = await journal(scratchUrl);
     expect(names).toEqual(migrationFolders.map((d) => d.name).sort());
-    expect(tables).toBe(13);
+    expect(tables).toBe(14);
   });
 
   it('is a no-op when every migration is already applied', async () => {
@@ -549,9 +618,11 @@ describe('legacy push tokens on a populated baseline (VAL-NOTIF-012)', () => {
       });
       await app.push.drain();
       expect(res.statusCode).toBe(201);
+      // Winners' first_win pushes are covered by the achievements tests.
       expect(
         collector
           .messages()
+          .filter((m) => (m.data as { target?: { type?: string } }).target?.type === 'game')
           .map((m) => m.to)
           .sort(),
       ).toEqual(['ExponentPushToken[alice]', 'ExponentPushToken[shared]']);

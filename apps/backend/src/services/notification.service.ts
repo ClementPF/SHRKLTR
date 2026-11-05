@@ -11,6 +11,7 @@ import {
   tournaments,
   users,
 } from '../db/schema.js';
+import { findAchievement } from '../achievements/catalog.js';
 import { ApiError } from '../lib/errors.js';
 import type { PageWindow } from '../lib/pagination.js';
 import { visibleTournamentsFilter } from './visibility.service.js';
@@ -213,13 +214,15 @@ function render(
             target: { type: 'user', username: subject.username },
           }
         : { ...base, title: 'Invite accepted', body: 'A player you invited joined.', target: null };
-    case 'achievement_unlocked':
+    case 'achievement_unlocked': {
+      const achievement = findAchievement(notification.achievementCode ?? '');
       return {
         ...base,
-        title: 'Achievement unlocked',
-        body: notification.achievementCode ?? 'You unlocked a new badge.',
+        title: achievement ? `Achievement unlocked: ${achievement.title}` : 'Achievement unlocked',
+        body: achievement?.description ?? 'You unlocked a new badge.',
         target: { type: 'achievements', username: recipient.username },
       };
+    }
     case 'challenge_received':
     case 'challenge_accepted':
     case 'challenge_declined':

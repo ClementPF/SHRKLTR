@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { ACHIEVEMENT_CODES } from '../achievements/catalog.js';
 import {
   boolean,
   check,
@@ -7,6 +8,7 @@ import {
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -285,6 +287,40 @@ export const notificationPreferences = pgTable('notification_preferences', {
   groupsEnabled: boolean('groups_enabled').notNull().default(true),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const achievementSource = pgEnum('achievement_source', [
+  'GAME',
+  'CHALLENGE',
+  'GROUP',
+  'CLAIM',
+  'BACKFILL',
+]);
+
+/** Badges earned once per user and code; they survive deletion of whatever earned them. */
+export const userAchievements = pgTable(
+  'user_achievements',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    achievementCode: text('achievement_code').notNull(),
+    unlockedAt: timestamp('unlocked_at', { withTimezone: true }).notNull().defaultNow(),
+    sourceType: achievementSource('source_type').notNull(),
+    sourceGameId: uuid('source_game_id').references(() => games.id, { onDelete: 'set null' }),
+  },
+  (t) => [
+    primaryKey({ name: 'user_achievements_pk', columns: [t.userId, t.achievementCode] }),
+    index('user_achievements_user_unlocked_idx').on(
+      t.userId,
+      t.unlockedAt.desc(),
+      t.achievementCode,
+    ),
+    check(
+      'user_achievements_code_check',
+      sql.raw(`achievement_code in (${ACHIEVEMENT_CODES.map((c) => `'${c}'`).join(', ')})`),
+    ),
+  ],
+);
 
 export const pushPlatform = pgEnum('push_platform', ['IOS', 'ANDROID', 'UNKNOWN']);
 

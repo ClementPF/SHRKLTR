@@ -9,6 +9,7 @@ import {
   outcomes,
   pushDevices,
   stats,
+  userAchievements,
 } from '../src/db/schema.js';
 import {
   authHeadersFor,
@@ -44,8 +45,21 @@ async function submit(
   });
 }
 
+// Winners also get achievement_unlocked rows and pushes (first_win); those are covered by the
+// achievements tests, so these cases look at game_recorded only.
 const inboxOf = (db: Database, userId: string) =>
-  db.select().from(notifications).where(eq(notifications.recipientUserId, userId));
+  db
+    .select()
+    .from(notifications)
+    .where(and(eq(notifications.recipientUserId, userId), eq(notifications.type, 'game_recorded')));
+
+const gameRecordedRows = (db: Database) =>
+  db.select().from(notifications).where(eq(notifications.type, 'game_recorded'));
+
+const gameMessages = (collector: PushCollector) =>
+  collector
+    .messages()
+    .filter((m) => (m.data as { target?: { type?: string } }).target?.type === 'game');
 
 describe('game_recorded fan-out (VAL-NOTIF-006, VAL-NOTIF-012, VAL-NOTIF-013)', () => {
   let collector: PushCollector;
@@ -114,7 +128,7 @@ describe('game_recorded fan-out (VAL-NOTIF-006, VAL-NOTIF-012, VAL-NOTIF-013)', 
       url: '/notifications',
       headers: await authHeadersFor(app, carol.id),
     });
-    expect(inbox.json()).toEqual([
+    expect(inbox.json().filter((n: { type: string }) => n.type === 'game_recorded')).toEqual([
       expect.objectContaining({
         type: 'game_recorded',
         title: 'You won in Baby Foot',
@@ -140,7 +154,7 @@ describe('game_recorded fan-out (VAL-NOTIF-006, VAL-NOTIF-012, VAL-NOTIF-013)', 
 
     const gameId = res.json().id as string;
     const idOf = async (user: UserRow) => (await inboxOf(app.db, user.id))[0]!.id;
-    const messages = collector.messages();
+    const messages = gameMessages(collector);
     const byToken = new Map(messages.map((m) => [m.to, m]));
     expect(messages.map((m) => m.to).sort()).toEqual(
       [
@@ -186,7 +200,8 @@ describe('game_recorded fan-out (VAL-NOTIF-006, VAL-NOTIF-012, VAL-NOTIF-013)', 
     await app.push.drain();
 
     expect(res.statusCode).toBe(201);
-    expect(seen).toEqual([{ games: 1, notifications: 2 }]);
+    // Two game_recorded rows plus bob's first_win unlock.
+    expect(seen).toEqual([{ games: 1, notifications: 3 }]);
   });
 
   it('keeps inbox rows but sends no push for a disabled games category', async () => {
@@ -197,7 +212,7 @@ describe('game_recorded fan-out (VAL-NOTIF-006, VAL-NOTIF-012, VAL-NOTIF-013)', 
 
     expect(res.statusCode).toBe(201);
     expect(await inboxOf(app.db, bob.id)).toHaveLength(1);
-    expect(collector.messages().map((m) => m.to)).toEqual([expoTokenOf('alice-phone')]);
+    expect(gameMessages(collector).map((m) => m.to)).toEqual([expoTokenOf('alice-phone')]);
   });
 
   it('pushes again once the category is re-enabled through the API', async () => {
@@ -206,7 +221,7 @@ describe('game_recorded fan-out (VAL-NOTIF-006, VAL-NOTIF-012, VAL-NOTIF-013)', 
     await app.inject({ method: 'PUT', url, headers, payload: { games: false } });
     await submit(app, alice, [bob], [alice]);
     await app.push.drain();
-    expect(collector.messages().map((m) => m.to)).not.toContain(expoTokenOf('bob-phone'));
+    expect(gameMessages(collector).map((m) => m.to)).not.toContain(expoTokenOf('bob-phone'));
 
     collector.reset();
     await app.inject({ method: 'PUT', url, headers, payload: { games: true } });
@@ -243,7 +258,7 @@ describe('game_recorded fan-out (VAL-NOTIF-006, VAL-NOTIF-012, VAL-NOTIF-013)', 
 
     expect(res.statusCode).toBe(201);
     expect(await inboxOf(app.db, dave.id)).toHaveLength(1);
-    expect(collector.messages().map((m) => m.to)).toEqual([expoTokenOf('eve-phone')]);
+    expect(gameMessages(collector).map((m) => m.to)).toEqual([expoTokenOf('eve-phone')]);
   });
 });
 
@@ -332,7 +347,7 @@ describe('DeviceNotRegistered handling (VAL-NOTIF-014)', () => {
     await submit(app, alice, [bob], [alice]);
     await app.push.drain();
 
-    expect(collector.messages().map((m) => m.to)).toEqual([old]);
+    expect(gameMessages(collector).map((m) => m.to)).toEqual([old]);
     const [row] = await app.db.select().from(pushDevices).where(eq(pushDevices.id, device.id));
     expect(row).toMatchObject({ expoToken: rotated, disabledAt: null });
   });
@@ -344,6 +359,10 @@ describe('DeviceNotRegistered handling (VAL-NOTIF-014)', () => {
         await createPushDevice(app.db, { userId: bob.id, expoToken: expoTokenOf(`b${i}`) }),
       );
     }
+    // Already unlocked, so the game sends exactly one message per device.
+    await app.db
+      .insert(userAchievements)
+      .values({ userId: bob.id, achievementCode: 'first_win', sourceType: 'BACKFILL' });
     const dead = new Set([expoTokenOf('b3'), expoTokenOf('b102')]);
     collector.respondWithTickets((messages) =>
       messages.map((m, i) => (dead.has(m.to) ? deadTicket(m.to) : { status: 'ok', id: `${i}` })),
@@ -402,7 +421,7 @@ describe('Expo transport failures never fail a saved game (VAL-NOTIF-015)', () =
     expect(await app.db.select().from(outcomes).where(eq(outcomes.gameId, gameId))).toHaveLength(2);
     const rows = await app.db.select().from(stats);
     expect(rows.find((r) => r.userId === bob.id)?.score).toBeCloseTo(1016, 9);
-    expect(await app.db.select().from(notifications)).toHaveLength(2);
+    expect(await gameRecordedRows(app.db)).toHaveLength(2);
     const [device] = await app.db.select().from(pushDevices);
     expect(device?.disabledAt).toBeNull();
     expect(capture.text()).not.toContain(expoTokenOf('bob'));
@@ -449,7 +468,7 @@ describe('Expo transport failures never fail a saved game (VAL-NOTIF-015)', () =
     await app.push.drain();
 
     expect(res.statusCode).toBe(201);
-    expect(await app.db.select().from(notifications)).toHaveLength(2);
+    expect(await gameRecordedRows(app.db)).toHaveLength(2);
     expect(collector.received).toHaveLength(0);
   });
 });
@@ -477,7 +496,7 @@ describe('unreachable Expo endpoint (VAL-NOTIF-015)', () => {
 
     expect(res.statusCode).toBe(201);
     expect(await app.db.select().from(games)).toHaveLength(1);
-    expect(await app.db.select().from(notifications)).toHaveLength(2);
+    expect(await gameRecordedRows(app.db)).toHaveLength(2);
     const rows = await app.db.select().from(stats);
     expect(rows.find((r) => r.userId === alice.id)?.score).toBeCloseTo(984, 9);
   });

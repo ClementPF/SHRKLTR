@@ -11,6 +11,7 @@ import {
   sports,
   stats,
   tournaments,
+  userAchievements,
   users,
 } from '../src/db/schema.js';
 import { DEMO_PLACEHOLDERS, DEMO_TOURNAMENTS, DEMO_USERS, runSeed } from '../src/db/seed.js';
@@ -27,6 +28,7 @@ const tables = {
   rivalryStats,
   playerClaims,
   notifications,
+  userAchievements,
 };
 
 async function rowCounts(db: Database): Promise<Record<string, number>> {
@@ -70,6 +72,8 @@ describe('dev seed', () => {
     const second = await runSeed(db);
     expect(second.tournamentsWithNewGames).toBe(0);
     expect(second.placeholderGamesAdded).toBe(0);
+    expect(first.userAchievements).toBeGreaterThan(0);
+    expect(second.achievementsAwarded).toBe(0);
     expect(await rowCounts(db)).toEqual(first);
     expect(await db.select().from(playerClaims).orderBy(playerClaims.id)).toEqual(claimsBefore);
   });
@@ -109,6 +113,39 @@ describe('dev seed', () => {
     expect(alexRows.some((r) => r.readAt === null)).toBe(true);
     expect(alexRows.some((r) => r.readAt !== null)).toBe(true);
     for (const row of gameRows) expect(row.createdAt).toBeInstanceOf(Date);
+  });
+
+  it('backfills historical badges silently, without event or giant-killer badges', async () => {
+    const [alex] = await db.select().from(users).where(eq(users.username, 'dev-alex'));
+    const [riley] = await db.select().from(users).where(eq(users.username, 'guest-riley'));
+    const codesOf = async (userId: string) =>
+      (
+        await db
+          .select({ code: userAchievements.achievementCode })
+          .from(userAchievements)
+          .where(eq(userAchievements.userId, userId))
+      )
+        .map((r) => r.code)
+        .sort();
+    expect(await codesOf(alex!.id)).toEqual(
+      expect.arrayContaining(['explorer_3', 'first_win', 'games_10']),
+    );
+    expect(await codesOf(riley!.id)).toEqual(['first_win']);
+    const rows = await db.select().from(userAchievements);
+    expect(rows.every((r) => r.sourceType === 'BACKFILL')).toBe(true);
+    expect(
+      rows.filter((r) =>
+        [
+          'giant_killer',
+          'invited_player_claimed',
+          'first_challenge_won',
+          'first_group_joined',
+        ].includes(r.achievementCode),
+      ),
+    ).toEqual([]);
+    expect(
+      await db.select().from(notifications).where(eq(notifications.type, 'achievement_unlocked')),
+    ).toEqual([]);
   });
 
   it('creates the dev-token subjects', async () => {
