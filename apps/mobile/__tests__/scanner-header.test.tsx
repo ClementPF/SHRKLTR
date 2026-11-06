@@ -27,7 +27,7 @@ describe('Lost screen header', () => {
   it('places the header below the iPhone status bar and goes back to Add Game', async () => {
     await render(<ScannerRoute />);
     expect(screen.getByTestId('scanner-header')).toHaveStyle({ paddingTop: 59 });
-    expect(screen.getByText('Scan the QR code')).toBeTruthy();
+    expect(screen.getByText('Loser')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Back'));
     expect(router.back).toHaveBeenCalledTimes(1);
   });

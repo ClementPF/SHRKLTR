@@ -16,16 +16,18 @@ test('winner QR payload submits a game and refreshes both feeds', async ({ signI
   await loser.page.goto('/add-game');
   await loser.page.getByRole('button', { name: 'LOST', exact: true }).click();
   await pickTournament(loser.page);
-  await expect(loser.page.getByTestId('scanner-all-good')).toBeDisabled();
+  await expect(loser.page.getByTestId('scanner-review-game')).toBeDisabled();
   await loser.page.getByRole('textbox', { name: 'QR code payload' }).fill(payload);
   await loser.page.getByRole('button', { name: 'Add code', exact: true }).click();
-  await expect(loser.page.getByTestId('scanned-outcomes')).toContainText('dev-alex');
-  await loser.page.getByTestId('scanner-all-good').click();
+  // Complete teams open the confirmation on their own.
+  await expect(loser.page.getByTestId('game-confirmation-outcomes-winners')).toContainText(
+    'dev-alex',
+  );
   const saved = loser.page.waitForResponse(
     (r) =>
       r.url() === `${API_URL}/tournaments/officebabyfoot/games` && r.request().method() === 'POST',
   );
-  await loser.page.getByRole('button', { name: 'Submit', exact: true }).click();
+  await loser.page.getByRole('button', { name: 'Confirm game', exact: true }).click();
   const response = await saved;
   expect(response.status()).toBe(201);
   const game = await response.json();
@@ -46,4 +48,61 @@ test('winner QR payload submits a game and refreshes both feeds', async ({ signI
   await winner.page.goBack();
   await winner.page.getByRole('tab', { name: 'Feed', exact: true }).click();
   await expect(winner.page.getByTestId(`game-row-${game.id}`)).toBeVisible();
+});
+
+test('team game: a teammate shows their code and one loser submits for everyone', async ({
+  signIn,
+}) => {
+  const payloadOf = async (username: string, side: 'WON' | 'LOST') => {
+    const { page } = await signIn(username);
+    await page.goto('/add-game');
+    await page.getByRole('button', { name: side, exact: true }).click();
+    await pickTournament(page);
+    if (side === 'LOST') {
+      await page.getByRole('tab', { name: 'Teammate submits', exact: true }).click();
+      await expect(page.getByTestId('scanner-teammate-text')).toBeVisible();
+      // A teammate only shows a code: they cannot submit or add anyone themselves.
+      await expect(page.getByTestId('scanner-review-game')).toHaveCount(0);
+      await expect(page.getByTestId('manual-code-entry')).toHaveCount(0);
+    }
+    return page.getByTestId('qr-payload').innerText();
+  };
+  // The teammate goes first so the teams stay incomplete until the last winner is scanned.
+  const codes = [
+    await payloadOf('dev-jordan', 'LOST'),
+    await payloadOf('dev-alex', 'WON'),
+    await payloadOf('dev-taylor', 'WON'),
+  ];
+  expect(JSON.parse(codes[0]!)).toMatchObject({ username: 'dev-jordan', result: 'LOSS' });
+
+  const submitter = await signIn('dev-sam');
+  await submitter.page.goto('/add-game');
+  await submitter.page.getByRole('button', { name: 'LOST', exact: true }).click();
+  await pickTournament(submitter.page);
+  await expect(
+    submitter.page.getByRole('tab', { name: "I'll submit", exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  // Adding players without their QR code is disabled.
+  await expect(submitter.page.getByTestId('add-players')).toHaveCount(0);
+  for (const code of codes) {
+    await submitter.page.getByRole('textbox', { name: 'QR code payload' }).fill(code);
+    await submitter.page.getByRole('button', { name: 'Add code', exact: true }).click();
+  }
+  await expect(submitter.page.getByTestId('game-confirmation-outcomes-winners')).toContainText(
+    'dev-taylor',
+  );
+  await expect(submitter.page.getByTestId('game-confirmation-outcomes-losers')).toContainText(
+    'dev-jordan',
+  );
+  const saved = submitter.page.waitForResponse(
+    (r) =>
+      r.url() === `${API_URL}/tournaments/officebabyfoot/games` && r.request().method() === 'POST',
+  );
+  await submitter.page.getByRole('button', { name: 'Confirm game', exact: true }).click();
+  const response = await saved;
+  expect(response.status()).toBe(201);
+  const game = await response.json();
+  expect(game.outcomes).toHaveLength(4);
+  await expect(submitter.page.getByTestId('outcome-dev-jordan')).toContainText('LOSS');
+  await expect(submitter.page.getByTestId('outcome-dev-taylor')).toContainText('WIN');
 });

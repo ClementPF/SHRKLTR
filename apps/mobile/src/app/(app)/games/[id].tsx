@@ -4,7 +4,6 @@ import { useSession } from '@/auth/session';
 import { GameDetailScreen } from '@/features/games/game-detail-screen';
 import { gameKeys } from '@/features/games/queries';
 import { useInvalidateOnFocus } from '@/lib/use-invalidate-on-focus';
-import { Colors } from '@/theme';
 
 export default function GameDetailRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -15,10 +14,7 @@ export default function GameDetailRoute() {
     <>
       <Stack.Screen
         options={{
-          headerShown: true,
           title: 'Game',
-          headerStyle: { backgroundColor: Colors.background },
-          headerTintColor: Colors.text,
         }}
       />
       <GameDetailScreen key={id} id={id} viewer={viewer} />

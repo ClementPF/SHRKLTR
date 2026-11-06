@@ -18,6 +18,12 @@ import { useGameFormStore } from './store';
 
 export const MAX_PLAYER_MATCHES = 5;
 
+/**
+ * Off: adding players without their QR code skips the scan handshake that proves each player
+ * agreed to the result. The component stays for when that is solved.
+ */
+export const ADD_WITHOUT_QR_ENABLED = false;
+
 const roleOf = (side: QrResult) => (side === 'WIN' ? 'winner' : 'loser');
 
 export function placeholderAddedMessage(username: string, side: QrResult): string {

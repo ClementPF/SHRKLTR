@@ -35,7 +35,7 @@ export function ScannerHeader() {
           }}
         />
         <Text style={styles.title} accessibilityRole="header">
-          Scan the QR code
+          Loser
         </Text>
       </View>
     </View>

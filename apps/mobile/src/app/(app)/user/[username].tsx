@@ -5,7 +5,6 @@ import { achievementKeys } from '@/features/achievements/queries';
 import { ProfileScreen } from '@/features/feed/profile-screen';
 import { statsKeys, userKeys } from '@/features/users/queries';
 import { useInvalidateOnFocus } from '@/lib/use-invalidate-on-focus';
-import { Colors } from '@/theme';
 
 export default function UserDetailScreen() {
   const { username, tournamentName } = useLocalSearchParams<{
@@ -23,10 +22,7 @@ export default function UserDetailScreen() {
     <>
       <Stack.Screen
         options={{
-          headerShown: true,
           title: username,
-          headerStyle: { backgroundColor: Colors.background },
-          headerTintColor: Colors.text,
         }}
       />
       <ProfileScreen

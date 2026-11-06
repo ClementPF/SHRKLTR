@@ -11,7 +11,14 @@ import type { Game, Tournament, User } from '@/api/types';
 import { DropdownAlert, useAlertStore } from '@/components/dropdown-alert';
 import { CAMERA_DENIED_TEXT, CAMERA_UNAVAILABLE_TEXT } from '@/components/qr-scanner';
 import { GAME_OVER_TEXT, GameChoiceScreen } from '@/features/game-form/choice-screen';
-import { CONFIRM_MESSAGE, ScannerScreen } from '@/features/game-form/scanner-screen';
+import {
+  CONFIRM_MESSAGE,
+  SCAN_TEXT,
+  ScannerScreen,
+  SUBMITTER_LABEL,
+  TEAMMATE_LABEL,
+  TEAMMATE_TEXT,
+} from '@/features/game-form/scanner-screen';
 import { useGameFormStore } from '@/features/game-form/store';
 import { TournamentPickerScreen } from '@/features/game-form/tournament-picker-screen';
 import { WinnerScreen } from '@/features/game-form/winner-screen';
@@ -324,14 +331,30 @@ describe('ScannerScreen', () => {
     expect(useGameFormStore.getState().outcomes).toHaveLength(2);
   });
 
-  it('shows the own LOSS QR in get-scanned mode', async () => {
+  it('shows only the own LOSS QR when a teammate submits the team game', async () => {
     await renderScanner();
-    await fireEvent.press(screen.getByLabelText('Get Scanned'));
+    expect(screen.getByLabelText(SUBMITTER_LABEL)).toBeSelected();
+    await fireEvent.press(screen.getByLabelText(TEAMMATE_LABEL));
+    expect(screen.getByLabelText(TEAMMATE_LABEL)).toBeSelected();
+    expect(screen.getByText(TEAMMATE_TEXT)).toBeTruthy();
     expect(screen.getByTestId('qr-svg')).toHaveTextContent(
       `220:${encodeQrPayload(buildQrPayload('dev-sam', 'officebabyfoot', 'LOSS'))}`,
     );
-    await fireEvent.press(screen.getByLabelText('Scan'));
+    expect(screen.queryByLabelText('Review game')).toBeNull();
+    expect(screen.queryByTestId('manual-code-entry')).toBeNull();
+    expect(screen.queryByTestId('camera-view')).toBeNull();
+
+    await fireEvent.press(screen.getByLabelText(SUBMITTER_LABEL));
     expect(screen.queryByTestId('qr-svg')).toBeNull();
+    expect(screen.getByText(SCAN_TEXT)).toBeTruthy();
+    expect(screen.getByLabelText('Review game')).toBeDisabled();
+  });
+
+  it('offers no way to add players without their QR code', async () => {
+    await renderScanner();
+    expect(screen.queryByTestId('add-players')).toBeNull();
+    expect(screen.queryByTestId('player-search-input')).toBeNull();
+    expect(screen.queryByTestId('placeholder-name-input')).toBeNull();
   });
 
   it('requests permission and mounts the camera on iOS without the web-only availability probe', async () => {
