@@ -321,6 +321,7 @@ export const tournamentRoutes: FastifyPluginAsyncZod = async (app) => {
         tournamentName: request.params.name,
         callerId: request.user.id,
         outcomes: request.body.outcomes,
+        clock: app.clock,
       });
       app.push.dispatch(notificationIds);
       return reply.code(201).send(toGameDto(game));

@@ -87,8 +87,7 @@ export function InboxScreen() {
   const open = (notification: InboxNotification) => {
     // Reopening a read row never marks (or decrements the count) again.
     if (notification.readAt === null) markRead.mutate(notification.id);
-    const href = notification.target ? notificationTargetHref(notification.target) : null;
-    if (href) router.push(href);
+    if (notification.target) router.push(notificationTargetHref(notification.target));
   };
 
   const onRefresh = async () => {

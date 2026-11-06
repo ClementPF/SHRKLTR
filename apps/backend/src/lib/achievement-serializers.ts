@@ -32,6 +32,10 @@ const achievementSourceDtoSchema = z
       .uuid()
       .nullable()
       .describe('Group that unlocked the badge; null when there is none or you are not a member'),
+    challengeId: z
+      .uuid()
+      .nullable()
+      .describe('Challenge that unlocked the badge; null when there is none or you cannot open it'),
   })
   .meta({ id: 'AchievementSource' });
 
@@ -65,6 +69,7 @@ function toSourceDto(view: UnlockView) {
     type: view.achievement.sourceType,
     gameId: view.visibleSourceGameId,
     groupId: view.visibleSourceGroupId,
+    challengeId: view.visibleSourceChallengeId,
   };
 }
 

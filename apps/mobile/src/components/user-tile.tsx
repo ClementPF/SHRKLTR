@@ -6,11 +6,8 @@ export interface UserTileProps {
   username: string;
   wins: number;
   games: number;
-  /** Shows the ⚔️ challenged state. */
-  challenged?: boolean;
-  /** When set, tapping the avatar challenges the user. */
+  /** When set, tapping the avatar opens a challenge against the user. */
   onChallenge?(): void;
-  challenging?: boolean;
   /** Placeholder player added by name: labeled, and never challengeable. */
   unclaimed?: boolean;
 }
@@ -29,15 +26,7 @@ function initials(username: string): string {
   return (username.charAt(0) + (dash >= 0 ? username.charAt(dash + 1) : '')).toUpperCase();
 }
 
-export function UserTile({
-  username,
-  wins,
-  games,
-  challenged = false,
-  onChallenge,
-  challenging = false,
-  unclaimed = false,
-}: UserTileProps) {
+export function UserTile({ username, wins, games, onChallenge, unclaimed = false }: UserTileProps) {
   const avatar = (
     <View style={styles.avatar}>
       <Text style={styles.initials}>{initials(username)}</Text>
@@ -45,21 +34,12 @@ export function UserTile({
   );
   return (
     <View style={styles.container} testID="user-tile">
-      {challenged && (
-        <View style={styles.overlay} pointerEvents="none">
-          <Text style={styles.swords} testID="challenged-state">
-            ⚔️
-          </Text>
-        </View>
-      )}
       <Badge label="WINS" value={wins} />
       <View style={styles.center}>
         {onChallenge && !unclaimed ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Challenge ${username}`}
-            accessibilityState={{ disabled: challenged || challenging, busy: challenging }}
-            disabled={challenged || challenging}
             onPress={onChallenge}
           >
             {avatar}
@@ -73,11 +53,7 @@ export function UserTile({
             UNCLAIMED PLAYER
           </Text>
         )}
-        {onChallenge && !unclaimed && (
-          <Text style={styles.hint}>
-            {challenged ? 'CHALLENGED' : challenging ? 'CHALLENGING…' : 'TAP TO CHALLENGE'}
-          </Text>
-        )}
+        {onChallenge && !unclaimed && <Text style={styles.hint}>TAP TO CHALLENGE</Text>}
       </View>
       <Badge label="GAMES" value={games} />
     </View>
@@ -94,8 +70,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent,
     borderRadius: Radius.md,
   },
-  overlay: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
-  swords: { fontSize: 92, opacity: 0.6 },
   badge: {
     minWidth: 64,
     alignItems: 'center',

@@ -68,4 +68,12 @@ describe('log redaction', () => {
     expect(redactUrl('/x?page=2')).toBe('/x?page=2');
     expect(redactUrl('/x')).toBe('/x');
   });
+
+  it('redacts public share tokens but keeps the image extension', () => {
+    const token = 'x'.repeat(43);
+    expect(redactUrl(`/s/${token}`)).toBe('/s/[REDACTED]');
+    expect(redactUrl(`/s/${token}.png`)).toBe('/s/[REDACTED].png');
+    expect(redactUrl(`/s/${token}?x=1`)).toBe('/s/[REDACTED]?x=1');
+    expect(redactUrl('/sports')).toBe('/sports');
+  });
 });

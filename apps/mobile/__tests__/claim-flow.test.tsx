@@ -21,6 +21,7 @@ import {
   readPendingClaim,
   savePendingClaim,
 } from '@/auth/pending-claim';
+import { PENDING_RETURN_KEY, savePendingReturn } from '@/auth/pending-return';
 import { useSession, type SessionContextValue } from '@/auth/session';
 import { LoginScreen } from '@/features/auth/login-screen';
 import { AppInviteLanding } from '@/features/invites/app-invite-landing';
@@ -231,7 +232,7 @@ describe('Google exchange payload', () => {
       jsonResponse(200, makeSession()),
     );
     globalThis.fetch = fetchFn as unknown as typeof fetch;
-    const base = { code: 'c', codeVerifier: 'v', redirectUri: 'http://localhost:8081' };
+    const base = { code: 'c', codeVerifier: 'v', redirectUri: 'http://localhost:8083' };
 
     await exchangeGoogleCode({ ...base, claimToken: TOKEN });
     await exchangeGoogleCode(base);
@@ -245,8 +246,8 @@ describe('Google exchange payload', () => {
     expect(fetchFn.mock.calls[0]![0]).not.toContain(TOKEN);
   });
 
-  it('derives the web redirect from EXPO_PUBLIC_WEB_URL (default http://localhost:8081)', () => {
-    expect(GOOGLE_WEB_REDIRECT_URI).toBe('http://localhost:8081');
+  it('derives the web redirect from EXPO_PUBLIC_WEB_URL (default http://localhost:8083)', () => {
+    expect(GOOGLE_WEB_REDIRECT_URI).toBe('http://localhost:8083');
     expect(googleRedirectUri('web')).toBe(GOOGLE_WEB_REDIRECT_URI);
   });
 });
@@ -525,6 +526,45 @@ describe('General app invitation after a cancelled claim', () => {
     expect(loginWithGoogleCode.mock.calls[0]).toEqual([
       expect.not.objectContaining({ claimToken: expect.anything() }),
     ]);
+  });
+});
+
+describe('LoginScreen with a screen kept for after sign-in', () => {
+  const GAME_PATH = '/games/dbc565ce-84b7-45ce-98b4-844909516cab';
+
+  it('keeps the destination through an ordinary Google code exchange', async () => {
+    await savePendingReturn(GAME_PATH);
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await render(<LoginScreen devSignInEnabled={false} />);
+
+    await fireEvent.press(await screen.findByLabelText('Continue with Google'));
+    expect(promptAsync).toHaveBeenCalledTimes(1);
+    googleReturns(success);
+    await view.rerender(<LoginScreen devSignInEnabled={false} />);
+    await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+    expect(loginWithGoogleCode.mock.calls[0]).toEqual([
+      expect.not.objectContaining({ claimToken: expect.anything() }),
+    ]);
+    expect(mockSecureStore.has(PENDING_RETURN_KEY)).toBe(true);
+  });
+
+  it('drops the destination when the sign-in claims a player instead', async () => {
+    await savePendingReturn(GAME_PATH);
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await render(<LoginScreen devSignInEnabled={false} />);
+
+    await fireEvent.press(await screen.findByLabelText('Claim with Google'));
+    await waitFor(() => expect(mockSecureStore.has(PENDING_RETURN_KEY)).toBe(false));
+    googleReturns(success);
+    await view.rerender(<LoginScreen devSignInEnabled={false} />);
+    await waitFor(() =>
+      expect(loginWithGoogleCode).toHaveBeenCalledWith(
+        expect.objectContaining({ claimToken: TOKEN }),
+      ),
+    );
   });
 });
 

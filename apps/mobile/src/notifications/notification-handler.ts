@@ -16,6 +16,8 @@ export function queryKeysForTarget(target: NotificationTarget | null): QueryKey[
         ['games', 'detail', target.gameId],
         ['tournaments'],
         ['achievements'],
+        // The game may have completed a challenge between its players.
+        ['challenges'],
       ];
     case 'achievements':
       return [['achievements']];

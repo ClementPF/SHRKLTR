@@ -26,12 +26,14 @@ describe('committed migrations', () => {
     await db.$client.end({ timeout: 5 });
   });
 
-  it('create all 18 tables', async () => {
+  it('create all 20 tables', async () => {
     const rows = await db.execute<{ tablename: string }>(
       sql`select tablename from pg_tables where schemaname = 'public' order by tablename`,
     );
     expect(rows.map((r) => r.tablename)).toEqual([
       'app_invites',
+      'challenges',
+      'game_shares',
       'games',
       'group_invites',
       'group_members',
@@ -235,6 +237,7 @@ describe('committed migrations', () => {
           where kcu.table_name = 'user_achievements' order by kcu.column_name`,
     );
     expect(fks).toEqual([
+      { column: 'source_challenge_id', on_delete: 'SET NULL' },
       { column: 'source_game_id', on_delete: 'SET NULL' },
       { column: 'source_group_id', on_delete: 'SET NULL' },
       { column: 'user_id', on_delete: 'CASCADE' },
@@ -335,6 +338,115 @@ describe('committed migrations', () => {
     ]);
   });
 
+  it('add challenges with status enum, canonical pair checks, active-pair index and references', async () => {
+    const statuses = await db.execute<{ label: string }>(
+      sql`select e.enumlabel as label from pg_enum e join pg_type t on t.oid = e.enumtypid
+          where t.typname = 'challenge_status' order by e.enumsortorder`,
+    );
+    expect(statuses.map((r) => r.label)).toEqual([
+      'PENDING',
+      'ACCEPTED',
+      'DECLINED',
+      'COMPLETED',
+      'EXPIRED',
+    ]);
+
+    const constraints = await db.execute<{ conname: string }>(
+      sql`select conname from pg_constraint
+          where conrelid = 'public.challenges'::regclass and contype = 'c' order by conname`,
+    );
+    expect(constraints.map((r) => r.conname)).toEqual([
+      'challenges_accepted_at_check',
+      'challenges_canonical_pair_check',
+      'challenges_completed_winner_check',
+      'challenges_deadline_check',
+      'challenges_distinct_players_check',
+      'challenges_resolved_at_check',
+    ]);
+
+    const indexes = await db.execute<{ indexname: string; indexdef: string }>(
+      sql`select indexname, indexdef from pg_indexes where schemaname = 'public'`,
+    );
+    const defs = new Map(indexes.map((r) => [r.indexname, r.indexdef]));
+    expect(defs.get('challenges_active_pair_unique')).toContain(
+      'UNIQUE INDEX challenges_active_pair_unique ON public.challenges USING btree (tournament_id, pair_low_user_id, pair_high_user_id) WHERE (status = ANY',
+    );
+    expect(defs.get('challenges_status_deadline_idx')).toContain('(status, deadline_at, id)');
+    expect(defs.get('challenges_challenger_created_idx')).toContain(
+      '(challenger_user_id, created_at DESC',
+    );
+    expect(defs.get('challenges_opponent_created_idx')).toContain(
+      '(opponent_user_id, created_at DESC',
+    );
+
+    const fks = await db.execute<{ table: string; column: string; on_delete: string }>(
+      sql`select kcu.table_name as table, kcu.column_name as column, rc.delete_rule as on_delete
+          from information_schema.referential_constraints rc
+          join information_schema.key_column_usage kcu on kcu.constraint_name = rc.constraint_name
+          where kcu.table_name = 'challenges' or kcu.column_name in ('challenge_id', 'source_challenge_id')
+          order by kcu.table_name, kcu.column_name`,
+    );
+    expect(fks).toEqual([
+      { table: 'challenges', column: 'challenger_user_id', on_delete: 'CASCADE' },
+      { table: 'challenges', column: 'game_id', on_delete: 'SET NULL' },
+      { table: 'challenges', column: 'opponent_user_id', on_delete: 'CASCADE' },
+      { table: 'challenges', column: 'tournament_id', on_delete: 'CASCADE' },
+      { table: 'challenges', column: 'winner_user_id', on_delete: 'SET NULL' },
+      { table: 'notifications', column: 'challenge_id', on_delete: 'SET NULL' },
+      { table: 'user_achievements', column: 'source_challenge_id', on_delete: 'SET NULL' },
+    ]);
+  });
+
+  it('add game_shares with unique tokens, one active link per issuer and cascading references', async () => {
+    const indexes = await db.execute<{ indexname: string; indexdef: string }>(
+      sql`select indexname, indexdef from pg_indexes where schemaname = 'public' and tablename = 'game_shares'`,
+    );
+    const defs = new Map(indexes.map((r) => [r.indexname, r.indexdef]));
+    expect(defs.get('game_shares_active_issuer_unique')).toContain(
+      'UNIQUE INDEX game_shares_active_issuer_unique ON public.game_shares USING btree (game_id, created_by_user_id) WHERE (revoked_at IS NULL)',
+    );
+    expect(defs.get('game_shares_game_creator_created_idx')).toContain(
+      '(game_id, created_by_user_id, created_at DESC',
+    );
+    expect(
+      [...defs.values()].some((d) =>
+        d.startsWith(
+          'CREATE UNIQUE INDEX game_shares_token_key ON public.game_shares USING btree (token)',
+        ),
+      ),
+    ).toBe(true);
+
+    const columns = await db.execute<{
+      column_name: string;
+      data_type: string;
+      is_nullable: string;
+    }>(
+      sql`select column_name, data_type, is_nullable from information_schema.columns
+          where table_schema = 'public' and table_name = 'game_shares' order by column_name`,
+    );
+    expect(columns).toEqual([
+      { column_name: 'created_at', data_type: 'timestamp with time zone', is_nullable: 'NO' },
+      { column_name: 'created_by_user_id', data_type: 'uuid', is_nullable: 'NO' },
+      { column_name: 'game_id', data_type: 'uuid', is_nullable: 'NO' },
+      { column_name: 'id', data_type: 'uuid', is_nullable: 'NO' },
+      { column_name: 'revoked_at', data_type: 'timestamp with time zone', is_nullable: 'YES' },
+      { column_name: 'snapshot', data_type: 'jsonb', is_nullable: 'NO' },
+      { column_name: 'template_version', data_type: 'integer', is_nullable: 'NO' },
+      { column_name: 'token', data_type: 'text', is_nullable: 'NO' },
+    ]);
+
+    const fks = await db.execute<{ column: string; on_delete: string }>(
+      sql`select kcu.column_name as column, rc.delete_rule as on_delete
+          from information_schema.referential_constraints rc
+          join information_schema.key_column_usage kcu on kcu.constraint_name = rc.constraint_name
+          where kcu.table_name = 'game_shares' order by kcu.column_name`,
+    );
+    expect(fks).toEqual([
+      { column: 'created_by_user_id', on_delete: 'CASCADE' },
+      { column: 'game_id', on_delete: 'CASCADE' },
+    ]);
+  });
+
   it('keep the legacy longuest_* column spelling', async () => {
     const rows = await db.execute<{ column_name: string }>(
       sql`select column_name from information_schema.columns
@@ -388,7 +500,7 @@ describe('boot-time migrator (runMigrations)', () => {
     await runMigrations(scratchUrl);
     const { names, tables } = await journal(scratchUrl);
     expect(names).toEqual(migrationFolders.map((d) => d.name).sort());
-    expect(tables).toBe(18);
+    expect(tables).toBe(20);
   });
 
   it('is a no-op when every migration is already applied', async () => {

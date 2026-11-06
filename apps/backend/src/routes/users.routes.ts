@@ -21,7 +21,6 @@ import {
   requireVisibleUser,
   updateUserProfile,
 } from '../services/user.service.js';
-import { challengeUser } from '../services/challenge.service.js';
 import { listUserGames } from '../services/game-history.service.js';
 import { listRivalries, listUserStats } from '../services/stats-query.service.js';
 
@@ -35,14 +34,6 @@ const updateMeSchema = z
     pictureUrl: z.url().max(2048).nullable().optional(),
   })
   .meta({ id: 'UpdateMeRequest' });
-
-const challengeSchema = z
-  .object({
-    message: z.string().trim().min(1).max(500).optional(),
-    challenger: z.string().min(1).optional().describe('Must be the authenticated username'),
-  })
-  .optional()
-  .meta({ id: 'ChallengeRequest' });
 
 const usernameParamsSchema = z.object({ username: z.string().min(1) });
 
@@ -227,41 +218,6 @@ export const userRoutes: FastifyPluginAsyncZod = async (app) => {
         request.user.id,
       );
       return found.map(toGameDto);
-    },
-  );
-
-  app.post(
-    '/users/:username/challenge',
-    {
-      schema: {
-        tags: ['users'],
-        summary: 'Challenge a user with a push notification',
-        description:
-          'Pushes "<firstName> is challenging you." to every active device of the target, after ' +
-          'the response and best effort. The target must have an active push device.',
-        security,
-        params: usernameParamsSchema,
-        body: challengeSchema,
-        response: {
-          204: z.null().describe('Challenge sent'),
-          400: errorResponseSchema,
-          401: errorResponseSchema,
-          403: errorResponseSchema,
-          404: errorResponseSchema,
-        },
-      },
-    },
-    async (request, reply) => {
-      await challengeUser(
-        { db: app.db, push: app.push },
-        {
-          callerId: request.user.id,
-          targetUsername: request.params.username,
-          challenger: request.body?.challenger,
-          message: request.body?.message,
-        },
-      );
-      return reply.code(204).send(null);
     },
   );
 };

@@ -1,4 +1,5 @@
 import {
+  notifyManager,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -30,6 +31,7 @@ import {
 } from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
 import type {
+  Challenge,
   CreateGroupInviteRequest,
   Game,
   Group,
@@ -39,6 +41,7 @@ import type {
   Tournament,
 } from '@/api/types';
 import { achievementKeys } from '@/features/achievements/queries';
+import { challengeKeys } from '@/features/challenges/keys';
 import { gameKeys } from '@/features/games/queries';
 import { notificationKeys } from '@/features/notifications/queries';
 import { tournamentKeys } from '@/features/tournaments/queries';
@@ -156,45 +159,103 @@ const privateDataRoots = (): readonly QueryKey[] => [
   gameKeys.all,
   notificationKeys.all,
   achievementKeys.all,
+  challengeKeys.all,
 ];
 
+/** The server refused this read: the group, tournament, game or player is out of reach. */
+const isRefused = (query: Query) => isGroupMissing(query.state.error);
+
 /**
- * Unused caches are removed so they can't flash stale private rows later. Mounted ones are
- * refetched instead: their observers are not told about a removal, so their screens would keep
- * the stale result. Queries the server already refused are not refetched either: their screens
- * show not-found, and a refetch would reset them and re-run the eviction their 404 triggered.
+ * Whether a cached read is about one of the lost tournaments or the lost group (its standings,
+ * games, a game of it, or a player's profile narrowed to it), rather than an app-wide list.
+ */
+function inLostScope(query: Query, tournamentNames: ReadonlySet<string>, groupId?: string) {
+  const [root, second, third, fourth, fifth] = query.queryKey;
+  const named = (value: unknown) => typeof value === 'string' && tournamentNames.has(value);
+  switch (root) {
+    case tournamentKeys.all[0]:
+      return named(second);
+    case statsKeys.all[0]:
+      return second === 'rivalry' ? named(fifth) : named(third);
+    case userKeys.all[0]:
+      return (
+        typeof fourth === 'object' &&
+        fourth !== null &&
+        named((fourth as { tournamentName?: unknown }).tournamentName)
+      );
+    case gameKeys.all[0]: {
+      const tournament = (query.state.data as Game | undefined)?.tournament;
+      return named(tournament?.name) || (!!groupId && tournament?.group?.id === groupId);
+    }
+    case challengeKeys.all[0]: {
+      const tournament = (query.state.data as Challenge | undefined)?.tournament;
+      return named(tournament?.name) || (!!groupId && tournament?.group?.id === groupId);
+    }
+    default:
+      return false;
+  }
+}
+
+/**
+ * A stack keeps every pushed screen mounted, and an observer is not told when its query leaves
+ * the cache: removing an observed query would freeze its screen on the stale result. So only
+ * unobserved queries are removed. Observed ones the server already refused keep their error,
+ * which renders not-found, but lose their data and are not refetched (a refetch would re-run
+ * the eviction their 404 triggered). Other observed reads of the lost scope are reset, so their
+ * screens show loading and then the server's answer; app-wide lists are only refetched, which
+ * drops the private rows.
  */
 function evictQueries(
   queryClient: QueryClient,
   queryKey: QueryKey,
-  keep: (query: Query) => boolean = () => false,
+  scoped: (query: Query) => boolean,
 ) {
-  queryClient.removeQueries({ queryKey, type: 'inactive', predicate: (query) => !keep(query) });
-  void queryClient.invalidateQueries({
-    queryKey,
-    predicate: (query) => !keep(query) && !isGroupMissing(query.state.error),
+  const cache = queryClient.getQueryCache();
+  notifyManager.batch(() => {
+    for (const query of cache.findAll({ queryKey })) {
+      if (query.getObserversCount() === 0) cache.remove(query);
+      else if (isRefused(query)) {
+        if (query.state.data !== undefined) query.setState({ data: undefined, dataUpdatedAt: 0 });
+      } else if (scoped(query)) query.reset();
+    }
   });
+  void queryClient.invalidateQueries({ queryKey, predicate: (query) => !isRefused(query) });
 }
 
-function evictPrivateData(queryClient: QueryClient, tournamentNames: Iterable<string>) {
-  for (const name of tournamentNames) evictQueries(queryClient, [...tournamentKeys.all, name]);
-  for (const queryKey of privateDataRoots()) evictQueries(queryClient, queryKey);
+function evictPrivateData(
+  queryClient: QueryClient,
+  tournamentNames: ReadonlySet<string>,
+  groupId?: string,
+) {
+  const scoped = (query: Query) => inLostScope(query, tournamentNames, groupId);
+  if (groupId) evictQueries(queryClient, groupKeys.group(groupId), () => true);
+  for (const queryKey of privateDataRoots()) evictQueries(queryClient, queryKey, scoped);
+}
+
+/** Names of the group's tournaments, from any cached list that says which group they are in. */
+function cachedTournamentsOf(queryClient: QueryClient, groupId: string): string[] {
+  const lists = [
+    queryClient.getQueryData<Tournament[]>(groupKeys.tournaments(groupId)),
+    queryClient.getQueryData<Tournament[]>(tournamentKeys.list()),
+  ];
+  return lists
+    .flatMap((list) => list ?? [])
+    .filter((t) => t.group?.id === groupId)
+    .map((t) => t.name);
 }
 
 /**
  * Drops what this account may no longer see after losing access to a group: the group's own
- * queries (except its summary, whose 404 drives the not-found screen), its tournaments, and any
- * cached list that could hold its games or standings.
+ * queries, its tournaments and their games and scoped profiles, and any cached list that could
+ * hold its games or standings. Mounted screens of that scope end up showing not-found.
  */
 export function evictGroupData(
   queryClient: QueryClient,
   groupId: string,
   alsoTournaments: readonly string[] = [],
 ) {
-  const tournaments = queryClient.getQueryData<Tournament[]>(groupKeys.tournaments(groupId)) ?? [];
-  const group = groupKeys.group(groupId);
-  evictQueries(queryClient, group, (query) => query.queryKey[group.length] === 'summary');
-  evictPrivateData(queryClient, new Set([...tournaments.map((t) => t.name), ...alsoTournaments]));
+  const names = new Set([...cachedTournamentsOf(queryClient, groupId), ...alsoTournaments]);
+  evictPrivateData(queryClient, names, groupId);
 }
 
 /** The group of a tournament, from any cached copy of it. */
@@ -229,7 +290,7 @@ export function evictTournamentData(
     groupId ?? (tournamentName ? cachedGroupOf(queryClient, tournamentName) : undefined);
   const names = tournamentName ? [tournamentName] : [];
   if (owner) evictGroupData(queryClient, owner, names);
-  else evictPrivateData(queryClient, names);
+  else evictPrivateData(queryClient, new Set(names));
 }
 
 function invalidateAfterJoin(queryClient: QueryClient) {
@@ -310,10 +371,7 @@ export function useLeaveGroup(groupId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => leaveGroup(groupId),
-    onSuccess: () => {
-      evictGroupData(queryClient, groupId);
-      queryClient.removeQueries({ queryKey: groupKeys.group(groupId) });
-    },
+    onSuccess: () => evictGroupData(queryClient, groupId),
   });
 }
 

@@ -39,7 +39,7 @@ export const envSchema = z.object({
     .optional()
     .transform((value) => value || undefined),
   GOOGLE_TOKEN_URL: z.url().default('https://oauth2.googleapis.com/token'),
-  GOOGLE_REDIRECT_ALLOWLIST: z.string().default('http://localhost:8081').transform(splitCsv),
+  GOOGLE_REDIRECT_ALLOWLIST: z.string().default('http://localhost:8083').transform(splitCsv),
   PUSH_URL: z.url().default('https://exp.host/--/api/v2/push/send'),
   /** Upper bound for one Expo push request, response body included. */
   PUSH_TIMEOUT_MS: z.coerce.number().int().min(50).max(60_000).default(5000),
@@ -51,11 +51,11 @@ export const envSchema = z.object({
   /** Canonical public origin of this API (share links, OG tags); never derived from Host. */
   PUBLIC_API_URL: publicUrlSchema.default('http://localhost:3100'),
   /** Public origin of the web app, used for claim, invite and join links. */
-  PUBLIC_WEB_URL: publicUrlSchema.default('http://localhost:8081'),
+  PUBLIC_WEB_URL: publicUrlSchema.default('http://localhost:8083'),
   /** Comma-separated exact origins allowed by CORS. */
   CORS_ORIGINS: z
     .string()
-    .default('http://localhost:8081')
+    .default('http://localhost:8083')
     .transform((value, ctx) => {
       const origins: string[] = [];
       for (const entry of splitCsv(value)) {

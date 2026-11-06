@@ -1,5 +1,8 @@
-import { pathToFileURL } from 'node:url';
-import { count, eq, inArray } from 'drizzle-orm';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseEnv } from 'node:util';
+import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import { envSchema } from '../config.js';
 import { hashCapabilityToken } from '../lib/capability-token.js';
 import { runAchievementsBackfill } from '../scripts/achievements-backfill.js';
 import { recordGame } from '../services/game.service.js';
@@ -8,6 +11,7 @@ import { hashInviteCode, joinUrlFor } from '../services/group-invite.service.js'
 import { claimUrlFor } from '../services/placeholder.service.js';
 import { createDb, type Database, type Transaction } from './client.js';
 import {
+  challenges,
   games,
   groupInvites,
   groupMembers,
@@ -314,6 +318,214 @@ async function seedNotifications(
     .onConflictDoNothing();
 }
 
+type ChallengeFixtureState = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'COMPLETED' | 'EXPIRED';
+
+interface DemoChallenge {
+  /** Fixed id so reruns find the challenge again. */
+  id: string;
+  state: ChallengeFixtureState;
+  tournament: string;
+  challenger: string;
+  opponent: string;
+  /** Creation time relative to the seed clock (ignored for COMPLETED, which follows its game). */
+  createdHoursAgo: number;
+  /** Deadline relative to creation. */
+  durationHours: number;
+}
+
+/**
+ * One challenge per lifecycle state around dev-alex (sent and received), plus a pending one in
+ * the Shark Tank group's private tournament. Active deadlines stay well beyond the 24-hour
+ * reminder window of a fresh seed.
+ */
+export const DEMO_CHALLENGES: readonly DemoChallenge[] = [
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000101',
+    state: 'PENDING',
+    tournament: 'Office Babyfoot',
+    challenger: 'dev-morgan',
+    opponent: 'dev-alex',
+    createdHoursAgo: 2,
+    durationHours: 5 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000102',
+    state: 'ACCEPTED',
+    tournament: 'Chess Club',
+    challenger: 'dev-alex',
+    opponent: 'dev-jordan',
+    createdHoursAgo: 24,
+    durationHours: 7 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000103',
+    state: 'DECLINED',
+    tournament: 'Lunch Darts',
+    challenger: 'dev-alex',
+    opponent: 'dev-morgan',
+    createdHoursAgo: 72,
+    durationHours: 7 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000104',
+    state: 'COMPLETED',
+    tournament: 'Office Babyfoot',
+    challenger: 'dev-sam',
+    opponent: 'dev-alex',
+    createdHoursAgo: 0,
+    durationHours: 7 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000105',
+    state: 'EXPIRED',
+    tournament: 'Friday Ping Pong',
+    challenger: 'dev-taylor',
+    opponent: 'dev-alex',
+    createdHoursAgo: 10 * 24,
+    durationHours: 3 * 24,
+  },
+  {
+    id: '5ea0c0de-0000-4000-8000-000000000106',
+    state: 'PENDING',
+    tournament: 'Shark Tank Cup',
+    challenger: 'dev-alex',
+    opponent: 'dev-sam',
+    createdHoursAgo: 1,
+    durationHours: 3 * 24,
+  },
+];
+
+/**
+ * Demo challenges with their inbox events, inserted directly (no push, no badge). The COMPLETED
+ * fixture is linked to the latest demo game its players played on opposite teams, with the
+ * challenge created and accepted shortly before that game. Rows that already exist, or would
+ * collide with an active challenge created while testing, are left alone.
+ */
+async function seedChallenges(
+  tx: Transaction,
+  userIds: Map<string, string>,
+  now: Date,
+): Promise<void> {
+  const hoursBefore = (base: Date, hours: number) => new Date(base.getTime() - hours * 3_600_000);
+  const rows: (typeof challenges.$inferInsert)[] = [];
+  for (const demo of DEMO_CHALLENGES) {
+    const challengerUserId = requireId(userIds, demo.challenger);
+    const opponentUserId = requireId(userIds, demo.opponent);
+    const [tournament] = await tx
+      .select({ id: tournaments.id })
+      .from(tournaments)
+      .where(eq(tournaments.name, tournamentSlug(demo.tournament)));
+    if (!tournament) throw new Error(`tournament ${demo.tournament} missing`);
+    const [pairLowUserId, pairHighUserId] = [challengerUserId, opponentUserId].sort() as [
+      string,
+      string,
+    ];
+    const base = { id: demo.id, tournamentId: tournament.id, challengerUserId, opponentUserId };
+    if (demo.state === 'COMPLETED') {
+      const winners = await tx
+        .select({ gameId: outcomes.gameId, userId: outcomes.userId, date: games.date })
+        .from(outcomes)
+        .innerJoin(games, eq(outcomes.gameId, games.id))
+        .where(
+          and(
+            eq(games.tournamentId, tournament.id),
+            eq(outcomes.result, 'WIN'),
+            inArray(outcomes.userId, [challengerUserId, opponentUserId]),
+          ),
+        )
+        .orderBy(desc(games.date));
+      let linked: { gameId: string; userId: string; date: Date } | undefined;
+      for (const win of winners) {
+        const otherId = win.userId === challengerUserId ? opponentUserId : challengerUserId;
+        const [lost] = await tx
+          .select({ n: count() })
+          .from(outcomes)
+          .where(
+            and(
+              eq(outcomes.gameId, win.gameId),
+              eq(outcomes.userId, otherId),
+              eq(outcomes.result, 'LOSS'),
+            ),
+          );
+        if ((lost?.n ?? 0) > 0) {
+          linked = win;
+          break;
+        }
+      }
+      if (!linked) continue;
+      const createdAt = hoursBefore(linked.date, 10);
+      rows.push({
+        ...base,
+        pairLowUserId,
+        pairHighUserId,
+        status: 'COMPLETED',
+        createdAt,
+        updatedAt: linked.date,
+        acceptedAt: hoursBefore(linked.date, 8),
+        deadlineAt: new Date(createdAt.getTime() + demo.durationHours * 3_600_000),
+        resolvedAt: linked.date,
+        gameId: linked.gameId,
+        winnerUserId: linked.userId,
+      });
+      continue;
+    }
+    const createdAt = hoursBefore(now, demo.createdHoursAgo);
+    const deadlineAt = new Date(createdAt.getTime() + demo.durationHours * 3_600_000);
+    const answeredAt = new Date(createdAt.getTime() + 3_600_000);
+    rows.push({
+      ...base,
+      pairLowUserId,
+      pairHighUserId,
+      status: demo.state,
+      createdAt,
+      updatedAt: createdAt,
+      deadlineAt,
+      acceptedAt: demo.state === 'ACCEPTED' ? answeredAt : null,
+      resolvedAt:
+        demo.state === 'DECLINED' ? answeredAt : demo.state === 'EXPIRED' ? deadlineAt : null,
+    });
+  }
+  if (rows.length === 0) return;
+  const inserted = await tx.insert(challenges).values(rows).onConflictDoNothing().returning();
+
+  const readBefore = now.getTime() - READ_AFTER_HOURS * 3_600_000;
+  const event = (
+    challenge: (typeof inserted)[number],
+    type: 'challenge_received' | 'challenge_accepted' | 'challenge_declined' | 'challenge_expired',
+    recipientUserId: string,
+    createdAt: Date,
+  ) => {
+    const other =
+      recipientUserId === challenge.challengerUserId
+        ? challenge.opponentUserId
+        : challenge.challengerUserId;
+    return {
+      recipientUserId,
+      type,
+      category: NOTIFICATION_CATEGORY_BY_TYPE[type],
+      dedupeKey: `${type}:${challenge.id}`,
+      actorUserId: type === 'challenge_expired' ? null : other,
+      subjectUserId: other,
+      challengeId: challenge.id,
+      createdAt,
+      readAt: createdAt.getTime() < readBefore ? new Date(createdAt.getTime() + 3_600_000) : null,
+    };
+  };
+  const events = inserted.flatMap((c) => {
+    const list = [event(c, 'challenge_received', c.opponentUserId, c.createdAt)];
+    if (c.acceptedAt) list.push(event(c, 'challenge_accepted', c.challengerUserId, c.acceptedAt));
+    if (c.status === 'DECLINED' && c.resolvedAt) {
+      list.push(event(c, 'challenge_declined', c.challengerUserId, c.resolvedAt));
+    }
+    if (c.status === 'EXPIRED' && c.resolvedAt) {
+      list.push(event(c, 'challenge_expired', c.challengerUserId, c.resolvedAt));
+      list.push(event(c, 'challenge_expired', c.opponentUserId, c.resolvedAt));
+    }
+    return list;
+  });
+  if (events.length > 0) await tx.insert(notifications).values(events).onConflictDoNothing();
+}
+
 export interface SeedSummary {
   users: number;
   sports: number;
@@ -539,6 +751,7 @@ function seedFixtures(db: Database, now: Date): Promise<Omit<SeedSummary, 'achie
 
     const placeholders = await seedPlaceholders(tx, userIds, now);
     await seedNotifications(tx, userIds, now);
+    await seedChallenges(tx, userIds, now);
 
     return {
       users: userRows.length,
@@ -551,6 +764,89 @@ function seedFixtures(db: Database, now: Date): Promise<Omit<SeedSummary, 'achie
   });
 }
 
+/**
+ * Web origin for the printed fixture links, so they match the links the api issues: the shell's
+ * PUBLIC_WEB_URL, else the one in the repo-root .env (the api container's env_file), else the
+ * config default. Only PUBLIC_WEB_URL is taken from the file: its DATABASE_URL targets the
+ * compose-internal host `db`, which the host cannot reach.
+ */
+export function seedPublicWebUrl(
+  env: Record<string, string | undefined>,
+  rootEnvText: string | undefined,
+): string {
+  const fromFile = rootEnvText === undefined ? undefined : parseEnv(rootEnvText).PUBLIC_WEB_URL;
+  return envSchema.shape.PUBLIC_WEB_URL.parse(env.PUBLIC_WEB_URL || fromFile || undefined);
+}
+
+function readRootEnv(): string | undefined {
+  try {
+    return readFileSync(fileURLToPath(new URL('../../../../.env', import.meta.url)), 'utf8');
+  } catch {
+    // Inside the api container only apps/backend is mounted; compose passes .env as env vars.
+    return undefined;
+  }
+}
+
+/** REPLACED: the link was reissued in the app, so the fixture token no longer matches. */
+export type FixtureLinkState = ClaimFixtureState | 'REPLACED';
+
+export interface FixtureLinkStates {
+  claims: ReadonlyMap<string, FixtureLinkState>;
+  inviteState: 'ACTIVE' | 'REVOKED' | 'MISSING';
+}
+
+/**
+ * The current state of each fixture link. Reruns never reset links changed while testing, so the
+ * printed state can differ from the one the fixture was created in.
+ */
+export async function fixtureLinkStates(db: Database, now: Date): Promise<FixtureLinkStates> {
+  const rows = await db
+    .select({ username: users.username, claim: playerClaims })
+    .from(playerClaims)
+    .innerJoin(users, eq(playerClaims.placeholderUserId, users.id))
+    .where(
+      inArray(
+        users.username,
+        DEMO_PLACEHOLDERS.map((p) => p.username),
+      ),
+    );
+  const byUsername = new Map(rows.map((r) => [r.username, r.claim]));
+  const claims = new Map<string, FixtureLinkState>();
+  for (const p of DEMO_PLACEHOLDERS) {
+    const claim = byUsername.get(p.username);
+    if (!claim || claim.tokenHash !== hashCapabilityToken(p.claimToken)) {
+      claims.set(p.username, 'REPLACED');
+    } else if (claim.consumedAt) {
+      claims.set(p.username, 'CLAIMED');
+    } else if (claim.revokedAt) {
+      claims.set(p.username, 'REVOKED');
+    } else if (claim.expiresAt.getTime() <= now.getTime()) {
+      claims.set(p.username, 'EXPIRED');
+    } else {
+      claims.set(p.username, 'ACTIVE');
+    }
+  }
+  const [invite] = await db
+    .select({ revokedAt: groupInvites.revokedAt })
+    .from(groupInvites)
+    .where(eq(groupInvites.tokenHash, hashCapabilityToken(DEMO_GROUP.inviteToken)));
+  return { claims, inviteState: !invite ? 'MISSING' : invite.revokedAt ? 'REVOKED' : 'ACTIVE' };
+}
+
+/** The LOCAL ONLY claim and group invite links of the seeded fixtures, as printed by the seed. */
+export function seedLinkLines(webUrl: string, states: FixtureLinkStates): string[] {
+  return [
+    `LOCAL ONLY claim links created by ${PLACEHOLDER_CREATOR} (dev fixtures, not secrets):`,
+    ...DEMO_PLACEHOLDERS.map(
+      (p) =>
+        `  [${states.claims.get(p.username) ?? 'REPLACED'}] ${p.username}: ${claimUrlFor(webUrl, p.claimToken)}`,
+    ),
+    `LOCAL ONLY invite to group "${DEMO_GROUP.name}" (${DEMO_GROUP.owner} OWNER; dev fixture, not a secret) [${states.inviteState}]:`,
+    `  link: ${joinUrlFor(webUrl, DEMO_GROUP.inviteToken)}`,
+    `  code: ${DEMO_GROUP.inviteCode}`,
+  ];
+}
+
 // Host-side default: the compose db is published on 5433 (DATABASE_URL in .env targets db:5432).
 const DEFAULT_DEV_DATABASE_URL =
   'postgres://sharkulator:sharkulator@localhost:5433/sharkulator_dev';
@@ -561,25 +857,16 @@ async function main(): Promise<void> {
   }
   const db = createDb(process.env.DATABASE_URL ?? DEFAULT_DEV_DATABASE_URL);
   try {
-    const summary = await runSeed(db);
+    const now = new Date();
+    const summary = await runSeed(db, now);
     console.log(
       `Seed complete: ${summary.users} demo users, ${summary.sports} sports, ` +
         `${summary.tournaments} tournaments (${summary.tournamentsWithNewGames} received demo games), ` +
         `${summary.placeholders} invited players (${summary.placeholderGamesAdded} new placeholder games), ` +
         `${summary.achievementsAwarded} historical badges backfilled.`,
     );
-    const webUrl = (process.env.PUBLIC_WEB_URL ?? 'http://localhost:8081').replace(/\/+$/, '');
-    console.log(
-      `LOCAL ONLY claim links created by ${PLACEHOLDER_CREATOR} (dev fixtures, not secrets):`,
-    );
-    for (const p of DEMO_PLACEHOLDERS) {
-      console.log(`  [${p.state}] ${p.username}: ${claimUrlFor(webUrl, p.claimToken)}`);
-    }
-    console.log(
-      `LOCAL ONLY invite to group "${DEMO_GROUP.name}" (${DEMO_GROUP.owner} OWNER; dev fixture, not a secret):`,
-    );
-    console.log(`  link: ${joinUrlFor(webUrl, DEMO_GROUP.inviteToken)}`);
-    console.log(`  code: ${DEMO_GROUP.inviteCode}`);
+    const webUrl = seedPublicWebUrl(process.env, readRootEnv());
+    for (const line of seedLinkLines(webUrl, await fixtureLinkStates(db, now))) console.log(line);
   } finally {
     await db.$client.end({ timeout: 5 });
   }

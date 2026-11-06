@@ -54,6 +54,15 @@ export interface Game {
   outcomes: Outcome[];
 }
 
+/** My public link for a game (POST /games/:id/share returns the active one or issues it). */
+export interface GameShare {
+  shareId: string;
+  /** Public result page: PUBLIC_API_URL/s/<token>. */
+  url: string;
+  /** 1200×630 PNG card: PUBLIC_API_URL/s/<token>.png. */
+  imageUrl: string;
+}
+
 export interface StatFields {
   score: number;
   bestScore: number;
@@ -262,6 +271,8 @@ export interface AchievementSource {
   gameId: string | null;
   /** Null when there is none or the viewer is not a member. */
   groupId?: string | null;
+  /** Null when there is none or the viewer cannot open that challenge. */
+  challengeId?: string | null;
 }
 
 /** GET /users/:username/achievements entry: the catalog with this user's unlock state. */
@@ -349,3 +360,36 @@ export interface CreateGroupInviteRequest {
   /** Omit for the default (30 days), null for no expiry. */
   expiresAt?: string | null;
 }
+
+export type ChallengeStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'COMPLETED' | 'EXPIRED';
+
+/** GET /challenges row and GET /challenges/:id. */
+export interface Challenge {
+  id: string;
+  tournament: Tournament;
+  challenger: User;
+  opponent: User;
+  /**
+   * PENDING until the opponent answers; ACCEPTED until a qualifying game (COMPLETED) or the
+   * deadline (EXPIRED); DECLINED, COMPLETED and EXPIRED are final.
+   */
+  status: ChallengeStatus;
+  deadlineAt: string;
+  createdAt: string;
+  acceptedAt: string | null;
+  /** When it was declined, completed or expired. */
+  resolvedAt: string | null;
+  /** Challenged player on the winning team (COMPLETED). */
+  winner: User | null;
+  /** Game that completed the challenge; null otherwise or once that game is deleted. */
+  gameId: string | null;
+}
+
+export interface CreateChallengeRequest {
+  tournamentName: string;
+  opponentUsername: string;
+  /** Between 1 hour and 30 days from now; the server defaults to 7 days. */
+  deadlineAt?: string;
+}
+
+export type ChallengeResponse = 'ACCEPT' | 'DECLINE';

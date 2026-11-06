@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, isNull, or, sql, type SQL } from 'd
 import { alias } from 'drizzle-orm/pg-core';
 import type { Database, Transaction } from '../db/client.js';
 import {
+  challenges,
   games,
   groupMembers,
   groups,
@@ -52,6 +53,7 @@ export interface NotificationEvent {
   subjectUserId?: string | null;
   gameId?: string | null;
   groupId?: string | null;
+  challengeId?: string | null;
   achievementCode?: string | null;
 }
 
@@ -127,6 +129,37 @@ export function notifyGroupMemberJoined(
   );
 }
 
+export type ChallengeNotificationType = Extract<NotificationType, `challenge_${string}`>;
+
+export interface ChallengeNotificationRecipient {
+  userId: string;
+  actorUserId?: string | null;
+  /** The other challenged player, named in the rendered text. */
+  subjectUserId?: string | null;
+}
+
+/** One challenge event for each recipient; the event identity is the challenge and its type. */
+export function notifyChallengeEvent(
+  tx: Transaction,
+  input: {
+    type: ChallengeNotificationType;
+    challengeId: string;
+    recipients: readonly ChallengeNotificationRecipient[];
+  },
+): Promise<string[]> {
+  return insertNotifications(
+    tx,
+    input.recipients.map((r) => ({
+      recipientUserId: r.userId,
+      type: input.type,
+      dedupeKey: `${input.type}:${input.challengeId}`,
+      actorUserId: r.actorUserId ?? null,
+      subjectUserId: r.subjectUserId ?? null,
+      challengeId: input.challengeId,
+    })),
+  );
+}
+
 export interface NotificationView {
   notification: NotificationRow;
   actor: UserRow | null;
@@ -138,8 +171,12 @@ export interface NotificationView {
 const actors = alias(users, 'actor');
 const subjects = alias(users, 'subject');
 const recipients = alias(users, 'recipient');
+const challengeTournaments = alias(tournaments, 'challenge_tournament');
 
-/** Rows the viewer owns whose source context (game, group) they may still read. */
+/**
+ * Rows the viewer owns whose source context (game, group, challenge) they may still read. The
+ * challenge subquery's own `tournaments` shadows the outer game join inside it.
+ */
 function ownVisible(viewerId: string): SQL | undefined {
   return and(
     eq(notifications.recipientUserId, viewerId),
@@ -147,6 +184,10 @@ function ownVisible(viewerId: string): SQL | undefined {
     or(
       isNull(notifications.groupId),
       sql`exists (select 1 from ${groupMembers} where ${groupMembers.groupId} = ${notifications.groupId} and ${groupMembers.userId} = ${viewerId})`,
+    ),
+    or(
+      isNull(notifications.challengeId),
+      sql`exists (select 1 from ${challenges} inner join ${tournaments} on ${tournaments.id} = ${challenges.tournamentId} where ${challenges.id} = ${notifications.challengeId} and ${visibleTournamentsFilter(viewerId)})`,
     ),
   );
 }
@@ -202,6 +243,41 @@ function describeGame(
       };
 }
 
+const CHALLENGE_TITLES: Record<ChallengeNotificationType, string> = {
+  challenge_received: 'New challenge',
+  challenge_accepted: 'Challenge accepted',
+  challenge_declined: 'Challenge declined',
+  challenge_expiring: 'Challenge expiring soon',
+  challenge_expired: 'Challenge expired',
+};
+
+function describeChallenge(
+  type: ChallengeNotificationType,
+  row: {
+    notification: NotificationRow;
+    actor: UserRow | null;
+    subject: UserRow | null;
+    challengeTournament: typeof tournaments.$inferSelect | null;
+  },
+): Pick<NotificationView, 'title' | 'body' | 'target'> {
+  const title = CHALLENGE_TITLES[type];
+  const { notification, actor, subject, challengeTournament } = row;
+  if (!notification.challengeId || !challengeTournament) {
+    return { title, body: 'This challenge is no longer available.', target: null };
+  }
+  const where = challengeTournament.displayName;
+  const actorName = actor ? displayName(actor) : 'Your opponent';
+  const other = subject ? displayName(subject) : 'your opponent';
+  const body = {
+    challenge_received: `${actorName} challenged you in ${where}.`,
+    challenge_accepted: `${actorName} accepted your challenge in ${where}.`,
+    challenge_declined: `${actorName} declined your challenge in ${where}.`,
+    challenge_expiring: `Your challenge with ${other} in ${where} expires within 24 hours.`,
+    challenge_expired: `Your challenge with ${other} in ${where} expired.`,
+  }[type];
+  return { title, body, target: { type: 'challenge', challengeId: notification.challengeId } };
+}
+
 /** Display text and target built from trusted rows, never from stored free-form text. */
 function render(
   row: {
@@ -211,6 +287,7 @@ function render(
     recipient: UserRow;
     tournament: typeof tournaments.$inferSelect | null;
     group: typeof groups.$inferSelect | null;
+    challengeTournament: typeof tournaments.$inferSelect | null;
   },
   outcomesByGame: Map<string, OutcomeWithUser[]>,
 ): NotificationView {
@@ -256,7 +333,7 @@ function render(
     case 'challenge_declined':
     case 'challenge_expiring':
     case 'challenge_expired':
-      return { ...base, title: 'Challenge update', body: '', target: null };
+      return { ...base, ...describeChallenge(notification.type, row) };
     case 'group_member_joined': {
       const who = subject ? displayName(subject) : 'Someone';
       return group
@@ -286,6 +363,7 @@ export async function loadNotificationViews(
       recipient: recipients,
       tournament: tournaments,
       group: groups,
+      challengeTournament: challengeTournaments,
     })
     .from(notifications)
     .innerJoin(recipients, eq(notifications.recipientUserId, recipients.id))
@@ -294,6 +372,8 @@ export async function loadNotificationViews(
     .leftJoin(games, eq(notifications.gameId, games.id))
     .leftJoin(tournaments, eq(games.tournamentId, tournaments.id))
     .leftJoin(groups, eq(notifications.groupId, groups.id))
+    .leftJoin(challenges, eq(notifications.challengeId, challenges.id))
+    .leftJoin(challengeTournaments, eq(challenges.tournamentId, challengeTournaments.id))
     .where(and(ownVisible(viewerId), where))
     .orderBy(desc(notifications.createdAt), desc(notifications.id));
   const rows = page ? await query.limit(page.limit).offset(page.offset) : await query;

@@ -9,6 +9,7 @@ import {
   savePendingClaim,
   type PendingClaim,
 } from '@/auth/pending-claim';
+import { clearPendingReturn } from '@/auth/pending-return';
 import { useSession } from '@/auth/session';
 
 export const CLAIM_REQUIRES_NEW_ACCOUNT = 'CLAIM_REQUIRES_NEW_ACCOUNT';
@@ -93,7 +94,11 @@ export function useClaimSignIn(target: ClaimTarget | PendingClaimState | null): 
   const signIn = useCallback(async () => {
     if (!hydrated) return;
     // Not awaited: the Google popup must open within the click's user activation on web.
-    if (token) void savePendingClaim({ token, playerName }).catch(ignore);
+    if (token) {
+      void savePendingClaim({ token, playerName }).catch(ignore);
+      // The claim is what this sign-in resumes, not a screen opened earlier.
+      void clearPendingReturn().catch(ignore);
+    }
     await startGoogle();
   }, [hydrated, token, playerName, startGoogle]);
 

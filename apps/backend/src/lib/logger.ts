@@ -77,9 +77,11 @@ export const redactPaths = [
 
 // Capability links carry their secret as the path segment after these prefixes.
 const CAPABILITY_PATH = /^(\/invites\/(?:claim|app|group)\/)[^/?#]+/;
+// Public result links: /s/<token> and /s/<token>.png (the extension is kept).
+const SHARE_PATH = /^(\/s\/)[^/?#.]+/;
 
 export function redactUrl(rawUrl: string): string {
-  const url = rawUrl.replace(CAPABILITY_PATH, `$1${REDACTED}`);
+  const url = rawUrl.replace(CAPABILITY_PATH, `$1${REDACTED}`).replace(SHARE_PATH, `$1${REDACTED}`);
   const queryIndex = url.indexOf('?');
   if (queryIndex === -1) return url;
   const params = new URLSearchParams(url.slice(queryIndex + 1));

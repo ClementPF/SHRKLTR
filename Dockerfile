@@ -29,6 +29,12 @@ COPY apps/backend/package.json apps/backend/
 RUN npm ci --workspace apps/backend --include-workspace-root=false --omit=dev --no-audit --no-fund \
   && npm cache clean --force
 COPY --from=build /app/apps/backend/dist apps/backend/dist
+# Share card fonts: tsc copies no assets and @expo-google-fonts/inter is only a dev dependency.
+COPY --from=build \
+  /app/node_modules/@expo-google-fonts/inter/400Regular/Inter_400Regular.ttf \
+  /app/node_modules/@expo-google-fonts/inter/700Bold/Inter_700Bold.ttf \
+  /app/node_modules/@expo-google-fonts/inter/LICENSE_FONT \
+  apps/backend/dist/assets/fonts/
 COPY apps/backend/drizzle apps/backend/drizzle
 WORKDIR /app/apps/backend
 USER node

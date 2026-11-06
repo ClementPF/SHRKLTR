@@ -13,6 +13,7 @@ import { formatPoints, fromNow, gameDate, signedElo } from '@/lib/format';
 import { isPlaceholder } from '@/lib/users';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
 
+import { GameShareActions, isGameParticipant } from './game-share';
 import { isGameMissing, useGame } from './queries';
 
 export const GAME_NOT_FOUND_TEXT = "This game doesn't exist or you can't see it.";
@@ -20,7 +21,7 @@ export const GAME_LOAD_FAILED_TEXT = "Couldn't load this game.";
 
 export interface GameDetailScreenProps {
   id: string | undefined;
-  /** Username of the signed-in user, used to orient the rivalry. */
+  /** Username of the signed-in user: orients the rivalry and lets participants share. */
   viewer?: string;
   /** Actions on the game itself, such as sharing it. */
   actions?: ReactNode;
@@ -98,6 +99,7 @@ function GameDetail({ game, viewer, actions, footer }: GameDetailScreenProps & {
           losers={members(game.outcomes, 'LOSS')}
         />
       </View>
+      {isGameParticipant(game, viewer) && <GameShareActions game={game} />}
       {actions}
       <SectionTitle title="ELO CHANGES" />
       <View style={styles.outcomes}>

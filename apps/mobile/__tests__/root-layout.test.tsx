@@ -13,6 +13,10 @@ jest.mock('@/auth/session', () => ({
   useSession: () => ({ session: mockSession }),
 }));
 jest.mock('@/features/groups/pending-join', () => ({ usePendingJoinResume: jest.fn() }));
+jest.mock('@/features/auth/pending-return', () => ({
+  usePendingReturnCapture: jest.fn(),
+  usePendingReturnResume: jest.fn(),
+}));
 jest.mock('@/theme/navigation', () => ({ NavigationTheme: {} }));
 jest.mock('expo-web-browser', () => ({ maybeCompleteAuthSession: jest.fn() }));
 jest.mock('expo-router', () => {

@@ -12,7 +12,10 @@ cp apps/mobile/.env.example apps/mobile/.env   # init.sh does this automatically
 docker compose up -d                            # db + api on :3100
 ```
 
-`apps/mobile/.env` holds the public `EXPO_PUBLIC_*` values (API URL, Google web client ID).
+`apps/mobile/.env` holds the public `EXPO_PUBLIC_*` values: `EXPO_PUBLIC_API_URL` (API origin),
+`EXPO_PUBLIC_WEB_URL` (web app origin, default `http://localhost:8083`; production
+`https://shrkltr.wtchthfck.com`), `EXPO_PUBLIC_GOOGLE_CLIENT_ID`, `EXPO_PUBLIC_ENV` and
+`EXPO_PUBLIC_DEV_AUTH`.
 They are inlined into the bundle, so never put secrets there (in particular, the Google client
 secret lives only in the root `.env`). On a physical device, set `EXPO_PUBLIC_API_URL` to the
 Mac's LAN address; see [Expo Go on a physical device](#expo-go-on-a-physical-device).
@@ -32,8 +35,11 @@ refreshes an expired access token or returns to the login screen when the refres
   `expo-auth-session`. After Google redirects back with the code, the app posts
   `{code, codeVerifier, redirectUri}` to the backend `POST /auth/google/code`; the backend
   exchanges the code server-side with the server-only client secret (the app never calls
-  Google's token endpoint and holds no secret). On web the redirect URI is
-  `http://localhost:8081`, which must be registered for `EXPO_PUBLIC_GOOGLE_CLIENT_ID`.
+  Google's token endpoint and holds no secret). On web the redirect URI is the origin serving
+  the app (`http://localhost:8083` locally, `https://<APP_HOSTNAME>` when self-hosted), falling
+  back to `EXPO_PUBLIC_WEB_URL` when that origin is unknown. It must be an authorized redirect URI
+  of the Google web client `EXPO_PUBLIC_GOOGLE_CLIENT_ID` and be listed in the backend
+  `GOOGLE_REDIRECT_ALLOWLIST`.
 - **Dev sign-in** (non-production builds with `EXPO_PUBLIC_DEV_AUTH` set) lists the seeded users
   and signs in through `/auth/dev-token`. Use it for browser E2E and Expo Go on a device.
 - **Settings → LOGOUT** revokes the session server-side and clears stored tokens and cached data.
@@ -43,11 +49,24 @@ refreshes an expired access token or returns to the login screen when the refres
 
 ```bash
 cd apps/mobile
-CI=true npx expo start --port 8081   # web at http://localhost:8081, Expo Go via the QR code
+CI=true npx expo start --port 8083   # web at http://localhost:8083, Expo Go via the QR code
 ```
 
 The first web compile takes 1-3 minutes. Drop `CI=true` to get the interactive terminal with
 the Expo Go QR code. Restart with `--clear` after changing `apps/mobile/.env`.
+
+## Add the web app to your home screen
+
+On iPhone, open the deployed HTTPS site in Safari, then choose **Share → Add to Home Screen**.
+Keep **Open as Web App** enabled if Safari offers it. Launching the saved icon opens Sharkulator
+without the browser address bar or bottom toolbar; the system status bar remains visible.
+Android browsers can install it using **Install app** or **Add to Home screen**.
+
+The single-page HTML template, standalone manifest, and home-screen icons live in `public/`.
+The layout uses the device safe areas to keep navigation clear of the notch and home indicator.
+After deploying changes to the install metadata or icons, remove any old home-screen shortcut
+and add it again, since iOS can cache those details. Rebuild the web image to deploy these files.
+This does not add offline support.
 
 ## Expo Go on a physical device
 
@@ -70,16 +89,16 @@ the same Wi-Fi network, and Expo Go must support SDK 58 (keep it updated from th
 
    ```sh
    cd apps/mobile
-   npx expo start --port 8081 --clear
+   npx expo start --port 8083 --clear
    ```
 
 4. On the iPhone, scan the terminal QR code with the Camera app (it opens Expo Go), or open Expo
-   Go and enter `exp://192.168.1.21:8081` manually. If macOS asks whether Node may accept incoming
+   Go and enter `exp://192.168.1.21:8083` manually. If macOS asks whether Node may accept incoming
    connections, allow it.
 5. On the login screen, use **DEV SIGN-IN**: pick a seeded user chip (for example `dev-sam`) or
    type a username, then sign in. This calls `POST /auth/dev-token` with `EXPO_PUBLIC_DEV_AUTH`.
    **Continue with Google** is for the web app; Expo Go cannot complete it because the Google
-   web client only allows the `http://localhost:8081` redirect.
+   web client only allows the web-origin redirect (`http://localhost:8083` locally).
 6. The version label at the bottom of the login and settings screens ends in `L` when the app
    talks to a local/LAN API.
 
@@ -89,6 +108,41 @@ network (guest networks often isolate clients).
 
 The camera permission prompt appears the first time the scanner opens. If you denied it, enable
 the camera for Expo Go in iOS Settings.
+
+## Push notifications on a real phone
+
+The inbox, the bell and **Settings → Notifications** work everywhere, including web and Expo Go.
+Remote push to a phone does not work in Expo Go: since SDK 53, `expo-notifications` push is
+unavailable in Expo Go on Android, and the app registers a device only when it has an EAS project
+ID. You need a development build (or a release build) with your own Expo project and push
+credentials. Per the SDK 58 `expo-notifications` and push setup docs:
+
+1. **EAS project ID.** Create or link an Expo project with `npx eas-cli@latest init` from
+   `apps/mobile`. It writes `expo.extra.eas.projectId` (a UUID) into `app.json`. The app reads
+   `Constants.expoConfig.extra.eas.projectId`, then `Constants.easConfig.projectId`, and passes it
+   to `getExpoPushTokenAsync({ projectId })`. Without it the app logs "Push disabled: no EAS
+   projectId in the app config." once and works without push. The `expo-notifications` config
+   plugin is already listed in `app.json`.
+2. **Development build.** Install the dev client with `npx expo install expo-dev-client`, then
+   build with `npx eas-cli@latest build --profile development --platform ios` (or `android`), or
+   locally with `npx expo run:ios --device` / `npx expo run:android`. Use a physical device: push
+   tokens are for real devices. Never create or edit `ios/` or `android/` by hand.
+3. **Credentials.** iOS needs a paid Apple Developer account; answer yes when EAS CLI asks to set
+   up push notifications (or run `npx eas-cli@latest credentials`), which creates the APNs key.
+   Android needs Firebase Cloud Messaging V1: upload the Google service account key with
+   `npx eas-cli@latest credentials` (Expo docs: "Add Android FCM V1 credentials"), download the
+   Firebase `google-services.json` into `apps/mobile` and reference it as
+   `expo.android.googleServicesFile` in `app.json`.
+4. **Server.** No server change is needed: the API sends through the Expo push service
+   (`PUSH_URL` default). Set `EXPO_ACCESS_TOKEN` in the root `.env` only if you enable enhanced
+   push security for the project. On a phone, `EXPO_PUBLIC_API_URL` must be reachable from the
+   device (LAN address locally, the production API otherwise).
+
+After signing in, the build asks for notification permission and registers the device
+(`POST /users/me/push-devices`). Logout unregisters only that installation. Tapping a push opens
+its screen (game, challenge, group, achievements or profile), both while the app runs and from a
+cold start. The full manual check is section 4 of
+[DEVICE-CHECKLIST.md](../../DEVICE-CHECKLIST.md#4-push-on-a-real-phone).
 
 ## Test and typecheck
 
@@ -135,8 +189,11 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
   helpers in `src/lib/qr.ts` (required keys, same tournament, username dedupe, outcomes seeded with
   the scanner's own LOSS); the zustand draft (`store.ts`) holds the tournament and scanned outcomes.
   Both screens default to the tournament of the player's latest game and re-pick it through EDIT
-  (`/game-form/tournament`: recent + all tournaments, searchable). "All good" stays disabled until
-  the teams are complete, then asks for confirmation, POSTs `/tournaments/:name/games`, opens
+  (`/game-form/tournament`: recent + all tournaments, searchable). The scanner header respects the
+  device safe area. A scan that completes the teams automatically opens a popup showing the
+  tournament, winners and losers, and pauses the camera. Cancel keeps the draft for more players;
+  "Review game" reopens the popup (disabled until teams are complete). "Confirm game"
+  POSTs `/tournaments/:name/games`, opens
   `/game-form/result?id=` (the game detail screen plus next-step buttons, pre-filled from the
   submission response) and invalidates the `users`, `stats` and `tournaments` queries so mounted
   feed/history lists refetch immediately. Non-production builds print the QR payload under each

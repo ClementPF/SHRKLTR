@@ -3,11 +3,16 @@ import type {
   AchievementUnlock,
   AppInvite,
   AppInvitePreview,
+  Challenge,
+  ChallengeResponse,
+  ChallengeStatus,
   ClaimPreview,
+  CreateChallengeRequest,
   CreateGroupInviteRequest,
   CreatePlaceholderRequest,
   CreateTournamentRequest,
   Game,
+  GameShare,
   GoogleCodeExchangeRequest,
   Group,
   GroupInvite,
@@ -72,8 +77,6 @@ export const getUserGames = (
   params: PageParams & { tournamentName?: string } = {},
   signal?: AbortSignal,
 ) => api.get<Game[]>(`/users/${seg(username)}/games`, { query: { ...params }, signal });
-export const challengeUser = (username: string, message?: string) =>
-  api.post<void>(`/users/${seg(username)}/challenge`, message ? { message } : {});
 
 // Placeholders and invitations
 export const createPlaceholder = (body: CreatePlaceholderRequest) =>
@@ -118,6 +121,10 @@ export const submitGame = (name: string, body: SubmitGameRequest) =>
 // Games
 export const getGame = (id: string, signal?: AbortSignal) =>
   api.get<Game>(`/games/${seg(id)}`, { signal });
+export const issueGameShare = (gameId: string) =>
+  api.post<GameShare>(`/games/${seg(gameId)}/share`, {});
+export const revokeGameShare = (gameId: string, shareId: string) =>
+  api.delete<void>(`/games/${seg(gameId)}/share/${seg(shareId)}`);
 
 // Stats lookups
 export const getStats = (userName: string, tournamentName: string) =>
@@ -126,6 +133,22 @@ export const getRivalries = (userName: string, tournamentName: string) =>
   api.get<RivalryStats[]>('/rivalries', { query: { userName, tournamentName } });
 export const getRivalry = (userName: string, rivalName: string, tournamentName: string) =>
   api.get<RivalryStats>('/rivalry', { query: { userName, rivalName, tournamentName } });
+
+// Challenges
+export const listChallenges = (
+  params: PageParams & { status?: readonly ChallengeStatus[] } = {},
+  signal?: AbortSignal,
+) =>
+  api.get<Challenge[]>('/challenges', {
+    query: { page: params.page, pageSize: params.pageSize, status: params.status?.join(',') },
+    signal,
+  });
+export const createChallenge = (body: CreateChallengeRequest) =>
+  api.post<Challenge>('/challenges', body);
+export const getChallenge = (id: string, signal?: AbortSignal) =>
+  api.get<Challenge>(`/challenges/${seg(id)}`, { signal });
+export const respondToChallenge = (id: string, response: ChallengeResponse) =>
+  api.put<Challenge>(`/challenges/${seg(id)}/response`, { response });
 
 // Notifications
 export const listNotifications = (params: PageParams & { unreadOnly?: boolean } = {}) =>

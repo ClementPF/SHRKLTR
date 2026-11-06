@@ -31,7 +31,12 @@ export default function TabsLayout() {
         name="feed"
         options={{
           title: 'Feed',
-          headerRight: () => <NotificationBell />,
+          headerRight: () => (
+            <View style={styles.headerButtons}>
+              <HeaderButton title="Challenges" onPress={() => router.push('/challenges')} />
+              <NotificationBell />
+            </View>
+          ),
           tabBarIcon: tabIcon({ ios: 'list.bullet', android: 'list', web: 'list' }),
         }}
       />

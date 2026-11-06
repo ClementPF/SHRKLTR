@@ -39,7 +39,7 @@ type GroupRow = Awaited<ReturnType<typeof createGroup>>;
 type Payload = Record<string, unknown> | null | undefined;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const PUBLIC_WEB_URL = 'http://localhost:8081';
+const PUBLIC_WEB_URL = 'http://localhost:8083';
 const CODE_PATTERN = new RegExp(`^[${INVITE_CODE_ALPHABET}]{10}$`);
 
 describe('groups', () => {
@@ -697,7 +697,12 @@ describe('groups', () => {
       const badge = (await call(pat, 'GET', '/users/pat/achievements'))
         .json<{ code: string; source: unknown }[]>()
         .find((a) => a.code === 'first_group_joined');
-      expect(badge?.source).toEqual({ type: 'GROUP', gameId: null, groupId: null });
+      expect(badge?.source).toEqual({
+        type: 'GROUP',
+        gameId: null,
+        groupId: null,
+        challengeId: null,
+      });
     });
   });
 
