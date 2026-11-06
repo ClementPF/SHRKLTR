@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { APP_ENV } from '@/api/config';
 import type { Tournament } from '@/api/types';
@@ -13,10 +14,16 @@ import { QrScanner } from '@/components/qr-scanner';
 import { buildQrPayload, encodeQrPayload, submissionBlocker, type ScannedOutcome } from '@/lib/qr';
 import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
 
-import { AddPlayers } from './add-players';
+import { ADD_WITHOUT_QR_ENABLED, AddPlayers } from './add-players';
 import { useGameFormTournament, useSubmitGame } from './queries';
 import { useGameFormStore } from './store';
 import { GameFormTournamentHeader } from './tournament-header';
+
+export const SUBMITTER_LABEL = "I'll submit";
+export const TEAMMATE_LABEL = 'Teammate submits';
+export const SCAN_TEXT = "Scan each winner's QR code. In a team game, scan your teammates too.";
+export const TEAMMATE_TEXT =
+  'Show this code to the teammate who is submitting. Once they scan it, you are in the game and there is nothing else to do here.';
 
 export const CONFIRM_TITLE = 'Confirm this game?';
 export const CONFIRM_MESSAGE =
@@ -78,10 +85,11 @@ export interface ScannerScreenProps {
 
 export function ScannerScreen({ username, userId }: ScannerScreenProps) {
   const { tournament, loading } = useGameFormTournament(username);
+  const insets = useSafeAreaInsets();
   return (
     <ScrollView
       style={Palette.screen}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: Spacing.md + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
     >
       <GameFormTournamentHeader tournament={tournament} loading={loading} />
@@ -89,6 +97,41 @@ export function ScannerScreen({ username, userId }: ScannerScreenProps) {
         <ScannerBody username={username} userId={userId} tournament={tournament} />
       )}
     </ScrollView>
+  );
+}
+
+type Role = 'submitter' | 'teammate';
+
+/** In a team game only one loser submits; the other losers just show their code to them. */
+function RoleChoice({ role, onChange }: { role: Role; onChange(role: Role): void }) {
+  const options = [
+    { value: 'submitter', label: SUBMITTER_LABEL, testID: 'scanner-scan' },
+    { value: 'teammate', label: TEAMMATE_LABEL, testID: 'scanner-get-scanned' },
+  ] as const;
+  return (
+    <View style={styles.roleBlock}>
+      <Text style={styles.caption}>Team game (2v2, 3v3…)? Only one loser submits it.</Text>
+      <View style={styles.segments} accessibilityRole="tablist">
+        {options.map(({ value, label, testID }) => {
+          const selected = value === role;
+          return (
+            <Pressable
+              key={value}
+              accessibilityRole="tab"
+              accessibilityLabel={label}
+              aria-selected={selected}
+              testID={testID}
+              onPress={() => onChange(value)}
+              style={[styles.segment, selected && styles.segmentSelected]}
+            >
+              <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
+                {label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -101,7 +144,7 @@ function ScannerBody({
   userId: string | undefined;
   tournament: Tournament;
 }) {
-  const [mode, setMode] = useState<'scan' | 'show'>('scan');
+  const [role, setRole] = useState<Role>('submitter');
   const [confirmation, setConfirmation] = useState<{
     tournament: Tournament;
     outcomes: ScannedOutcome[];
@@ -141,32 +184,25 @@ function ScannerBody({
     );
   };
 
+  if (role === 'teammate') {
+    return (
+      <>
+        <RoleChoice role={role} onChange={setRole} />
+        <Text style={styles.text} testID="scanner-teammate-text">
+          {TEAMMATE_TEXT}
+        </Text>
+        <QrDisplay value={encodeQrPayload(buildQrPayload(username, tournament.name, 'LOSS'))} />
+      </>
+    );
+  }
+
   return (
     <>
-      {mode === 'scan' ? (
-        <>
-          <Button
-            title="Get Scanned"
-            variant="secondary"
-            testID="scanner-get-scanned"
-            onPress={() => setMode('show')}
-          />
-          {!confirmation && <QrScanner onScanned={scan} />}
-          {SHOW_MANUAL_CODE_ENTRY && <ManualCodeEntry onSubmit={scan} />}
-        </>
-      ) : (
-        <>
-          <Button
-            title="Scan"
-            variant="secondary"
-            testID="scanner-scan"
-            onPress={() => setMode('scan')}
-          />
-          <Text style={styles.text}>Get scanned by your team mate</Text>
-          <QrDisplay value={encodeQrPayload(buildQrPayload(username, tournament.name, 'LOSS'))} />
-        </>
-      )}
-      {mode === 'scan' && <AddPlayers ownerId={userId} />}
+      <RoleChoice role={role} onChange={setRole} />
+      <Text style={styles.text}>{SCAN_TEXT}</Text>
+      {!confirmation && <QrScanner onScanned={scan} />}
+      {SHOW_MANUAL_CODE_ENTRY && <ManualCodeEntry onSubmit={scan} />}
+      {ADD_WITHOUT_QR_ENABLED && <AddPlayers ownerId={userId} />}
       {blocker && <Text style={styles.caption}>{blocker}</Text>}
       <Button
         title="Review game"
@@ -208,6 +244,32 @@ const styles = StyleSheet.create({
   text: { ...Typography.body, fontWeight: '700', textAlign: 'center' },
   caption: { ...Typography.caption, textAlign: 'center' },
   manual: { gap: Spacing.sm },
+  roleBlock: { gap: Spacing.sm },
+  segments: {
+    flexDirection: 'row',
+    padding: Spacing.xs,
+    gap: Spacing.xs,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  segment: {
+    flex: 1,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.sm,
+    borderRadius: Radius.sm,
+  },
+  segmentSelected: { backgroundColor: Colors.accent },
+  segmentText: {
+    ...Typography.body,
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+  },
+  segmentTextSelected: { color: Colors.text, fontWeight: '700' },
   input: {
     ...Typography.body,
     borderWidth: 1,

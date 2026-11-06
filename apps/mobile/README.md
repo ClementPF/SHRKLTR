@@ -184,8 +184,11 @@ Tests live in `__tests__/` and use jest-expo with React Native Testing Library 1
   `{username, tournamentName, tournament: {name}, result: "WIN"}`. Losers open
   `/game-form/scanner`: an expo-camera `CameraView` scanning QR codes, with camera-unavailable
   and permission-denied states (headless browsers show one of these; the availability probe runs on
-  web only, native goes straight to the permission request) and a Get Scanned toggle that
-  shows the loser's own `LOSS` code for team mates. Each scan is parsed and validated by the pure
+  web only, native goes straight to the permission request). For team games (2v2, 3v3…) only one
+  loser submits: an "I'll submit / Teammate submits" switch lets the other losers show
+  their own `LOSS` code instead of the scanner and submit button. Adding players without a QR
+  code (`add-players.tsx`) is turned off by `ADD_WITHOUT_QR_ENABLED` so every player goes through
+  the scan. Each scan is parsed and validated by the pure
   helpers in `src/lib/qr.ts` (required keys, same tournament, username dedupe, outcomes seeded with
   the scanner's own LOSS); the zustand draft (`store.ts`) holds the tournament and scanned outcomes.
   Both screens default to the tournament of the player's latest game and re-pick it through EDIT

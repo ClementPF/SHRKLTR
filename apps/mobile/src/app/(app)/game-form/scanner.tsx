@@ -10,8 +10,7 @@ export default function ScannerRoute() {
     <>
       <Stack.Screen
         options={{
-          headerShown: true,
-          title: 'Scan the QR code',
+          title: 'Loser',
           header: () => <ScannerHeader />,
         }}
       />

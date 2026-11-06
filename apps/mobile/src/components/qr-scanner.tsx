@@ -72,7 +72,7 @@ export function QrScanner({ onScanned }: { onScanned(data: string): void }) {
       <Notice
         testID="scanner-unavailable"
         title={CAMERA_UNAVAILABLE_TEXT}
-        body="No camera was found on this device. Scan the winner's QR code from a phone, or use Get Scanned to show your own code to a team mate."
+        body="No camera was found on this device. Scan the winner's QR code from a phone, or pick “Teammate submits” to show your own code."
       />
     );
   }
