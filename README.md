@@ -69,21 +69,23 @@ readiness check as in the quick start: never seed before it prints the healthy r
 
 ## Day-to-day commands
 
-| What                               | Command                                                                                |
-| ---------------------------------- | -------------------------------------------------------------------------------------- |
-| Start db + api                     | `docker compose up -d`                                                                 |
-| Stop db + api                      | `docker compose stop`                                                                  |
-| API logs                           | `docker compose logs -f api`                                                           |
-| Seed demo data                     | `npm run seed -w apps/backend`                                                         |
-| Expo dev server (web + Expo Go)    | `cd apps/mobile && CI=true npx expo start --port 8081`                                 |
-| Backend tests (needs `db` running) | `npm run test -w apps/backend`                                                         |
-| Mobile tests                       | `CI=true npm run test -w apps/mobile`                                                  |
-| All tests                          | `npm run test`                                                                         |
-| Typecheck both workspaces          | `npm run typecheck`                                                                    |
-| Lint + Prettier check              | `npm run lint`                                                                         |
-| Format                             | `npm run format`                                                                       |
-| Generate a migration               | see [apps/backend/README.md](apps/backend/README.md#database-migrations-and-demo-data) |
-| Production API image               | `docker build --target prod -t sharkulator-api .`                                      |
+| What                               | Command                                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| Start db + api                     | `docker compose up -d`                                                                    |
+| Stop db + api                      | `docker compose stop`                                                                     |
+| API logs                           | `docker compose logs -f api`                                                              |
+| Seed demo data                     | `npm run seed -w apps/backend`                                                            |
+| Expo dev server (web + Expo Go)    | `cd apps/mobile && CI=true npx expo start --port 8081`                                    |
+| Backend tests (needs `db` running) | `npm run test -w apps/backend`                                                            |
+| Mobile tests                       | `CI=true npm run test -w apps/mobile`                                                     |
+| All tests                          | `npm run test`                                                                            |
+| Browser tests (smoke / full)       | `npm run e2e:smoke` / `npm run e2e` (see [AGENTS.md](AGENTS.md#browser-tests-playwright)) |
+| Everything an agent hands off with | `npm run validate`                                                                        |
+| Typecheck both workspaces          | `npm run typecheck`                                                                       |
+| Lint + Prettier check              | `npm run lint`                                                                            |
+| Format                             | `npm run format`                                                                          |
+| Generate a migration               | see [apps/backend/README.md](apps/backend/README.md#database-migrations-and-demo-data)    |
+| Production API image               | `docker build --target prod -t sharkulator-api .`                                         |
 
 `CI=true` stops Expo from opening a browser and runs jest once instead of in watch mode.
 
