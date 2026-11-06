@@ -7,6 +7,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -26,29 +27,53 @@ class Deployer:
             raise DeploymentError("State and backup directories must be outside the checkout.")
         self.branch = args.branch
         self.health_timeout = args.health_timeout
+        self.build_timeout = args.build_timeout
         self.logger = logger
         self.compose = ["docker", "compose", "--project-directory", str(self.repo)]
         for file in args.compose_file or ["docker-compose.prod.yml"]:
             self.compose.extend(["-f", str(self.repo / file)])
         self.compose.extend(["--env-file", str(self.repo / args.env_file)])
 
-    def run(self, command, *, capture=False, stdout=None, stdin=None):
+    def run(self, command, *, capture=False, stdout=None, stdin=None, timeout=None):
         env = os.environ.copy()
         env["GIT_TERMINAL_PROMPT"] = "0"
         env.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=15")
-        result = subprocess.run(
-            command,
+        options = dict(
             cwd=self.repo,
             env=env,
             stdin=stdin,
             stdout=stdout if stdout is not None else subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        timed_out = False
+        if timeout is None:
+            result = subprocess.run(command, **options)
+        else:
+            # Compose can spawn buildx and credential helpers. Isolate the build
+            # so a timeout kills those children too, not just the Compose CLI.
+            process = subprocess.Popen(command, start_new_session=True, **options)
+            try:
+                output, errors = process.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                output, errors = process.communicate()
+            result = subprocess.CompletedProcess(
+                command, process.returncode, output, errors
+            )
         output = (result.stdout or b"").decode("utf-8", errors="replace")
         errors = result.stderr.decode("utf-8", errors="replace")
-        if not capture or result.returncode:
+        if not capture or result.returncode or timed_out:
             for line in (output + errors).splitlines():
                 self.logger.info("%s", line)
+        if timed_out:
+            raise DeploymentError(
+                f"{command[0]} {command[1]} timed out after {timeout} seconds; "
+                "build process group killed"
+            )
         if result.returncode:
             raise DeploymentError(
                 f"{command[0]} {command[1]} failed (exit {result.returncode})"
@@ -136,7 +161,7 @@ class Deployer:
         self.logger.info("Fast-forwarding checkout to %s", target)
         self.git("merge", "--ff-only", target)
         self.logger.info("Building API and web images (running containers stay up)")
-        self.run(self.compose + ["build", "api", "web"])
+        self.run(self.compose + ["build", "api", "web"], timeout=self.build_timeout)
         self.require_clean_checkout()
         if self.git("rev-parse", "HEAD") != target:
             raise DeploymentError("Checkout HEAD changed during the build; refusing to deploy.")
@@ -176,9 +201,12 @@ def parse_args(argv=None):
     parser.add_argument("--compose-file", action="append")
     parser.add_argument("--env-file", default=".env.production")
     parser.add_argument("--health-timeout", type=int, default=180)
+    parser.add_argument("--build-timeout", type=int, default=900)
     args = parser.parse_args(argv)
     if args.health_timeout <= 0:
         parser.error("--health-timeout must be positive")
+    if args.build_timeout <= 0:
+        parser.error("--build-timeout must be positive")
     return args
 
 

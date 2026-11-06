@@ -6,7 +6,9 @@ from pathlib import Path
 import plistlib
 import stat
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -138,6 +140,95 @@ class DeployTests(unittest.TestCase):
         with self.assertRaises(deploy.DeploymentError):
             self.deployer.deploy()
         self.assertFalse(any("pg_dump" in command or "up" in command for command in self.calls))
+
+    def test_build_timeout_kills_group_logs_output_and_retries(self):
+        process = Mock(pid=12345, returncode=-9)
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired("docker compose build", 900),
+            (b"partial build output\n", b"credential helper stalled\n"),
+        ]
+
+        def run(command, **kwargs):
+            if "build" in command:
+                self.calls.append(command)
+                return deploy.Deployer.run(self.deployer, command, **kwargs)
+            return self.run_command(command, **kwargs)
+
+        self.deployer.run.side_effect = run
+        with patch.object(deploy.subprocess, "Popen", return_value=process) as popen:
+            with patch.object(deploy.os, "killpg") as killpg:
+                with self.assertRaisesRegex(deploy.DeploymentError, "timed out after 900"):
+                    self.deployer.deploy()
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        process.communicate.assert_any_call(timeout=900)
+        killpg.assert_called_once_with(12345, deploy.signal.SIGKILL)
+        self.assertEqual(process.communicate.call_count, 2)
+        messages = [
+            call.args[0] % call.args[1:] for call in self.logger.info.call_args_list
+        ]
+        self.assertIn("partial build output", messages)
+        self.assertIn("credential helper stalled", messages)
+        self.assertEqual(self.marker.read_text().strip(), PREVIOUS)
+        self.assertFalse(any("pg_dump" in command or "up" in command for command in self.calls))
+        self.deployer.run.side_effect = self.run_command
+        self.deployer.deploy()
+        self.assertEqual(self.marker.read_text().strip(), TARGET)
+
+    def test_timeout_handles_process_group_already_exited(self):
+        process = Mock(pid=12345, returncode=0)
+        process.communicate.side_effect = [
+            subprocess.TimeoutExpired("build", 1), (b"", b""),
+        ]
+        with patch.object(deploy.subprocess, "Popen", return_value=process):
+            with patch.object(deploy.os, "killpg", side_effect=ProcessLookupError):
+                with self.assertRaisesRegex(deploy.DeploymentError, "timed out"):
+                    deploy.Deployer.run(self.deployer, ["docker", "compose"], timeout=1)
+
+    def test_real_timeout_kills_child_holding_output_pipes_open(self):
+        # Both processes would hold the pipes open for 10 seconds if only the
+        # parent were killed. No Docker or production resources are involved.
+        child = "import time; print('child ready', flush=True); time.sleep(10)"
+        parent = (
+            "import subprocess, sys, time; "
+            f"subprocess.Popen([sys.executable, '-c', {child!r}]); "
+            "time.sleep(10)"
+        )
+        started = time.monotonic()
+        with self.assertRaisesRegex(deploy.DeploymentError, "timed out"):
+            deploy.Deployer.run(
+                self.deployer, [sys.executable, "-c", parent], timeout=1
+            )
+        self.assertLess(time.monotonic() - started, 5)
+        messages = [call.args[1] for call in self.logger.info.call_args_list]
+        self.assertIn("child ready", messages)
+
+    def test_build_timeout_configuration(self):
+        self.assertEqual(self.deployer.build_timeout, 900)
+        args = deploy.parse_args(self.argv + ["--build-timeout", "1200"])
+        self.assertEqual(deploy.Deployer(args, self.logger).build_timeout, 1200)
+        for value in ("0", "-1", "invalid"):
+            with self.subTest(value=value), patch("sys.stderr"):
+                with self.assertRaises(SystemExit):
+                    deploy.parse_args(self.argv + ["--build-timeout", value])
+
+    def test_timed_command_success_and_failure(self):
+        for code in (0, 1):
+            process = Mock(returncode=code)
+            process.communicate.return_value = (b"build output\n", b"build error\n")
+            with self.subTest(code=code):
+                with patch.object(deploy.subprocess, "Popen", return_value=process):
+                    if code:
+                        with self.assertRaisesRegex(deploy.DeploymentError, "exit 1"):
+                            deploy.Deployer.run(
+                                self.deployer, ["docker", "compose"], timeout=10
+                            )
+                    else:
+                        self.assertEqual(
+                            deploy.Deployer.run(
+                                self.deployer, ["docker", "compose"], timeout=10
+                            ),
+                            "build output",
+                        )
 
     def test_invalid_or_failed_backup_prevents_restart(self):
         for failure in ("pg_dump", "pg_restore"):
@@ -282,6 +373,14 @@ class DeployTests(unittest.TestCase):
         self.assertIn("--repo", agent["ProgramArguments"])
         self.assertIn("--state-dir", agent["ProgramArguments"])
         self.assertIn("Docker.app", agent["EnvironmentVariables"]["PATH"])
+        self.assertEqual(
+            agent["EnvironmentVariables"]["DOCKER_CONFIG"],
+            "/Users/YOU/.config/sharkulator-deploy-docker",
+        )
+        self.assertEqual(
+            agent["EnvironmentVariables"]["DOCKER_HOST"],
+            "unix:///Users/YOU/.docker/run/docker.sock",
+        )
 
 
 if __name__ == "__main__":
