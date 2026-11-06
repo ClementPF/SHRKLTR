@@ -201,8 +201,11 @@ The script:
    leave the successful-commit marker unchanged, and retry on the next scheduled poll.
 
 The first run has no marker, so it also backs up and redeploys the current commit. The default
-health timeout is 180 seconds; adjust it with `--health-timeout 300`. Use `--branch main` only
-if the repository's deployment branch is actually renamed to `main`.
+build timeout is 900 seconds; adjust it with `--build-timeout 1200`. A timed-out build kills
+the local build process group, including Compose, buildx, and credential helpers. It leaves
+running containers and the successful-commit marker unchanged, so the next poll retries.
+The health timeout is 180 seconds; adjust it with `--health-timeout 300`. Use `--branch main`
+only if the repository's deployment branch is actually renamed to `main`.
 
 Build output, deployment stages, and failures are recorded in `<state-dir>/deploy.log` and
 stderr. The log rotates at approximately 5 MB, keeping three older files. State, logs, and
@@ -218,7 +221,31 @@ tracks code commits, so environment-only changes still require a manual rebuild/
 
 ### macOS: run every minute with launchd
 
-Run as the same logged-in user that runs Docker Desktop. Create
+Run as the same logged-in user that runs Docker Desktop. Docker Desktop's default
+`credsStore: desktop` uses a Keychain credential helper that can hang under launchd, even
+when pulling public images. Use a separate Docker CLI configuration for this job without
+`credsStore` or `credHelpers`. This stack uses public images; private registries would need
+a separate noninteractive authentication setup. Leave your normal `~/.docker/config.json`
+unchanged.
+
+Create `~/.config/sharkulator-deploy-docker/config.json` (replace `YOU` with your username):
+
+```sh
+mkdir -p ~/.config/sharkulator-deploy-docker
+chmod 700 ~/.config/sharkulator-deploy-docker
+```
+
+```json
+{
+  "cliPluginsExtraDirs": ["/Users/YOU/.docker/cli-plugins"]
+}
+```
+
+The plugin path keeps Compose and buildx available. The plist below sets `DOCKER_CONFIG`
+to that directory and `DOCKER_HOST` to Docker Desktop's per-user socket, since the separate
+configuration does not inherit your normal Docker context.
+
+Create
 `~/Library/LaunchAgents/com.sharkulator.deploy.plist` with the following content. Replace every
 `/Users/YOU` and repository path; replace `/usr/bin/python3` with the output of `command -v python3`
 if needed. Paths in a plist must be absolute: `~` and shell variables are not expanded.
@@ -243,6 +270,10 @@ if needed. Paths in a plist must be absolute: `~` and shell variables are not ex
     <dict>
       <key>PATH</key>
       <string>/Applications/Docker.app/Contents/Resources/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>DOCKER_CONFIG</key>
+      <string>/Users/YOU/.config/sharkulator-deploy-docker</string>
+      <key>DOCKER_HOST</key>
+      <string>unix:///Users/YOU/.docker/run/docker.sock</string>
     </dict>
     <key>StartInterval</key>
     <integer>60</integer>
