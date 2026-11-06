@@ -7,3 +7,6 @@ dist/
 expo-env.d.ts
 package-lock.json
 apps/backend/drizzle/
+.e2e/
+test-results/
+playwright-report/
