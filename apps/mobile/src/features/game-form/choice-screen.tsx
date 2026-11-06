@@ -14,13 +14,13 @@ export function GameChoiceScreen() {
         Good game or not, it&apos;s time to find out how many points it was worth.
       </Text>
       <Button
-        title="WON"
+        title="Won"
         testID="game-choice-won"
         onPress={() => router.push('/game-form/winner')}
         style={styles.button}
       />
       <Button
-        title="LOST"
+        title="Lost"
         testID="game-choice-lost"
         onPress={() => router.push('/game-form/scanner')}
         style={styles.button}

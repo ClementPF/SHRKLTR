@@ -7,15 +7,17 @@ test('winner QR payload submits a game and refreshes both feeds', async ({ signI
   // Keep the winner's feed mounted so returning to it exercises live invalidation/focus.
   await winner.page.goto('/feed');
   await expect(winner.page.getByTestId('feed-list')).toBeVisible();
-  await winner.page.getByRole('tab', { name: 'Add Game' }).click();
-  await winner.page.getByRole('button', { name: 'WON', exact: true }).click();
+  await winner.page.getByRole('tab', { name: 'Add game' }).click();
+  await winner.page.getByRole('button', { name: 'Won', exact: true }).click();
   await pickTournament(winner.page);
   const payload = await winner.page.getByTestId('qr-payload').innerText();
   expect(JSON.parse(payload)).toMatchObject({ username: 'dev-alex', result: 'WIN' });
 
   await loser.page.goto('/add-game');
-  await loser.page.getByRole('button', { name: 'LOST', exact: true }).click();
+  await loser.page.getByRole('button', { name: 'Lost', exact: true }).click();
   await pickTournament(loser.page);
+  // The loser screen uses the same header as every pushed screen.
+  await expect(loser.page.getByRole('link', { name: 'Go back', exact: true })).toBeVisible();
   await expect(loser.page.getByTestId('scanner-review-game')).toBeDisabled();
   await loser.page.getByRole('textbox', { name: 'QR code payload' }).fill(payload);
   await loser.page.getByRole('button', { name: 'Add code', exact: true }).click();
@@ -32,6 +34,8 @@ test('winner QR payload submits a game and refreshes both feeds', async ({ signI
   expect(response.status()).toBe(201);
   const game = await response.json();
   await expect(loser.page.getByTestId(`game-detail-${game.id}`)).toBeVisible();
+  // The game is saved: no way back into the form it came from.
+  await expect(loser.page.getByRole('link', { name: 'Go back', exact: true })).toHaveCount(0);
   await expect(loser.page.getByTestId('outcome-dev-sam')).toContainText('LOSS');
   await expect(loser.page.getByTestId('outcome-dev-alex')).toContainText('WIN');
   const read = await request.get(`${API_URL}/games/${game.id}`, {
@@ -45,20 +49,23 @@ test('winner QR payload submits a game and refreshes both feeds', async ({ signI
   ).toBe(0);
   await loser.page.getByRole('button', { name: 'Back to feed', exact: true }).click();
   await expect(loser.page.getByTestId(`game-row-${game.id}`)).toBeVisible();
-  await winner.page.goBack();
-  await winner.page.getByRole('tab', { name: 'Feed', exact: true }).click();
+  await winner.page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(winner.page.getByRole('tab', { name: 'Feed', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
   await expect(winner.page.getByTestId(`game-row-${game.id}`)).toBeVisible();
 });
 
 test('team game: a teammate shows their code and one loser submits for everyone', async ({
   signIn,
 }) => {
-  const payloadOf = async (username: string, side: 'WON' | 'LOST') => {
+  const payloadOf = async (username: string, side: 'Won' | 'Lost') => {
     const { page } = await signIn(username);
     await page.goto('/add-game');
     await page.getByRole('button', { name: side, exact: true }).click();
     await pickTournament(page);
-    if (side === 'LOST') {
+    if (side === 'Lost') {
       await page.getByRole('tab', { name: 'Teammate submits', exact: true }).click();
       await expect(page.getByTestId('scanner-teammate-text')).toBeVisible();
       // A teammate only shows a code: they cannot submit or add anyone themselves.
@@ -69,15 +76,15 @@ test('team game: a teammate shows their code and one loser submits for everyone'
   };
   // The teammate goes first so the teams stay incomplete until the last winner is scanned.
   const codes = [
-    await payloadOf('dev-jordan', 'LOST'),
-    await payloadOf('dev-alex', 'WON'),
-    await payloadOf('dev-taylor', 'WON'),
+    await payloadOf('dev-jordan', 'Lost'),
+    await payloadOf('dev-alex', 'Won'),
+    await payloadOf('dev-taylor', 'Won'),
   ];
   expect(JSON.parse(codes[0]!)).toMatchObject({ username: 'dev-jordan', result: 'LOSS' });
 
   const submitter = await signIn('dev-sam');
   await submitter.page.goto('/add-game');
-  await submitter.page.getByRole('button', { name: 'LOST', exact: true }).click();
+  await submitter.page.getByRole('button', { name: 'Lost', exact: true }).click();
   await pickTournament(submitter.page);
   await expect(
     submitter.page.getByRole('tab', { name: "I'll submit", exact: true }),

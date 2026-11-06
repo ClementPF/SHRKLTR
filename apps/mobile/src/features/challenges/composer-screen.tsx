@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { ApiError } from '@/api/errors';
 import type { Challenge, Tournament, User } from '@/api/types';
 import { Button } from '@/components/button';
+import { Chip } from '@/components/chip';
 import { useUser, useUsers } from '@/features/users/queries';
 import { gameDate } from '@/lib/format';
 import { displayName, isPlaceholder } from '@/lib/users';
@@ -52,40 +53,6 @@ export function createChallengeErrorText(error: Error, opponent: string): string
   return `Couldn't send the challenge: ${error.message}`;
 }
 
-interface ChoiceProps {
-  label: string;
-  caption?: string;
-  selected: boolean;
-  onPress(): void;
-  testID?: string;
-}
-
-function Choice({ label, caption, selected, onPress, testID }: ChoiceProps) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityLabel={caption ? `${label}, ${caption}` : label}
-      accessibilityState={{ checked: selected }}
-      onPress={onPress}
-      testID={testID}
-      style={({ pressed }) => [
-        styles.choice,
-        selected && styles.choiceSelected,
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text style={styles.choiceText} numberOfLines={1}>
-        {label}
-      </Text>
-      {caption ? (
-        <Text style={styles.caption} numberOfLines={1}>
-          {caption}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
-
 function matches(user: User, query: string): boolean {
   const q = query.toLowerCase();
   return user.username.toLowerCase().includes(q) || displayName(user).toLowerCase().includes(q);
@@ -109,7 +76,7 @@ function OpponentSearch({ viewer, onPick }: { viewer: string; onPick(username: s
         placeholderTextColor={Colors.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
-        style={styles.input}
+        style={Palette.input}
       />
       {search.length > 0 && users.isPending && <Text style={styles.caption}>Searching…</Text>}
       {search.length > 0 && users.isError && (
@@ -125,7 +92,7 @@ function OpponentSearch({ viewer, onPick }: { viewer: string; onPick(username: s
           accessibilityLabel={`Choose ${user.username}`}
           testID={`opponent-option-${user.username}`}
           onPress={() => onPick(user.username)}
-          style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.person, pressed && styles.pressed]}
         >
           <Text style={styles.choiceText} numberOfLines={1}>
             {displayName(user)}
@@ -212,13 +179,15 @@ function TournamentPicker({
   return (
     <View style={styles.block} accessibilityRole="radiogroup" accessibilityLabel="Tournament">
       {list.map((t) => (
-        <Choice
+        <Chip
           key={t.id}
+          role="radio"
           label={t.displayName}
           caption={tournamentCaption(t)}
           selected={t.name === selected}
           onPress={() => onSelect(t.name)}
           testID={`tournament-option-${t.name}`}
+          style={styles.option}
         />
       ))}
     </View>
@@ -286,6 +255,8 @@ export function ChallengeComposer({
       style={Palette.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      automaticallyAdjustKeyboardInsets
       testID="challenge-composer"
     >
       <Text style={styles.intro}>
@@ -318,15 +289,17 @@ export function ChallengeComposer({
       <Text style={styles.label}>Deadline</Text>
       <View style={styles.chips} accessibilityRole="radiogroup" accessibilityLabel="Deadline">
         {DEADLINE_PRESETS.map((preset) => (
-          <Choice
+          <Chip
             key={preset.key}
+            role="radio"
             label={preset.label}
             selected={presetKey === preset.key}
             onPress={() => edit(setPresetKey)(preset.key)}
             testID={`deadline-${preset.key}`}
           />
         ))}
-        <Choice
+        <Chip
+          role="radio"
           label="Custom"
           selected={custom}
           onPress={() => edit(setPresetKey)(CUSTOM_KEY)}
@@ -343,11 +316,12 @@ export function ChallengeComposer({
             keyboardType="number-pad"
             placeholder="Amount"
             placeholderTextColor={Colors.textMuted}
-            style={[styles.input, styles.amount]}
+            style={[Palette.input, styles.amount]}
           />
           {(['hours', 'days'] as const).map((value) => (
-            <Choice
+            <Chip
               key={value}
+              role="radio"
               label={value === 'hours' ? 'Hours' : 'Days'}
               selected={unit === value}
               onPress={() => edit(setUnit)(value)}
@@ -391,15 +365,8 @@ const styles = StyleSheet.create({
   hint: { ...Typography.bodySecondary, fontSize: 14 },
   caption: { ...Typography.caption },
   error: { ...Typography.body, color: Colors.warning },
-  input: {
-    ...Typography.body,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.surface,
-    padding: Spacing.sm,
-  },
-  option: {
+  option: { borderRadius: Radius.md },
+  person: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
@@ -410,16 +377,6 @@ const styles = StyleSheet.create({
   selected: { ...Palette.card, flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
   names: { flex: 1, gap: 2 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  choice: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surfaceRaised,
-    gap: 2,
-  },
-  choiceSelected: { borderColor: Colors.accent, borderWidth: 2 },
   choiceText: { ...Typography.body },
   customRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   amount: { flex: 1 },

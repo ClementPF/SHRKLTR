@@ -1,18 +1,19 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useRef, useState, type ComponentRef } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { Group, Tournament } from '@/api/types';
 import { Button } from '@/components/button';
+import { Chip } from '@/components/chip';
 import { showAlert } from '@/components/dropdown-alert';
 import { canManage, groupKeys, useGroups } from '@/features/groups/queries';
 import { useErrorAlert } from '@/features/users/use-error-alert';
-import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
+import { Colors, Palette, Spacing, Typography } from '@/theme';
 
 import { useCreateTournament, useSports } from './queries';
 
 export function createdMessage(displayName: string): string {
-  return `${displayName} has been successfully created, good luck !`;
+  return `${displayName} has been created. Good luck!`;
 }
 
 export const SPORTS_LOAD_FAILED_TEXT = "Couldn't load sport suggestions.";
@@ -46,16 +47,13 @@ function GroupPicker({
   return (
     <View style={styles.chips} testID="tournament-group-picker">
       {options.map((o) => (
-        <Pressable
+        <Chip
           key={o.id ?? 'open'}
-          accessibilityRole="button"
+          label={o.label}
           accessibilityLabel={o.a11y}
-          accessibilityState={{ selected: o.id === selected }}
+          selected={o.id === selected}
           onPress={() => onSelect(o.id)}
-          style={[styles.chip, o.id === selected && styles.chipSelected]}
-        >
-          <Text style={styles.chipText}>{o.label}</Text>
-        </Pressable>
+        />
       ))}
     </View>
   );
@@ -74,12 +72,14 @@ export function CreateTournamentScreen({ onCreated, initialGroupId }: CreateTour
   const displayName = title.trim();
   const sportName = sport.trim();
   const selectedGroup = managed.find((g) => g.id === groupId) ?? null;
+  const sportInput = useRef<ComponentRef<typeof TextInput>>(null);
 
   const submit = () => {
+    if (!displayName || !sportName || create.isPending) return;
     create.mutate(groupId ? { displayName, sportName, groupId } : { displayName, sportName }, {
       onSuccess: (tournament) => {
         if (groupId) void queryClient.invalidateQueries({ queryKey: groupKeys.group(groupId) });
-        showAlert('success', 'Great !', createdMessage(tournament.displayName));
+        showAlert('success', 'Tournament created', createdMessage(tournament.displayName));
         onCreated(tournament);
       },
       onError: (err) => showAlert('error', 'Error', `Failed to create tournament: ${err.message}`),
@@ -91,19 +91,25 @@ export function CreateTournamentScreen({ onCreated, initialGroupId }: CreateTour
       style={Palette.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      automaticallyAdjustKeyboardInsets
     >
-      <Text style={styles.label}>Tournament Title</Text>
+      <Text style={styles.label}>Tournament title</Text>
       <TextInput
         testID="tournament-title-input"
-        accessibilityLabel="Tournament Title"
+        accessibilityLabel="Tournament title"
         value={title}
         onChangeText={setTitle}
         placeholder="Office Babyfoot"
         placeholderTextColor={Colors.textMuted}
-        style={styles.input}
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => sportInput.current?.focus()}
+        style={Palette.input}
       />
       <Text style={styles.label}>Sport</Text>
       <TextInput
+        ref={sportInput}
         testID="tournament-sport-input"
         accessibilityLabel="Sport"
         value={sport}
@@ -111,35 +117,33 @@ export function CreateTournamentScreen({ onCreated, initialGroupId }: CreateTour
         placeholder="babyfoot"
         placeholderTextColor={Colors.textMuted}
         autoCapitalize="none"
-        style={styles.input}
+        returnKeyType="done"
+        onSubmitEditing={submit}
+        style={Palette.input}
       />
       {!!sports.data?.length && (
         <View style={styles.chips}>
           {sports.data.map((s) => (
-            <Pressable
+            <Chip
               key={s.id}
-              accessibilityRole="button"
+              label={s.name}
               accessibilityLabel={`Sport ${s.name}`}
+              selected={s.name === sportName}
               onPress={() => setSport(s.name)}
-              style={[styles.chip, s.name === sportName && styles.chipSelected]}
-            >
-              <Text style={styles.chipText}>{s.name}</Text>
-            </Pressable>
+            />
           ))}
         </View>
       )}
       {sports.isError && !sports.data?.length && (
         <View testID="sports-load-error" style={styles.sportsError}>
           <Text style={styles.sportsErrorText}>{SPORTS_LOAD_FAILED_TEXT}</Text>
-          <Pressable
-            accessibilityRole="button"
+          <Chip
+            label={sports.isFetching ? 'Retrying…' : 'Retry'}
             accessibilityLabel="Retry loading sports"
-            onPress={() => void sports.refetch()}
+            selected={false}
             disabled={sports.isFetching}
-            style={styles.chip}
-          >
-            <Text style={styles.chipText}>{sports.isFetching ? 'Retrying…' : 'Retry'}</Text>
-          </Pressable>
+            onPress={() => void sports.refetch()}
+          />
         </View>
       )}
       {(managed.length > 0 || groupId) && (
@@ -158,7 +162,7 @@ export function CreateTournamentScreen({ onCreated, initialGroupId }: CreateTour
         </>
       )}
       <Button
-        title="Create Tournament"
+        title="Create tournament"
         testID="create-tournament-submit"
         onPress={submit}
         loading={create.isPending}
@@ -172,25 +176,7 @@ export function CreateTournamentScreen({ onCreated, initialGroupId }: CreateTour
 const styles = StyleSheet.create({
   content: { padding: Spacing.md, gap: Spacing.sm },
   label: { ...Typography.body, fontWeight: '700', marginTop: Spacing.sm },
-  input: {
-    ...Typography.body,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.surface,
-    padding: Spacing.sm,
-  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
-  chip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surfaceRaised,
-  },
-  chipSelected: { borderColor: Colors.accent },
-  chipText: { ...Typography.caption, color: Colors.text },
   sportsError: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   sportsErrorText: { ...Typography.caption, color: Colors.textMuted, flexShrink: 1 },
   hint: { ...Typography.caption },

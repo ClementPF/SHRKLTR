@@ -1,16 +1,16 @@
 import { router } from 'expo-router';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Tournament } from '@/api/types';
 import { Button } from '@/components/button';
-import { TournamentRow } from '@/components/tournament-row';
-import { Colors, Spacing } from '@/theme';
+import { Colors, Palette, Spacing, Typography } from '@/theme';
 
 export function openTournamentPicker() {
   router.push('/game-form/tournament');
 }
 
-/** Selected tournament with an EDIT action to re-pick it. */
+/** Selected tournament; tapping it opens the picker to choose another. */
 export function GameFormTournamentHeader({
   tournament,
   loading,
@@ -30,17 +30,41 @@ export function GameFormTournamentHeader({
     );
   }
   return (
-    <View style={styles.row} testID="game-form-tournament">
-      <View style={styles.tournament}>
-        <TournamentRow tournament={tournament} onPress={openTournamentPicker} />
-      </View>
-      <Button title="EDIT" testID="game-form-edit-tournament" onPress={openTournamentPicker} />
+    <View testID="game-form-tournament">
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Change tournament, ${tournament.displayName}`}
+        testID="game-form-edit-tournament"
+        onPress={openTournamentPicker}
+        style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      >
+        <View style={styles.names}>
+          <Text style={styles.title} numberOfLines={1}>
+            {tournament.displayName}
+          </Text>
+          <Text style={styles.caption} numberOfLines={1}>
+            {tournament.group
+              ? `${tournament.sport.name} · ${tournament.group.name}`
+              : tournament.sport.name}
+          </Text>
+        </View>
+        <Text style={styles.change}>Change</Text>
+        <SymbolView
+          name={{ ios: 'chevron.right', android: 'chevron_right', web: 'chevron_right' }}
+          tintColor={Colors.textMuted}
+          size={16}
+        />
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
-  tournament: { flex: 1 },
+  row: { ...Palette.card, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  pressed: { opacity: 0.8 },
+  names: { flex: 1, gap: Spacing.xs },
+  title: { ...Typography.body, fontSize: 18, fontWeight: '700' },
+  caption: { ...Typography.caption, textTransform: 'capitalize' },
+  change: { ...Typography.caption, color: Colors.textSecondary },
   loading: { padding: Spacing.md },
 });

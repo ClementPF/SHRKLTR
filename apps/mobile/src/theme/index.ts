@@ -71,4 +71,13 @@ export const Palette = {
     borderColor: Colors.border,
     padding: Spacing.md,
   },
+  input: {
+    ...Typography.body,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.surface,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
 } as const;

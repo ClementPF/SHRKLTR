@@ -17,7 +17,7 @@ export function ListFooter({ loading, endReached }: { loading: boolean; endReach
 export function CenteredLoading() {
   return (
     <View style={styles.center}>
-      <ActivityIndicator size="large" color={Colors.accent} />
+      <ActivityIndicator size="large" color={Colors.text} />
     </View>
   );
 }

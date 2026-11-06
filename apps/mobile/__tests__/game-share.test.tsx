@@ -29,6 +29,7 @@ jest.mock('expo-router', () => {
   return {
     Stack,
     router: { push: jest.fn(), navigate: jest.fn(), replace: jest.fn(), back: jest.fn() },
+    useFocusEffect: jest.fn(),
   };
 });
 jest.mock('react-native-safe-area-context', () => ({

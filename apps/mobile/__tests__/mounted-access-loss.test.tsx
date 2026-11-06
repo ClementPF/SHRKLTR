@@ -442,7 +442,7 @@ describe('screens kept mounted when membership is lost', () => {
     api.getRivalry.mockRejectedValue(new ApiError(404, 'RIVALRY_NOT_FOUND', 'Rivalry not found'));
     await renderWithClient(<GameDetailScreen id={privateGame.id} viewer="dev-sam" />);
 
-    expect(await screen.findByText(/NO RIVALRY BETWEEN/)).toBeTruthy();
+    expect(await screen.findByText(/^No rivalry between /)).toBeTruthy();
     expect(screen.getByTestId('game-detail-g-private')).toBeTruthy();
     expect(screen.queryByText(GAME_NOT_FOUND_TEXT)).toBeNull();
     expect(api.getGame).toHaveBeenCalledTimes(1);

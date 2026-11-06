@@ -31,6 +31,7 @@ jest.mock('expo-router', () => ({
   router: {
     push: jest.fn(),
     navigate: jest.fn(),
+    dismissTo: jest.fn(),
     replace: jest.fn(),
     back: jest.fn(),
     canGoBack: jest.fn(() => true),
@@ -143,9 +144,9 @@ describe('GameChoiceScreen', () => {
     await renderWithClient(<GameChoiceScreen />);
     expect(screen.getByText(GAME_OVER_TEXT)).toBeTruthy();
     expect(screen.queryByText(/tie/i)).toBeNull();
-    await fireEvent.press(screen.getByLabelText('WON'));
+    await fireEvent.press(screen.getByLabelText('Won'));
     expect(mockedRouter.push).toHaveBeenCalledWith('/game-form/winner');
-    await fireEvent.press(screen.getByLabelText('LOST'));
+    await fireEvent.press(screen.getByLabelText('Lost'));
     expect(mockedRouter.push).toHaveBeenCalledWith('/game-form/scanner');
   });
 });
@@ -157,8 +158,14 @@ describe('WinnerScreen', () => {
     expect(await screen.findByTestId('qr-svg')).toHaveTextContent(`220:${expected}`);
     expect(screen.getByTestId('qr-payload')).toHaveTextContent(expected);
     expect(screen.getByText('Office Babyfoot')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('EDIT'));
+    await fireEvent.press(screen.getByLabelText('Change tournament, Office Babyfoot'));
     expect(mockedRouter.push).toHaveBeenCalledWith('/game-form/tournament');
+  });
+
+  it('lets the winner leave for the feed once the code was shown', async () => {
+    await renderWithClient(<WinnerScreen username="dev-alex" />);
+    await fireEvent.press(await screen.findByTestId('winner-done'));
+    expect(mockedRouter.dismissTo).toHaveBeenCalledWith('/feed');
   });
 
   it('changes the payload when another tournament is picked', async () => {
@@ -234,11 +241,10 @@ describe('ScannerScreen', () => {
     expect(screen.getByLabelText('Confirm game')).toBeEnabled();
     expect(screen.queryByTestId('scanner-camera')).toBeNull();
     expect(api.submitGame).not.toHaveBeenCalled();
+    // The confirmation already lists the scanned player, so no banner covers it.
+    expect(screen.queryByTestId('dropdown-alert')).toBeNull();
     await fireEvent.press(screen.getByLabelText('Cancel'));
     await waitFor(() => expect(screen.getByTestId('scanner-camera')).toBeTruthy());
-    expect(screen.getByTestId('dropdown-alert')).toHaveTextContent(
-      'Scanneddev-alex added as winner.',
-    );
     expect(screen.getByLabelText('Review game')).toBeEnabled();
 
     await waitFor(() => scan(encodeQrPayload(buildQrPayload('dev-jordan', 'lunchdarts', 'WIN'))));
@@ -264,6 +270,9 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('confirm-dialog')).toBeNull();
     await waitFor(() => scan(winnerCode));
     expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    expect(screen.getByTestId('dropdown-alert')).toHaveTextContent(
+      'Scanneddev-alex added as winner.',
+    );
     expect(screen.getByLabelText('Review game')).toBeDisabled();
     await waitFor(() => scan(encodeQrPayload(buildQrPayload('dev-lee', 'officebabyfoot', 'WIN'))));
     expect(await screen.findByTestId('game-confirmation-outcomes-winners')).toHaveTextContent(

@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import type { User } from '@/api/types';
 import { Button } from '@/components/button';
+import { Chip } from '@/components/chip';
 import { showAlert } from '@/components/dropdown-alert';
 import { UnclaimedBadge } from '@/components/unclaimed-badge';
 import { isGroupMissing, useGroupMembers, useGroupPlayers } from '@/features/groups/queries';
@@ -12,7 +13,7 @@ import { TOURNAMENT_NOT_FOUND_TEXT } from '@/features/tournaments/tournament-scr
 import { flattenPages, useUsers } from '@/features/users/queries';
 import type { QrResult } from '@/lib/qr';
 import { displayName, isPlaceholder } from '@/lib/users';
-import { Colors, Radius, Spacing, Typography } from '@/theme';
+import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
 
 import { useGameFormStore } from './store';
 
@@ -47,18 +48,14 @@ function SideChoice({ side, onChange }: { side: QrResult; onChange(side: QrResul
   return (
     <View style={styles.chips}>
       {(['WIN', 'LOSS'] as const).map((value) => {
-        const selected = value === side;
         return (
-          <Pressable
+          <Chip
             key={value}
-            accessibilityRole="button"
+            label={value === 'WIN' ? 'Winner' : 'Loser'}
             accessibilityLabel={`Add as ${roleOf(value)}`}
-            accessibilityState={{ selected }}
+            selected={value === side}
             onPress={() => onChange(value)}
-            style={[styles.chip, selected && styles.chipSelected]}
-          >
-            <Text style={styles.chipText}>{value === 'WIN' ? 'Winner' : 'Loser'}</Text>
-          </Pressable>
+          />
         );
       })}
     </View>
@@ -146,7 +143,7 @@ function PlayerPicker({
         placeholderTextColor={Colors.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
-        style={styles.input}
+        style={Palette.input}
       />
       {search.length > 0 && users.isPending && <Text style={styles.caption}>Searching…</Text>}
       {search.length > 0 && users.denied && (
@@ -232,7 +229,8 @@ function AddByName({
         placeholder="Name of someone without an account"
         placeholderTextColor={Colors.textMuted}
         maxLength={100}
-        style={styles.input}
+        returnKeyType="done"
+        style={Palette.input}
         onSubmitEditing={submit}
       />
       <Button
@@ -301,24 +299,6 @@ const styles = StyleSheet.create({
   block: { gap: Spacing.sm },
   caption: { ...Typography.caption, textAlign: 'center' },
   chips: { flexDirection: 'row', justifyContent: 'center', gap: Spacing.sm },
-  chip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surfaceRaised,
-  },
-  chipSelected: { borderColor: Colors.accent },
-  chipText: { ...Typography.body },
-  input: {
-    ...Typography.body,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.surface,
-    padding: Spacing.sm,
-  },
   option: {
     flexDirection: 'row',
     alignItems: 'center',

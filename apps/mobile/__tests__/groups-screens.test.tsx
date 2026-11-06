@@ -243,10 +243,9 @@ beforeEach(() => {
 afterEach(() => client?.clear());
 
 describe('entry points', () => {
-  it('opens My groups from Settings', async () => {
+  it('leaves My groups to the Tournaments header instead of repeating it in Settings', async () => {
     await render(<SettingsScreen />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Groups' }));
-    expect(mockedRouter.push).toHaveBeenCalledWith('/groups');
+    expect(screen.queryByRole('button', { name: 'Groups' })).toBeNull();
   });
 
   it('labels grouped tournaments in the tournament list', async () => {
@@ -707,9 +706,9 @@ describe('New tournament group picker', () => {
     expect(screen.getByTestId('tournament-group-hint')).toHaveTextContent(
       'Only members of Shark Tank will see this tournament.',
     );
-    await fireEvent.changeText(screen.getByLabelText('Tournament Title'), 'Shark Tank Cup');
+    await fireEvent.changeText(screen.getByLabelText('Tournament title'), 'Shark Tank Cup');
     await fireEvent.changeText(screen.getByLabelText('Sport'), 'darts');
-    await fireEvent.press(screen.getByRole('button', { name: 'Create Tournament' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Create tournament' }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(cup));
     expect(api.createTournament).toHaveBeenCalledWith({
       displayName: 'Shark Tank Cup',

@@ -9,7 +9,7 @@ export default function TournamentPickerRoute() {
     <>
       <Stack.Screen
         options={{
-          title: 'Select Tournament',
+          title: 'Select a tournament',
         }}
       />
       <TournamentPickerScreen username={username} />

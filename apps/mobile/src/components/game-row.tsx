@@ -12,14 +12,20 @@ import { Colors, Palette, Spacing, Typography } from '@/theme';
 import { TeamColumn } from './outcome-columns';
 import { RivalryRows } from './rivalry-card';
 
+export function noRivalryText(username: string, rivalName: string, tournament: string): string {
+  return `No rivalry between ${username} and ${rivalName} in ${tournament} yet.`;
+}
+
 function LiveRivalry({
   username,
   rivalName,
   tournamentName,
+  tournamentDisplayName,
 }: {
   username: string;
   rivalName: string;
   tournamentName: string;
+  tournamentDisplayName: string;
 }) {
   const { data, isPending, isError, error } = useRivalry(username, rivalName, tournamentName, true);
   useEvictWhenDenied(isNotFound(error), tournamentName);
@@ -27,9 +33,7 @@ function LiveRivalry({
   if (isError) return <Text style={styles.notice}>Failed to load the rivalry.</Text>;
   if (!data) {
     return (
-      <Text style={styles.notice}>
-        NO RIVALRY BETWEEN {username} AND {rivalName} FOR {tournamentName}
-      </Text>
+      <Text style={styles.notice}>{noRivalryText(username, rivalName, tournamentDisplayName)}</Text>
     );
   }
   return <RivalryRows rivalry={data} />;
@@ -55,6 +59,7 @@ export function GameRivalries({ game, viewer }: { game: Game; viewer: string | u
     <LiveRivalry
       key={`${pair.username}-${pair.rivalName}`}
       tournamentName={game.tournament.name}
+      tournamentDisplayName={game.tournament.displayName}
       {...pair}
     />
   ));

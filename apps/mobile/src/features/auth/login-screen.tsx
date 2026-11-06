@@ -63,7 +63,7 @@ function DevSignIn() {
         onChangeText={setUsername}
         autoCapitalize="none"
         autoCorrect={false}
-        style={styles.input}
+        style={Palette.input}
         placeholder="seeded username"
         placeholderTextColor={Colors.textMuted}
         onSubmitEditing={() => void submit()}
@@ -203,15 +203,6 @@ const styles = StyleSheet.create({
   dev: { ...Palette.card, gap: Spacing.sm },
   claim: { ...Palette.card, borderColor: Colors.accent, gap: Spacing.sm },
   devTitle: { ...Typography.caption, letterSpacing: 2 },
-  input: {
-    ...Typography.body,
-    backgroundColor: Colors.surfaceRaised,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
   chip: {
     ...Typography.caption,
