@@ -30,7 +30,7 @@ describe('Google auth request', () => {
     const config = googleAuthRequestConfig('client-123', GOOGLE_WEB_REDIRECT_URI);
     expect(config).toEqual({
       clientId: 'client-123',
-      redirectUri: 'http://localhost:8081',
+      redirectUri: 'http://localhost:8083',
       scopes: ['openid', 'email', 'profile'],
       responseType: ResponseType.Code,
       usePKCE: true,
@@ -38,8 +38,8 @@ describe('Google auth request', () => {
     });
   });
 
-  it('redirects back to http://localhost:8081 on web', () => {
-    expect(googleRedirectUri('web')).toBe('http://localhost:8081');
+  it('redirects back to http://localhost:8083 on web', () => {
+    expect(googleRedirectUri('web')).toBe('http://localhost:8083');
   });
 
   it("targets Google's authorization endpoint and exposes no token endpoint", () => {
@@ -93,7 +93,7 @@ describe('exchangeGoogleCode (backend exchange)', () => {
       exchangeGoogleCode({
         code: 'auth-code',
         codeVerifier: 'verifier-xyz',
-        redirectUri: 'http://localhost:8081',
+        redirectUri: 'http://localhost:8083',
       }),
     ).resolves.toEqual(session);
 
@@ -105,7 +105,7 @@ describe('exchangeGoogleCode (backend exchange)', () => {
     expect(JSON.parse(init.body as string)).toStrictEqual({
       code: 'auth-code',
       codeVerifier: 'verifier-xyz',
-      redirectUri: 'http://localhost:8081',
+      redirectUri: 'http://localhost:8083',
     });
     expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
@@ -118,7 +118,7 @@ describe('exchangeGoogleCode (backend exchange)', () => {
     const input = {
       code: 'c',
       codeVerifier: 'v',
-      redirectUri: 'http://localhost:8081',
+      redirectUri: 'http://localhost:8083',
       clientSecret: 'nope',
     };
 
@@ -162,7 +162,7 @@ describe('useGoogleSignIn (web)', () => {
     expect(onCode).toHaveBeenCalledWith({
       code: 'auth-code',
       codeVerifier: 'verifier-from-pkce',
-      redirectUri: 'http://localhost:8081',
+      redirectUri: 'http://localhost:8083',
     });
     expect(mockedUseAuthRequest).toHaveBeenCalledWith(
       expect.objectContaining({ usePKCE: true, responseType: ResponseType.Code }),

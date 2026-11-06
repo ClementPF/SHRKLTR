@@ -231,7 +231,7 @@ describe('Google exchange payload', () => {
       jsonResponse(200, makeSession()),
     );
     globalThis.fetch = fetchFn as unknown as typeof fetch;
-    const base = { code: 'c', codeVerifier: 'v', redirectUri: 'http://localhost:8081' };
+    const base = { code: 'c', codeVerifier: 'v', redirectUri: 'http://localhost:8083' };
 
     await exchangeGoogleCode({ ...base, claimToken: TOKEN });
     await exchangeGoogleCode(base);
@@ -245,8 +245,8 @@ describe('Google exchange payload', () => {
     expect(fetchFn.mock.calls[0]![0]).not.toContain(TOKEN);
   });
 
-  it('derives the web redirect from EXPO_PUBLIC_WEB_URL (default http://localhost:8081)', () => {
-    expect(GOOGLE_WEB_REDIRECT_URI).toBe('http://localhost:8081');
+  it('derives the web redirect from EXPO_PUBLIC_WEB_URL (default http://localhost:8083)', () => {
+    expect(GOOGLE_WEB_REDIRECT_URI).toBe('http://localhost:8083');
     expect(googleRedirectUri('web')).toBe(GOOGLE_WEB_REDIRECT_URI);
   });
 });

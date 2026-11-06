@@ -14,8 +14,8 @@ describe('config', () => {
   it('provides local defaults for the public URLs, CORS, TTLs and maintenance', () => {
     const config = loadConfig(required);
     expect(config.PUBLIC_API_URL).toBe('http://localhost:3100');
-    expect(config.PUBLIC_WEB_URL).toBe('http://localhost:8081');
-    expect(config.CORS_ORIGINS).toEqual(['http://localhost:8081']);
+    expect(config.PUBLIC_WEB_URL).toBe('http://localhost:8083');
+    expect(config.CORS_ORIGINS).toEqual(['http://localhost:8083']);
     expect(config.CLAIM_TTL_DAYS).toBe(30);
     expect(config.GROUP_INVITE_TTL_DAYS).toBe(30);
     expect(config.MAINTENANCE_ENABLED).toBe(true);
@@ -31,13 +31,13 @@ describe('config', () => {
   it('parses CORS_ORIGINS as a trimmed CSV of exact origins', () => {
     const config = loadConfig({
       ...required,
-      CORS_ORIGINS: ' https://shrkltr.wtchthfck.com , ,http://localhost:8081/ ',
+      CORS_ORIGINS: ' https://shrkltr.wtchthfck.com , ,http://localhost:8083/ ',
     });
-    expect(config.CORS_ORIGINS).toEqual(['https://shrkltr.wtchthfck.com', 'http://localhost:8081']);
+    expect(config.CORS_ORIGINS).toEqual(['https://shrkltr.wtchthfck.com', 'http://localhost:8083']);
   });
 
   it.each([
-    ['a path', 'http://localhost:8081/app'],
+    ['a path', 'http://localhost:8083/app'],
     ['a wildcard', 'https://*.example.com'],
     ['a non-http scheme', 'ftp://example.com'],
     ['garbage', 'not a url'],

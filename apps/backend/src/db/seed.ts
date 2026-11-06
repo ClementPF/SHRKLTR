@@ -1,5 +1,8 @@
-import { pathToFileURL } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseEnv } from 'node:util';
 import { and, count, desc, eq, inArray } from 'drizzle-orm';
+import { envSchema } from '../config.js';
 import { hashCapabilityToken } from '../lib/capability-token.js';
 import { runAchievementsBackfill } from '../scripts/achievements-backfill.js';
 import { recordGame } from '../services/game.service.js';
@@ -761,6 +764,89 @@ function seedFixtures(db: Database, now: Date): Promise<Omit<SeedSummary, 'achie
   });
 }
 
+/**
+ * Web origin for the printed fixture links, so they match the links the api issues: the shell's
+ * PUBLIC_WEB_URL, else the one in the repo-root .env (the api container's env_file), else the
+ * config default. Only PUBLIC_WEB_URL is taken from the file: its DATABASE_URL targets the
+ * compose-internal host `db`, which the host cannot reach.
+ */
+export function seedPublicWebUrl(
+  env: Record<string, string | undefined>,
+  rootEnvText: string | undefined,
+): string {
+  const fromFile = rootEnvText === undefined ? undefined : parseEnv(rootEnvText).PUBLIC_WEB_URL;
+  return envSchema.shape.PUBLIC_WEB_URL.parse(env.PUBLIC_WEB_URL || fromFile || undefined);
+}
+
+function readRootEnv(): string | undefined {
+  try {
+    return readFileSync(fileURLToPath(new URL('../../../../.env', import.meta.url)), 'utf8');
+  } catch {
+    // Inside the api container only apps/backend is mounted; compose passes .env as env vars.
+    return undefined;
+  }
+}
+
+/** REPLACED: the link was reissued in the app, so the fixture token no longer matches. */
+export type FixtureLinkState = ClaimFixtureState | 'REPLACED';
+
+export interface FixtureLinkStates {
+  claims: ReadonlyMap<string, FixtureLinkState>;
+  inviteState: 'ACTIVE' | 'REVOKED' | 'MISSING';
+}
+
+/**
+ * The current state of each fixture link. Reruns never reset links changed while testing, so the
+ * printed state can differ from the one the fixture was created in.
+ */
+export async function fixtureLinkStates(db: Database, now: Date): Promise<FixtureLinkStates> {
+  const rows = await db
+    .select({ username: users.username, claim: playerClaims })
+    .from(playerClaims)
+    .innerJoin(users, eq(playerClaims.placeholderUserId, users.id))
+    .where(
+      inArray(
+        users.username,
+        DEMO_PLACEHOLDERS.map((p) => p.username),
+      ),
+    );
+  const byUsername = new Map(rows.map((r) => [r.username, r.claim]));
+  const claims = new Map<string, FixtureLinkState>();
+  for (const p of DEMO_PLACEHOLDERS) {
+    const claim = byUsername.get(p.username);
+    if (!claim || claim.tokenHash !== hashCapabilityToken(p.claimToken)) {
+      claims.set(p.username, 'REPLACED');
+    } else if (claim.consumedAt) {
+      claims.set(p.username, 'CLAIMED');
+    } else if (claim.revokedAt) {
+      claims.set(p.username, 'REVOKED');
+    } else if (claim.expiresAt.getTime() <= now.getTime()) {
+      claims.set(p.username, 'EXPIRED');
+    } else {
+      claims.set(p.username, 'ACTIVE');
+    }
+  }
+  const [invite] = await db
+    .select({ revokedAt: groupInvites.revokedAt })
+    .from(groupInvites)
+    .where(eq(groupInvites.tokenHash, hashCapabilityToken(DEMO_GROUP.inviteToken)));
+  return { claims, inviteState: !invite ? 'MISSING' : invite.revokedAt ? 'REVOKED' : 'ACTIVE' };
+}
+
+/** The LOCAL ONLY claim and group invite links of the seeded fixtures, as printed by the seed. */
+export function seedLinkLines(webUrl: string, states: FixtureLinkStates): string[] {
+  return [
+    `LOCAL ONLY claim links created by ${PLACEHOLDER_CREATOR} (dev fixtures, not secrets):`,
+    ...DEMO_PLACEHOLDERS.map(
+      (p) =>
+        `  [${states.claims.get(p.username) ?? 'REPLACED'}] ${p.username}: ${claimUrlFor(webUrl, p.claimToken)}`,
+    ),
+    `LOCAL ONLY invite to group "${DEMO_GROUP.name}" (${DEMO_GROUP.owner} OWNER; dev fixture, not a secret) [${states.inviteState}]:`,
+    `  link: ${joinUrlFor(webUrl, DEMO_GROUP.inviteToken)}`,
+    `  code: ${DEMO_GROUP.inviteCode}`,
+  ];
+}
+
 // Host-side default: the compose db is published on 5433 (DATABASE_URL in .env targets db:5432).
 const DEFAULT_DEV_DATABASE_URL =
   'postgres://sharkulator:sharkulator@localhost:5433/sharkulator_dev';
@@ -771,25 +857,16 @@ async function main(): Promise<void> {
   }
   const db = createDb(process.env.DATABASE_URL ?? DEFAULT_DEV_DATABASE_URL);
   try {
-    const summary = await runSeed(db);
+    const now = new Date();
+    const summary = await runSeed(db, now);
     console.log(
       `Seed complete: ${summary.users} demo users, ${summary.sports} sports, ` +
         `${summary.tournaments} tournaments (${summary.tournamentsWithNewGames} received demo games), ` +
         `${summary.placeholders} invited players (${summary.placeholderGamesAdded} new placeholder games), ` +
         `${summary.achievementsAwarded} historical badges backfilled.`,
     );
-    const webUrl = (process.env.PUBLIC_WEB_URL ?? 'http://localhost:8081').replace(/\/+$/, '');
-    console.log(
-      `LOCAL ONLY claim links created by ${PLACEHOLDER_CREATOR} (dev fixtures, not secrets):`,
-    );
-    for (const p of DEMO_PLACEHOLDERS) {
-      console.log(`  [${p.state}] ${p.username}: ${claimUrlFor(webUrl, p.claimToken)}`);
-    }
-    console.log(
-      `LOCAL ONLY invite to group "${DEMO_GROUP.name}" (${DEMO_GROUP.owner} OWNER; dev fixture, not a secret):`,
-    );
-    console.log(`  link: ${joinUrlFor(webUrl, DEMO_GROUP.inviteToken)}`);
-    console.log(`  code: ${DEMO_GROUP.inviteCode}`);
+    const webUrl = seedPublicWebUrl(process.env, readRootEnv());
+    for (const line of seedLinkLines(webUrl, await fixtureLinkStates(db, now))) console.log(line);
   } finally {
     await db.$client.end({ timeout: 5 });
   }

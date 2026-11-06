@@ -39,7 +39,7 @@ type GroupRow = Awaited<ReturnType<typeof createGroup>>;
 type Payload = Record<string, unknown> | null | undefined;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const PUBLIC_WEB_URL = 'http://localhost:8081';
+const PUBLIC_WEB_URL = 'http://localhost:8083';
 const CODE_PATTERN = new RegExp(`^[${INVITE_CODE_ALPHABET}]{10}$`);
 
 describe('groups', () => {

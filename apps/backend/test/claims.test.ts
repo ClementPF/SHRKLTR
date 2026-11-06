@@ -29,7 +29,7 @@ import {
 
 const CODE = '4/0AVG-claim-test-authorization-code';
 const VERIFIER = 'pkce-verifier-0123456789abcdefghijklmnopqrstuvwxyz-ABCDEF';
-const REDIRECT_URI = 'http://localhost:8081';
+const REDIRECT_URI = 'http://localhost:8083';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 type UserRow = Awaited<ReturnType<typeof createUser>>;

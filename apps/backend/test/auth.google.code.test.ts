@@ -17,7 +17,7 @@ import { buildTestApp, createLogCapture, truncateAll } from './helpers.js';
 const FAKE_SECRET = 'fake-client-secret-for-tests-7f3a9c';
 const VALID_CODE = '4/0AVG-valid-authorization-code-e1b2c3';
 const VERIFIER = 'pkce-verifier-0123456789abcdefghijklmnopqrstuvwxyz-ABCDEF';
-const REDIRECT_URI = 'http://localhost:8081';
+const REDIRECT_URI = 'http://localhost:8083';
 const UPSTREAM_ACCESS = 'ya29.google-access-token-value';
 const UPSTREAM_REFRESH = '1//google-refresh-token-value';
 
@@ -214,7 +214,7 @@ describe('POST /auth/google/code', () => {
 
   it('rejects a redirectUri outside the allowlist with 400 without calling Google', async () => {
     for (const redirectUri of [
-      'http://localhost:8081/',
+      'http://localhost:8083/',
       'https://evil.example.com',
       'http://localhost:8082',
     ]) {
@@ -386,7 +386,7 @@ describe('google code exchange config', () => {
     const { testConfig } = await import('./helpers.js');
     const config = testConfig({ GOOGLE_CLIENT_SECRET: '' });
     expect(config.GOOGLE_TOKEN_URL).toBe('https://oauth2.googleapis.com/token');
-    expect(config.GOOGLE_REDIRECT_ALLOWLIST).toEqual(['http://localhost:8081']);
+    expect(config.GOOGLE_REDIRECT_ALLOWLIST).toEqual(['http://localhost:8083']);
     expect(config.GOOGLE_CLIENT_SECRET).toBeUndefined();
     expect(
       testConfig({ GOOGLE_REDIRECT_ALLOWLIST: ' http://a , ,exp://b ' }).GOOGLE_REDIRECT_ALLOWLIST,

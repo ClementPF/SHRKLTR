@@ -26,9 +26,9 @@ describe('VAL-INVITE-006: CORS exact-origin allowlist', () => {
     });
 
     it('allows the local web origin with the requested method and headers', async () => {
-      const res = await preflight(app, 'http://localhost:8081');
+      const res = await preflight(app, 'http://localhost:8083');
       expect(res.statusCode).toBe(204);
-      expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+      expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8083');
       expect(res.headers['access-control-allow-methods']).toContain('PUT');
       expect(String(res.headers['access-control-allow-headers'])).toMatch(/authorization/i);
       expect(String(res.headers['access-control-allow-headers'])).toMatch(/content-type/i);
@@ -36,9 +36,9 @@ describe('VAL-INVITE-006: CORS exact-origin allowlist', () => {
 
     it.each([
       'http://localhost:3000',
-      'http://localhost:8081.evil.example',
-      'http://evil-localhost:8081',
-      'https://localhost:8081',
+      'http://localhost:8083.evil.example',
+      'http://evil-localhost:8083',
+      'https://localhost:8083',
     ])('gives no allow-origin to %s', async (origin) => {
       const res = await preflight(app, origin);
       expect(res.headers['access-control-allow-origin']).toBeUndefined();
@@ -68,7 +68,7 @@ describe('VAL-INVITE-006: CORS exact-origin allowlist', () => {
     );
 
     it.each([
-      'http://localhost:8081',
+      'http://localhost:8083',
       'https://shrkltr.example.test.evil.example',
       'https://evilshrkltr.example.test',
     ])('rejects the unlisted origin %s', async (origin) => {
@@ -86,7 +86,7 @@ describe('VAL-INVITE-006: CORS exact-origin allowlist', () => {
       const denied = await app.inject({
         method: 'GET',
         url: '/health',
-        headers: { origin: 'http://localhost:8081' },
+        headers: { origin: 'http://localhost:8083' },
       });
       expect(denied.headers['access-control-allow-origin']).toBeUndefined();
     });

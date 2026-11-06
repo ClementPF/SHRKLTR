@@ -1,14 +1,29 @@
 # Device checklist
 
 Manual checks that automation cannot do: real Google consent, a camera scan between two devices,
-and the native pull-to-refresh gesture. Each section lists exact steps and the evidence to send
-back. Commands run from the repo root (`/Users/cp/code/sharkulator`) on the Mac.
+the native pull-to-refresh gesture, push delivered to a real phone, a real Google claim with a
+brand-new account, the native share sheet, and messenger link previews of the deployed site. Each
+section lists prerequisites, exact steps, the expected outcome and the evidence to send back.
+Commands run from the repo root (`/Users/cp/code/sharkulator`) on the Mac.
 
-| #   | Check                              | Assertion                       | Devices                        |
-| --- | ---------------------------------- | ------------------------------- | ------------------------------ |
-| 1   | Real Google login on web           | VAL-MANUAL-GOOGLE-001           | Mac browser                    |
-| 2   | Two-device QR game                 | VAL-MANUAL-QR-001               | Mac browser + iPhone (Expo Go) |
-| 3   | Native pull-to-refresh on the feed | VAL-MOBILE-001 (native portion) | iPhone (Expo Go)               |
+None of these checks has been performed by automation. Automated tests and browser runs cover the
+inbox, notification preferences, push sending through a local collector, the claim rules with a
+simulated Google identity, the share page HTML and the PNG card. They do not prove that a phone
+receives a push, that real Google consent completes a claim, or that WhatsApp or iMessage render a
+preview. Record each result yourself.
+
+| #   | Check                                      | Devices                                     | Needs                                      |
+| --- | ------------------------------------------ | ------------------------------------------- | ------------------------------------------ |
+| 1   | Real Google login on web                   | Mac browser                                 | Google client secret                       |
+| 2   | Two-device QR game                         | Mac browser + iPhone (Expo Go)              | -                                          |
+| 3   | Native pull-to-refresh on the feed         | iPhone (Expo Go)                            | -                                          |
+| 4   | Push on a real phone                       | iPhone or Android phone (development build) | EAS project ID, APNs/FCM credentials       |
+| 5   | Real Google claim with a brand-new account | Mac browser (+ phone for the native part)   | Google client secret, a never-used account |
+| 6   | Native share sheet                         | Phone (Expo Go or development build)        | -                                          |
+| 7   | Messenger link preview after deploy        | Phone with WhatsApp or iMessage             | Your production deployment                 |
+
+Sections 1-3 keep their original assertions (VAL-MANUAL-GOOGLE-001, VAL-MANUAL-QR-001 and the
+native portion of VAL-MOBILE-001).
 
 Never paste secrets, tokens, or `.env` contents into chat or screenshots.
 
@@ -40,13 +55,13 @@ Never paste secrets, tokens, or `.env` contents into chat or screenshots.
 4. Start the dev server in interactive mode (prints the Expo Go QR code):
 
    ```sh
-   cd apps/mobile && npx expo start --port 8081 --clear
+   cd apps/mobile && npx expo start --port 8083 --clear
    ```
 
-   Wait for the first web compile (1-3 minutes) after opening http://localhost:8081.
+   Wait for the first web compile (1-3 minutes) after opening http://localhost:8083.
 
 5. iPhone: install or update **Expo Go** from the App Store, join the same Wi-Fi as the Mac, scan
-   the terminal QR code with the Camera app (or enter `exp://<LAN-IP>:8081` in Expo Go). Allow
+   the terminal QR code with the Camera app (or enter `exp://<LAN-IP>:8083` in Expo Go). Allow
    Node's incoming connections on the Mac if macOS asks.
 
 "DEV SIGN-IN as `<user>`" below means: on the login screen, tap the `<user>` chip in the DEV
@@ -55,7 +70,7 @@ SIGN-IN box (or type the name), then tap **Dev sign in**.
 ## 1. Real Google login on web (VAL-MANUAL-GOOGLE-001)
 
 The web app runs the Google authorization-code request with PKCE. After consent, Google redirects
-back to `http://localhost:8081` with a code, the app sends `{code, codeVerifier, redirectUri}` to
+back to `http://localhost:8083` with a code, the app sends `{code, codeVerifier, redirectUri}` to
 the backend `POST /auth/google/code`, and the backend exchanges the code with Google using the
 server-only client secret.
 
@@ -63,8 +78,9 @@ Prerequisites:
 
 1. In Google Cloud Console → **APIs & Services → Credentials**, open the Web-application client
    `686477747885-1km1tuodinj4bp2vuhher7v8lo95rr7r.apps.googleusercontent.com` and confirm
-   `http://localhost:8081` is in both **Authorized JavaScript origins** and **Authorized redirect
-   URIs**. If the OAuth consent screen is in testing mode, add your Google account as a test user.
+   `http://localhost:8083` is in both **Authorized JavaScript origins** and **Authorized redirect
+   URIs** (the local web app moved from 8081 to 8083; add the new origin if only 8081 is listed).
+   The backend accepts this redirect by default (`GOOGLE_REDIRECT_ALLOWLIST`). If the OAuth consent screen is in testing mode, add your Google account as a test user.
 2. Copy the client secret into the **root** `.env` (gitignored) as
    `GOOGLE_CLIENT_SECRET=<secret>`. Do not put it in `apps/mobile/.env`, do not commit it, and do
    not paste it in chat.
@@ -79,11 +95,11 @@ Prerequisites:
 
 Steps:
 
-1. In a private/incognito Mac browser window, open http://localhost:8081. If you are already
+1. In a private/incognito Mac browser window, open http://localhost:8083. If you are already
    signed in, go to **Settings → LOGOUT** first.
 2. Click **Continue with Google**.
 3. Choose your Google account and approve the consent screen (`openid`, `email`, `profile`).
-4. The browser returns to http://localhost:8081 and lands on the **Feed** tab, signed in. A new
+4. The browser returns to http://localhost:8083 and lands on the **Feed** tab, signed in. A new
    account shows the empty-feed welcome message, which is expected.
 5. Open the **Me** tab and check that your Google name and picture appear.
 
@@ -131,7 +147,7 @@ Steps:
    (for example `42` and `-42`) and share the same `gameCount`. If the token expires (15 minutes),
    run the `TOKEN=` line again.
 
-2. **Mac browser** (http://localhost:8081): sign out if needed, then **DEV SIGN-IN** as `dev-alex`.
+2. **Mac browser** (http://localhost:8083): sign out if needed, then **DEV SIGN-IN** as `dev-alex`.
 3. **iPhone (Expo Go)**: **DEV SIGN-IN** as `dev-sam`. Open the **Feed** tab and leave it there
    for a moment so its data loads.
 4. Baseline rivalry on both devices. On each device, in **YOUR HISTORY** on the **Feed** tab, tap
@@ -157,7 +173,7 @@ Steps:
     of two ways:
     - press the browser's **Back** button once to return to the **Add Game** tab (the tab bar is
       visible again), then click the **Feed** tab; or
-    - type http://localhost:8081/feed in the address bar and press Enter.
+    - type http://localhost:8083/feed in the address bar and press Enter.
 
     Do not just reload: a reload stays on the Winner screen.
 
@@ -222,6 +238,165 @@ Evidence to capture:
 - Your confirmation that the pull showed the spinner and brought in the new game (optional
   screen recording or before/after screenshots).
 - The `201` from step 2.
+
+## 4. Push on a real phone
+
+Remote push does not work in Expo Go (since SDK 53 it is unavailable in Expo Go on Android, and
+this app registers a device only when its build has an EAS project ID). Use a development build.
+
+Prerequisites (once; details in
+[Push notifications on a real phone](apps/mobile/README.md#push-notifications-on-a-real-phone)):
+
+1. An Expo account and EAS project: from `apps/mobile`, run `npx eas-cli@latest init`, which writes
+   `expo.extra.eas.projectId` into `app.json`. Keep that change if you want push in your builds.
+2. Push credentials: iOS needs a paid Apple Developer account (accept the push notification
+   setup when EAS CLI asks, or run `npx eas-cli@latest credentials`); Android needs FCM V1
+   credentials uploaded to the Expo project and `expo.android.googleServicesFile` in `app.json`.
+3. A development build installed on a physical phone: `npx expo install expo-dev-client`, then
+   `npx eas-cli@latest build --profile development --platform ios` (or `android`), or
+   `npx expo run:ios --device` / `npx expo run:android`.
+4. `EXPO_PUBLIC_API_URL=http://<LAN-IP>:3100` in `apps/mobile/.env` (Preparation step 3), then
+   `cd apps/mobile && npx expo start --dev-client --port 8083 --clear` and open the project from
+   the development build.
+5. A shell helper that mints a dev token without printing it (re-run it after 15 minutes):
+
+   ```sh
+   tok() { curl -s -X POST localhost:3100/auth/dev-token -H 'content-type: application/json' -H "x-dev-auth: $(grep '^DEV_AUTH_SECRET=' .env | cut -d= -f2)" -d "{\"username\":\"$1\"}" | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken'; }
+   ```
+
+Steps:
+
+1. Phone: **DEV SIGN-IN** as `dev-sam` and allow notifications when asked.
+2. Mac: confirm the device registered (prints no token):
+
+   ```sh
+   docker compose exec -T db psql -U sharkulator -d sharkulator_dev -c \
+     "select u.username, d.platform, d.disabled_at, d.last_seen_at from push_devices d join users u on u.id = d.user_id where u.username = 'dev-sam';"
+   ```
+
+   Expect one row with your platform (`IOS` or `ANDROID`) and an empty `disabled_at`.
+
+3. **App running, in the background**: press the home button, then record a game from the Mac
+   (dev-sam loses to dev-alex):
+
+   ```sh
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3100/tournaments/officebabyfoot/games \
+     -H 'content-type: application/json' -H "authorization: Bearer $(tok dev-sam)" \
+     -d '{"outcomes":[{"username":"dev-alex","result":"WIN"},{"username":"dev-sam","result":"LOSS"}]}'
+   ```
+
+   Expect `201` and, within a few seconds, a push "You lost in Office Babyfoot". Tap it: the app
+   opens that game's detail screen.
+
+4. **App in the foreground**: stay on the Feed and record another game with the same command. A
+   banner appears and the Feed shows the new game without a pull. The bell count goes up.
+5. **Cold start**: force-quit the app (swipe it away). Send dev-sam a challenge from the Mac:
+
+   ```sh
+   curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3100/challenges \
+     -H 'content-type: application/json' -H "authorization: Bearer $(tok dev-alex)" \
+     -d '{"tournamentName":"chessclub","opponentUsername":"dev-sam"}'
+   ```
+
+   Expect `201` (a `400` means an active dev-alex/dev-sam challenge already exists there; use
+   another open tournament such as `lunchdarts`). Tap the push: the app launches, signs in from
+   the stored session and opens that challenge's detail screen (not just the Feed).
+
+6. **Push-only preferences**: in **Settings → Notifications**, turn off **Games**. Record a game
+   with the step 3 command. No push arrives, but the inbox (bell on the Feed) still lists the new
+   "game recorded" entry. Turn **Games** back on; the next game pushes again.
+7. **Logout unregisters this phone**: **Settings → LOGOUT**. Re-run the step 2 query: the row now
+   has a `disabled_at` time. Record a game with the step 3 command: no push arrives.
+
+Expected outcome: pushes arrive on the phone, taps open the right screen both while the app is
+running and from a cold start, a category turned off stops only its push, and logout stops push
+to that phone.
+
+Evidence to capture: screenshots of the received pushes and the opened game and challenge
+screens, the step 2 and step 7 query output, the HTTP codes, and a note of the platform and build
+type you used. Do not share push tokens. If no push arrives, check `docker compose logs api` for
+push errors and that the build has the project ID (the app logs "Push disabled: no EAS projectId
+in the app config." otherwise).
+
+## 5. Real Google claim with a brand-new account
+
+Automation simulated Google's identity for claims. This check uses real Google consent and a
+Google account that has never signed in to this Sharkulator database.
+
+Prerequisites: section 1 prerequisites (client secret, `http://localhost:8083` registered in the
+Google Console), and a brand-new Google account (or one never used with this database) added as
+a test user if the consent screen is in testing mode. Also have an existing Sharkulator Google
+account for the negative check (the one from section 1).
+
+Steps:
+
+1. Mac browser: **DEV SIGN-IN** as `dev-alex`. Open **Add Game** → **LOST** → **NO QR CODE?**, type
+   a new name in **New player name** (for example `Claim Test`) and add it as the winner, pick the
+   **Shark Tank Cup** tournament with **EDIT**, then **Review game** → **Confirm game**. Copy the new
+   player's claim link from **Settings → Invited players**.
+2. In a private/incognito window, open the claim link. The page shows the player's name and game
+   history, and no private group details.
+3. Negative check first: click **Claim with Google** and choose your **existing** Sharkulator
+   account. Expected: "This Google account already has a Sharkulator profile, so it cannot claim
+   this player. Nothing was changed." Close the private window.
+4. Open the same link again in a new private window (it must still work), click
+   **Claim with Google**, and choose the **brand-new** account.
+5. Expected: you land signed in as the claimed player. **Me** shows the inherited game and rating;
+   **Settings → Groups** lists **Shark Tank** (you are a member because the player was on its
+   roster), and the Shark Tank Cup leaderboard is visible.
+6. As `dev-alex` (normal window), the bell shows "Invite accepted", and **Settings → Invited
+   players** shows the player as claimed. Opening the link again shows that it can't be used.
+7. Optional native continuation: native Google sign-in needs a Google OAuth client that accepts
+   the native redirect `com.elo.sharkulator:/oauthredirect` and whose code the backend can
+   exchange; the current setup has only the web client, so Expo Go and an unconfigured
+   development build cannot finish Google sign-in. If you configure it, repeat steps 1-5 with a
+   second new account: open the claim link on the phone, tap **Open in app**, claim with Google in
+   the development build, and confirm the app returns to the claimed profile with group access.
+   Otherwise record "native Google claim not configured".
+
+Evidence to capture: screenshots of the claim page, the existing-account error, the signed-in
+claimed profile and its group membership, plus this query (no secrets):
+
+```sh
+docker compose exec -T db psql -U sharkulator -d sharkulator_dev -c \
+  "select username, account_type, claimed_at, email_verified from users where claimed_at is not null order by claimed_at desc limit 3;"
+```
+
+## 6. Native share sheet
+
+Steps (Expo Go or a development build, signed in as `dev-sam`):
+
+1. Open a game from **YOUR HISTORY** on the Feed. Under **Share result**, read the disclosure,
+   then tap **Share result**.
+2. Expected: the system share sheet opens with the result text and a link
+   `<PUBLIC_API_URL>/s/<token>`. Share it to Notes or to yourself.
+3. Tap **Revoke link**; the screen says the link no longer shows the result.
+
+Locally the link uses `http://localhost:3100`, which the phone cannot open; the sheet itself is
+what this section checks. Section 7 checks the link after you deploy.
+
+Evidence to capture: a screenshot of the open share sheet (hide the token part of the link).
+
+## 7. Messenger link preview after deploy
+
+Only after you deploy the API to `https://shrkltr-api.wtchthfck.com` and the web app to
+`https://shrkltr.wtchthfck.com` with the production settings from the
+[README deployment notes](README.md#production-deployment-notes). Local checks of the HTML and PNG
+do not prove a messenger preview.
+
+Steps:
+
+1. In the production app, open one of your games and share it (web: **Share result** or
+   **Copy link**). The link starts with `https://shrkltr-api.wtchthfck.com/s/`.
+2. Paste it into a WhatsApp or iMessage chat (to yourself is fine) and wait for the preview.
+3. Expected: a preview card with the result title and the 1200×630 Sharkulator image (players,
+   result, Elo changes, sport). Tapping it opens the share page, whose **Open Sharkulator** button
+   leads to `https://shrkltr.wtchthfck.com/games/<id>`.
+4. Revoke the link in the app, then open it in a browser: it answers 404 (not found). Messengers
+   cache previews, so an already-sent preview may stay visible.
+
+Evidence to capture: screenshots of the preview in WhatsApp or iMessage and of the revoked link
+in a browser.
 
 ## Cleanup
 

@@ -130,7 +130,7 @@ describe('error envelope', () => {
     const res = await app.inject({
       method: 'OPTIONS',
       url: '/health',
-      headers: { origin: 'http://localhost:8081' },
+      headers: { origin: 'http://localhost:8083' },
     });
     expect(res.statusCode).toBe(400);
     expect(res.headers['content-type']).toMatch(/^application\/json/);
@@ -153,10 +153,10 @@ describe('error envelope', () => {
     const res = await app.inject({
       method: 'OPTIONS',
       url: '/health',
-      headers: { origin: 'http://localhost:8081', 'access-control-request-method': 'GET' },
+      headers: { origin: 'http://localhost:8083', 'access-control-request-method': 'GET' },
     });
     expect(res.statusCode).toBe(204);
-    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8083');
     expect(res.headers['access-control-allow-methods']).toContain('GET');
   });
 });
