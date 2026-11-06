@@ -10,6 +10,11 @@ read-only, gitignored references.
 - `apps/mobile`: Expo SDK 58 app for iOS, Android, and web ([README](apps/mobile/README.md))
 - `docker-compose.yml`: `db` (Postgres, host port 5433) and `api` (hot reload, port 3100)
 - `Dockerfile`: `dev` target for compose, `prod` target for a slim production image
+- `docker-compose.prod.yml` + `docker/web/`: production stack (api, static web app, optional
+  Cloudflare Tunnel); `docker-compose.lan.yml` for a reverse proxy on another machine;
+  `scripts/deploy.py` for host-side polling deployments; see [SELF-HOSTING.md](SELF-HOSTING.md)
+- `apps/mobile/public/`: web app HTML template, manifest and home-screen icons
+- `legacy/SHRKLTR-BCKND`: the original Spring Boot backend, kept for history (not built or run)
 - [`DEVICE-CHECKLIST.md`](DEVICE-CHECKLIST.md): manual checks automation cannot do: real Google
   login, the two-device QR flow, native pull-to-refresh, push on a real phone, a real Google claim
   with a brand-new account, native sharing, and messenger link previews after you deploy
@@ -164,13 +169,13 @@ readiness check as in the quick start: never seed before it prints the healthy r
 
 ### `apps/mobile/.env` (gitignored; template in `apps/mobile/.env.example`)
 
-| Variable                       | Default / example          | Notes                                                                                                                   |
-| ------------------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `EXPO_PUBLIC_API_URL`          | `http://localhost:3100`    | Use the Mac's LAN address on a physical device (see the mobile README). Production `https://shrkltr-api.wtchthfck.com`. |
-| `EXPO_PUBLIC_WEB_URL`          | `http://localhost:8083`    | Origin of the web app; also the Google redirect URI on web. Production `https://shrkltr.wtchthfck.com`.                 |
-| `EXPO_PUBLIC_GOOGLE_CLIENT_ID` | same as `GOOGLE_CLIENT_ID` | Public client ID used for the PKCE authorization request.                                                               |
-| `EXPO_PUBLIC_ENV`              | `development`              | `production` hides the dev sign-in control.                                                                             |
-| `EXPO_PUBLIC_DEV_AUTH`         | empty                      | Set to the root `DEV_AUTH_SECRET` to enable dev sign-in. Dev builds only.                                               |
+| Variable                       | Default / example          | Notes                                                                                                                             |
+| ------------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `EXPO_PUBLIC_API_URL`          | `http://localhost:3100`    | Use the Mac's LAN address on a physical device (see the mobile README). Production `https://shrkltr-api.wtchthfck.com`.           |
+| `EXPO_PUBLIC_WEB_URL`          | `http://localhost:8083`    | Origin of the web app; Google redirect URI on web when the serving origin is unknown. Production `https://shrkltr.wtchthfck.com`. |
+| `EXPO_PUBLIC_GOOGLE_CLIENT_ID` | same as `GOOGLE_CLIENT_ID` | Public client ID used for the PKCE authorization request.                                                                         |
+| `EXPO_PUBLIC_ENV`              | `development`              | `production` hides the dev sign-in control.                                                                                       |
+| `EXPO_PUBLIC_DEV_AUTH`         | empty                      | Set to the root `DEV_AUTH_SECRET` to enable dev sign-in. Dev builds only.                                                         |
 
 Every `EXPO_PUBLIC_*` value is inlined into the app bundle. Never put a real secret there
 (`GOOGLE_CLIENT_SECRET`, `DEV_AUTH_SECRET` for production, `EXPO_ACCESS_TOKEN` and the JWT secrets
@@ -200,8 +205,14 @@ app shows a sign-in error; dev sign-in keeps working.
 
 ## Production deployment notes
 
-Production runs on hosting you operate; nothing in this repository deploys it, and local tests
-never call the production domains. Production values:
+Production runs on hosting you operate; local tests never call the production domains. The
+self-hosted stack in [SELF-HOSTING.md](SELF-HOSTING.md) (`docker-compose.prod.yml`) derives every
+public origin below from `APP_HOSTNAME` and `API_HOSTNAME` in `.env.production`: the api gets
+`PUBLIC_WEB_URL`, `CORS_ORIGINS` and `GOOGLE_REDIRECT_ALLOWLIST` = `https://<APP_HOSTNAME>` and
+`PUBLIC_API_URL` = `https://<API_HOSTNAME>`, and the web image is built with the matching
+`EXPO_PUBLIC_WEB_URL` and `EXPO_PUBLIC_API_URL`. Compose refuses to start without both hostnames,
+so generated links never fall back to localhost. On other hosting, set these values yourself.
+Production values for the current deployment:
 
 | Where            | Variable                    | Value                                                                |
 | ---------------- | --------------------------- | -------------------------------------------------------------------- |
@@ -223,16 +234,18 @@ Set `EXPO_ACCESS_TOKEN` only if enhanced push security is on in your Expo projec
   missing or mistyped entry shows up as network errors in the web app while curl still works.
 - **Google Console**: in **APIs & Services → Credentials**, open the Web-application client
   (`GOOGLE_CLIENT_ID`) and add `https://shrkltr.wtchthfck.com` to both **Authorized JavaScript
-  origins** and **Authorized redirect URIs**. The web app sends exactly `EXPO_PUBLIC_WEB_URL` as
-  its redirect URI, so the Console entry, `EXPO_PUBLIC_WEB_URL` and `GOOGLE_REDIRECT_ALLOWLIST`
-  must be the same string (no trailing slash). Keep `http://localhost:8083` too if you sign in
-  locally with Google.
+  origins** and **Authorized redirect URIs**. On web the redirect URI is the origin serving the
+  app (falling back to `EXPO_PUBLIC_WEB_URL` when it is unknown), so serve the app from
+  `EXPO_PUBLIC_WEB_URL` and keep the Console entry, `EXPO_PUBLIC_WEB_URL` and
+  `GOOGLE_REDIRECT_ALLOWLIST` the same string (no trailing slash). Keep `http://localhost:8083`
+  too if you sign in locally with Google.
 - **Share links (`/s/*`) are served by the API**: `https://shrkltr-api.wtchthfck.com/s/<token>`
   returns the public HTML page with Open Graph tags and `/s/<token>.png` the 1200×630 card. Both
   must be reachable over HTTPS without authentication, and `PUBLIC_API_URL` must be the public
   origin (it is never derived from the request `Host`), or link previews break. The page's "Open
   Sharkulator" button points at `PUBLIC_WEB_URL/games/<id>`.
-- **Web app hosting**: build with `cd apps/mobile && npx expo export --platform web` (with the
+- **Web app hosting**: `docker/web/Dockerfile` (used by the self-hosted stack) does this for you.
+  Elsewhere, build with `cd apps/mobile && npx expo export --platform web` (with the
   production `EXPO_PUBLIC_*` values) and host `apps/mobile/dist` as a single-page app: every
   unknown path must fall back to `index.html`, so reloads and shared links such as
   `/invite/claim/<token>`, `/invite/app/<token>`, `/join/<token>`, `/games/<id>` and

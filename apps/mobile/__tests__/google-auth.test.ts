@@ -38,8 +38,43 @@ describe('Google auth request', () => {
     });
   });
 
-  it('redirects back to http://localhost:8083 on web', () => {
-    expect(googleRedirectUri('web')).toBe('http://localhost:8083');
+  it('redirects back to the origin serving the web app', () => {
+    expect(googleRedirectUri('web', 'https://app.example.com')).toBe('https://app.example.com');
+    expect(googleRedirectUri('web', 'http://localhost:8083')).toBe('http://localhost:8083');
+  });
+
+  it('falls back to EXPO_PUBLIC_WEB_URL (default http://localhost:8083) when the origin is unknown', () => {
+    expect(GOOGLE_WEB_REDIRECT_URI).toBe('http://localhost:8083');
+    expect(googleRedirectUri('web', undefined)).toBe('http://localhost:8083');
+    expect(googleRedirectUri('web', 'null')).toBe('http://localhost:8083');
+  });
+
+  describe('with a configured EXPO_PUBLIC_WEB_URL', () => {
+    const originalEnv = { ...process.env };
+
+    afterEach(() => {
+      process.env = { ...originalEnv };
+      jest.resetModules();
+    });
+
+    // EXPO_PUBLIC_* values are read at module load, so load a fresh module graph.
+    function loadGoogle(): typeof import('@/auth/google') {
+      let mod: typeof import('@/auth/google') | undefined;
+      jest.isolateModules(() => {
+        mod = jest.requireActual<typeof import('@/auth/google')>('@/auth/google');
+      });
+      return mod!;
+    }
+
+    it('falls back to the configured web origin, not localhost', () => {
+      process.env.EXPO_PUBLIC_WEB_URL = 'https://app.example.com/';
+      const google = loadGoogle();
+      expect(google.GOOGLE_WEB_REDIRECT_URI).toBe('https://app.example.com');
+      expect(google.googleRedirectUri('web', undefined)).toBe('https://app.example.com');
+      expect(google.googleRedirectUri('web', 'https://app.example.com')).toBe(
+        'https://app.example.com',
+      );
+    });
   });
 
   it("targets Google's authorization endpoint and exposes no token endpoint", () => {

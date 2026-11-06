@@ -13,6 +13,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
+    "prod": "docker compose -f docker-compose.prod.yml --env-file .env.production",
+    "prod:lan": "docker compose -f docker-compose.prod.yml -f docker-compose.lan.yml --env-file .env.production",
     "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
