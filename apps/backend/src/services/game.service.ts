@@ -10,6 +10,10 @@ import {
   refreshRivalrySelection,
   type ParticipantResult,
 } from './stats.service.js';
+import { evaluateGameAchievements, lockAchievementOwners } from './achievement.service.js';
+import { completeChallengesForGame } from './challenge.service.js';
+import { notifyGameRecorded } from './notification.service.js';
+import { authorizeGroupGame, findMemberRole } from './group.service.js';
 import { findTournamentByName, type TournamentWithRelations } from './tournament.service.js';
 
 type GameRow = typeof games.$inferSelect;
@@ -96,6 +100,7 @@ export async function recordGame(tx: Transaction, input: RecordGameInput): Promi
       userId: r.userId,
       result: r.result,
       scoreValue: r.delta,
+      ratingBefore: ratings.get(r.userId) ?? DEFAULT_RATING,
     })),
   );
 
@@ -111,15 +116,32 @@ export interface SubmitGameInput {
   tournamentName: string;
   callerId: string;
   outcomes: readonly SubmittedOutcome[];
+  /**
+   * Game operation time for challenge eligibility, read once the participants' stats are locked.
+   * Defaults to the system clock.
+   */
+  clock?: () => Date;
+}
+
+export interface SubmittedGame {
+  game: GameWithRelations;
+  /** Inbox rows created by the game, to push once the transaction has committed. */
+  notificationIds: string[];
 }
 
 /**
- * Records a game submitted by one of its losers. The game and its outcomes are written in a
- * single transaction; outcome scoreValues are the Elo deltas from current tournament ratings.
+ * Records a game submitted by one of its losers. The game, its outcomes, the accepted challenges
+ * it completes, the badges it unlocks and every inbox row (game_recorded for each participant,
+ * achievement_unlocked per new badge) are written in a single transaction; outcome scoreValues
+ * are the Elo deltas from current tournament ratings.
  */
-export async function submitGame(db: Database, input: SubmitGameInput): Promise<GameWithRelations> {
+export async function submitGame(db: Database, input: SubmitGameInput): Promise<SubmittedGame> {
   const tournament = await findTournamentByName(db, input.tournamentName);
-  if (!tournament) throw ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
+  const groupId = tournament?.tournament.groupId ?? null;
+  // Early answer for outsiders; the authoritative check runs under the group lock below.
+  if (!tournament || (groupId && !(await findMemberRole(db, groupId, input.callerId)))) {
+    throw ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
+  }
 
   const decisive = validateOutcomes(input.outcomes);
   const usernames = decisive.map((o) => o.username);
@@ -142,13 +164,41 @@ export async function submitGame(db: Database, input: SubmitGameInput): Promise<
     if (!user) throw new Error(`missing user ${o.username}`);
     return { userId: user.id, result: o.result };
   });
-  const gameId = await db.transaction((tx) =>
-    recordGame(tx, { tournamentId: tournament.tournament.id, participants }),
-  );
+  const { gameId, notificationIds } = await db.transaction(async (tx) => {
+    const participantIds = participants.map((p) => p.userId);
+    if (groupId) {
+      await authorizeGroupGame(tx, { groupId, callerId: input.callerId, participantIds });
+    }
+    await lockAchievementOwners(tx, participantIds);
+    const recorded = await recordGame(tx, { tournamentId: tournament.tournament.id, participants });
+    const challengeResults = await completeChallengesForGame(tx, {
+      gameId: recorded,
+      tournamentId: tournament.tournament.id,
+      participants,
+      at: (input.clock ?? (() => new Date()))(),
+    });
+    const gameNotifications = await notifyGameRecorded(tx, {
+      gameId: recorded,
+      submitterId: input.callerId,
+      participantIds,
+    });
+    const badges = await evaluateGameAchievements(tx, recorded);
+    return {
+      gameId: recorded,
+      notificationIds: [
+        ...gameNotifications,
+        ...challengeResults.notificationIds,
+        ...badges.notificationIds,
+      ],
+    };
+  });
 
   const [game] = await db.select().from(games).where(eq(games.id, gameId)).limit(1);
   if (!game) throw new Error('game disappeared after creation');
-  return { game, tournament, outcomes: await loadOutcomes(db, gameId) };
+  return {
+    game: { game, tournament, outcomes: await loadOutcomes(db, gameId) },
+    notificationIds,
+  };
 }
 
 /** Outcomes of a game with their users, winners first then by username. */

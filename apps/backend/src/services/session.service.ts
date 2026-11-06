@@ -2,7 +2,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { issueSession, type RefreshTokenPayload, type SessionTokens } from '../auth/jwt.js';
 import type { Database } from '../db/client.js';
-import { refreshTokens } from '../db/schema.js';
+import { refreshTokens, users } from '../db/schema.js';
 import { ApiError } from '../lib/errors.js';
 
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
@@ -78,6 +78,14 @@ export async function rotateSession(app: FastifyInstance, token: string): Promis
       )
       .returning({ userId: refreshTokens.userId, familyId: refreshTokens.familyId });
     if (!consumed) {
+      await revokeFamilyRows(tx, claims.familyId);
+      return null;
+    }
+    const [owner] = await tx
+      .select({ accountType: users.accountType })
+      .from(users)
+      .where(eq(users.id, consumed.userId));
+    if (owner?.accountType !== 'REGISTERED') {
       await revokeFamilyRows(tx, claims.familyId);
       return null;
     }

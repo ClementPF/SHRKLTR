@@ -1,12 +1,13 @@
-import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { and, asc, countDistinct, desc, eq, inArray, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { Database } from '../db/client.js';
-import { games, outcomes, sports, tournaments, users } from '../db/schema.js';
+import { games, groups, outcomes, sports, tournaments, users } from '../db/schema.js';
 import { ApiError } from '../lib/errors.js';
 import type { PageWindow } from '../lib/pagination.js';
 import type { GameWithRelations } from './game.service.js';
-import { findTournamentByName } from './tournament.service.js';
-import { findUserByUsername } from './user.service.js';
+import { requireVisibleTournament } from './tournament.service.js';
+import { requireVisibleUser } from './user.service.js';
+import { openTournamentsFilter, visibleTournamentsFilter } from './visibility.service.js';
 
 const owners = alias(users, 'owner');
 
@@ -17,11 +18,12 @@ async function listGames(
   page: PageWindow,
 ): Promise<GameWithRelations[]> {
   const rows = await db
-    .select({ game: games, tournament: tournaments, sport: sports, owner: owners })
+    .select({ game: games, tournament: tournaments, sport: sports, owner: owners, group: groups })
     .from(games)
     .innerJoin(tournaments, eq(games.tournamentId, tournaments.id))
     .innerJoin(sports, eq(tournaments.sportId, sports.id))
     .leftJoin(owners, eq(tournaments.ownerUserId, owners.id))
+    .leftJoin(groups, eq(tournaments.groupId, groups.id))
     .where(where)
     // createdAt and id break ties between games sharing a date so pages never overlap.
     .orderBy(desc(games.date), desc(games.createdAt), desc(games.id))
@@ -47,48 +49,83 @@ async function listGames(
     outcomesByGame.set(row.outcome.gameId, list);
   }
 
-  return rows.map(({ game, tournament, sport, owner }) => ({
+  return rows.map(({ game, tournament, sport, owner, group }) => ({
     game,
-    tournament: { tournament, sport, owner },
+    tournament: { tournament, sport, owner, group },
     outcomes: outcomesByGame.get(game.id) ?? [],
   }));
 }
 
-function tournamentNotFound(): ApiError {
-  return ApiError.notFound('Tournament not found', 'TOURNAMENT_NOT_FOUND');
-}
-
-/** Games of a tournament, newest first. Unknown tournament → 404. */
+/** Games of a tournament, newest first. Unknown or invisible tournament → 404. */
 export async function listTournamentGames(
   db: Database,
   tournamentName: string,
   page: PageWindow,
+  viewerId: string,
 ): Promise<GameWithRelations[]> {
-  const found = await findTournamentByName(db, tournamentName);
-  if (!found) throw tournamentNotFound();
+  const found = await requireVisibleTournament(db, tournamentName, viewerId);
   return listGames(db, eq(games.tournamentId, found.tournament.id), page);
 }
 
-/** Games the user took part in, newest first, optionally within one tournament. */
+/**
+ * Games the user took part in within tournaments the viewer may read, newest first, optionally
+ * within one tournament (unknown or invisible → 404).
+ */
 export async function listUserGames(
   db: Database,
   username: string,
   filter: { tournamentName?: string | undefined },
   page: PageWindow,
+  viewerId: string,
 ): Promise<GameWithRelations[]> {
-  const user = await findUserByUsername(db, username);
-  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+  const user = await requireVisibleUser(db, username, viewerId);
 
   const conditions: SQL[] = [
     inArray(
       games.id,
       db.select({ id: outcomes.gameId }).from(outcomes).where(eq(outcomes.userId, user.id)),
     ),
+    visibleTournamentsFilter(viewerId),
   ];
   if (filter.tournamentName !== undefined) {
-    const found = await findTournamentByName(db, filter.tournamentName);
-    if (!found) throw tournamentNotFound();
+    const found = await requireVisibleTournament(db, filter.tournamentName, viewerId);
     conditions.push(eq(games.tournamentId, found.tournament.id));
   }
   return listGames(db, and(...conditions), page);
+}
+
+/** One game by id. Unknown games and games the viewer may not see → 404. */
+export async function getGame(
+  db: Database,
+  gameId: string,
+  viewerId: string,
+): Promise<GameWithRelations> {
+  const where = and(eq(games.id, gameId), visibleTournamentsFilter(viewerId));
+  const [found] = await listGames(db, where, { offset: 0, limit: 1 });
+  if (!found) throw ApiError.notFound('Game not found', 'GAME_NOT_FOUND');
+  return found;
+}
+
+/** A user's games in open tournaments only, newest first, for anonymous previews. */
+export async function listOpenUserGames(
+  db: Database,
+  userId: string,
+  page: PageWindow,
+): Promise<GameWithRelations[]> {
+  const played = inArray(
+    games.id,
+    db.select({ id: outcomes.gameId }).from(outcomes).where(eq(outcomes.userId, userId)),
+  );
+  return listGames(db, and(played, openTournamentsFilter()), page);
+}
+
+/** Number of distinct games a user played in open tournaments. */
+export async function countOpenUserGames(db: Database, userId: string): Promise<number> {
+  const [row] = await db
+    .select({ n: countDistinct(outcomes.gameId) })
+    .from(outcomes)
+    .innerJoin(games, eq(outcomes.gameId, games.id))
+    .innerJoin(tournaments, eq(games.tournamentId, tournaments.id))
+    .where(and(eq(outcomes.userId, userId), openTournamentsFilter()));
+  return row?.n ?? 0;
 }

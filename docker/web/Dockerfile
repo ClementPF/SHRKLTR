@@ -10,13 +10,17 @@ RUN npm ci --workspace apps/mobile --include-workspace-root=false --no-audit --n
 COPY apps/mobile apps/mobile
 WORKDIR /app/apps/mobile
 ARG EXPO_PUBLIC_API_URL
+ARG EXPO_PUBLIC_WEB_URL
 ARG EXPO_PUBLIC_GOOGLE_CLIENT_ID
 ENV EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL \
+    EXPO_PUBLIC_WEB_URL=$EXPO_PUBLIC_WEB_URL \
     EXPO_PUBLIC_GOOGLE_CLIENT_ID=$EXPO_PUBLIC_GOOGLE_CLIENT_ID \
     EXPO_PUBLIC_ENV=production \
     EXPO_PUBLIC_DEV_AUTH= \
     CI=1
 RUN test -n "$EXPO_PUBLIC_API_URL" || { echo "EXPO_PUBLIC_API_URL build arg is required" >&2; exit 1; }
+# Without it the bundle would fall back to http://localhost:8083 for app links.
+RUN test -n "$EXPO_PUBLIC_WEB_URL" || { echo "EXPO_PUBLIC_WEB_URL build arg is required" >&2; exit 1; }
 RUN npx expo export --platform web --output-dir dist
 
 FROM nginx:stable-alpine AS serve

@@ -1,31 +1,45 @@
-import { asc, eq, like, or } from 'drizzle-orm';
+import { and, asc, eq, like, or } from 'drizzle-orm';
 import type { GoogleIdentity } from '../auth/google.verify.js';
 import type { Database } from '../db/client.js';
 import { users } from '../db/schema.js';
-import { isUniqueViolation } from '../lib/db-errors.js';
+import { ApiError } from '../lib/errors.js';
+import { discoverableUsersFilter } from './visibility.service.js';
 
 type UserRow = typeof users.$inferSelect;
 
 const FALLBACK_USERNAME = 'player';
-const MAX_INSERT_ATTEMPTS = 5;
 
-/** Display name → username base: accents stripped (NFD), lowercased, whitespace runs → '-'. */
+/**
+ * Static segments registered next to /users/:username (e.g. /users/me). A user holding one of
+ * these names would be unreachable by username because the static route always wins.
+ */
+export const RESERVED_USERNAMES: ReadonlySet<string> = new Set(['me']);
+
+/**
+ * Display name → username base: accents stripped (NFD), lowercased, whitespace runs → '-'.
+ * Characters other than letters, digits, '.', '_' and '-' are dropped because usernames are
+ * used as URL path segments.
+ */
 export function deriveUsernameBase(displayName: string): string {
   const base = displayName
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-');
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}._-]/gu, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
   return base === '' ? FALLBACK_USERNAME : base;
 }
 
-/** First free name in base, base-1, base-2, ... given the names already taken. */
+/** First free, non-reserved name in base, base-1, base-2, ... given the names already taken. */
 export function pickAvailableUsername(base: string, taken: ReadonlySet<string>): string {
-  if (!taken.has(base)) return base;
+  const isFree = (name: string) => !taken.has(name) && !RESERVED_USERNAMES.has(name);
+  if (isFree(base)) return base;
   for (let i = 1; ; i++) {
     const candidate = `${base}-${i}`;
-    if (!taken.has(candidate)) return candidate;
+    if (isFree(candidate)) return candidate;
   }
 }
 
@@ -33,7 +47,10 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
-async function findAvailableUsername(db: Database, base: string): Promise<string> {
+export async function findAvailableUsername(
+  db: Pick<Database, 'select'>,
+  base: string,
+): Promise<string> {
   const rows = await db
     .select({ username: users.username })
     .from(users)
@@ -41,21 +58,29 @@ async function findAvailableUsername(db: Database, base: string): Promise<string
   return pickAvailableUsername(base, new Set(rows.map((r) => r.username)));
 }
 
-function splitName(identity: GoogleIdentity): {
+/** Splits a free-form display name at its final space into first and last name. */
+export function splitDisplayName(displayName: string | null | undefined): {
   firstName: string | null;
   lastName: string | null;
 } {
-  if (identity.givenName || identity.familyName) {
-    return { firstName: identity.givenName, lastName: identity.familyName };
-  }
-  const name = identity.name?.trim();
+  const name = displayName?.trim();
   if (!name) return { firstName: null, lastName: null };
   const lastSpace = name.lastIndexOf(' ');
   if (lastSpace === -1) return { firstName: name, lastName: null };
   return { firstName: name.slice(0, lastSpace).trim(), lastName: name.slice(lastSpace + 1) };
 }
 
-function displayNameOf(identity: GoogleIdentity): string {
+export function splitGoogleName(identity: GoogleIdentity): {
+  firstName: string | null;
+  lastName: string | null;
+} {
+  if (identity.givenName || identity.familyName) {
+    return { firstName: identity.givenName, lastName: identity.familyName };
+  }
+  return splitDisplayName(identity.name);
+}
+
+export function googleDisplayName(identity: GoogleIdentity): string {
   const fromParts = [identity.givenName, identity.familyName].filter(Boolean).join(' ');
   return identity.name ?? (fromParts || identity.email?.split('@')[0] || FALLBACK_USERNAME);
 }
@@ -78,8 +103,38 @@ export async function findUserById(db: Database, id: string): Promise<UserRow | 
   return row;
 }
 
-export async function listUsers(db: Database): Promise<UserRow[]> {
-  return db.select().from(users).orderBy(asc(users.username));
+/** The user if the viewer may discover it (see discoverableUsersFilter). */
+export async function findVisibleUserByUsername(
+  db: Database,
+  username: string,
+  viewerId: string,
+): Promise<UserRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(users)
+    .where(and(eq(users.username, username), discoverableUsersFilter(viewerId)))
+    .limit(1);
+  return row;
+}
+
+/** Unknown users and private placeholders the viewer may not discover are both 404. */
+export async function requireVisibleUser(
+  db: Database,
+  username: string,
+  viewerId: string,
+): Promise<UserRow> {
+  const user = await findVisibleUserByUsername(db, username, viewerId);
+  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
+  return user;
+}
+
+/** Every user the viewer may discover, by username. */
+export async function listUsers(db: Database, viewerId: string): Promise<UserRow[]> {
+  return db
+    .select()
+    .from(users)
+    .where(discoverableUsersFilter(viewerId))
+    .orderBy(asc(users.username));
 }
 
 export interface ProfileUpdate {
@@ -105,60 +160,4 @@ export async function updateUserProfile(
     .where(eq(users.id, id))
     .returning();
   return row;
-}
-
-export async function setPushToken(db: Database, id: string, token: string): Promise<boolean> {
-  const rows = await db
-    .update(users)
-    .set({ pushToken: token, updatedAt: new Date() })
-    .where(eq(users.id, id))
-    .returning({ id: users.id });
-  return rows.length > 0;
-}
-
-/**
- * Creates the user for a Google identity on first login, otherwise refreshes the mutable
- * profile fields. Username and googleSub never change after creation.
- */
-export async function upsertGoogleUser(db: Database, identity: GoogleIdentity): Promise<UserRow> {
-  const profile = {
-    email: identity.email,
-    emailVerified: identity.emailVerified,
-    ...splitName(identity),
-    pictureUrl: identity.picture,
-    locale: identity.locale,
-  };
-
-  for (let attempt = 0; attempt < MAX_INSERT_ATTEMPTS; attempt++) {
-    const existing = await findUserByGoogleSub(db, identity.sub);
-    if (existing) {
-      const [updated] = await db
-        .update(users)
-        .set({ ...profile, updatedAt: new Date() })
-        .where(eq(users.id, existing.id))
-        .returning();
-      if (!updated) throw new Error('user disappeared during profile refresh');
-      return updated;
-    }
-
-    const username = await findAvailableUsername(db, deriveUsernameBase(displayNameOf(identity)));
-    try {
-      const [created] = await db
-        .insert(users)
-        .values({ googleSub: identity.sub, username, ...profile })
-        .returning();
-      if (!created) throw new Error('user insert returned no row');
-      return created;
-    } catch (err) {
-      // A concurrent login may have taken the username or created this Google user; retry.
-      if (
-        isUniqueViolation(err, 'users_username_key') ||
-        isUniqueViolation(err, 'users_google_sub_key')
-      ) {
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error('could not provision user after repeated unique-constraint conflicts');
 }

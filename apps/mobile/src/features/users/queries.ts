@@ -1,19 +1,19 @@
 import {
   useInfiniteQuery,
-  useMutation,
   useQuery,
   type InfiniteData,
   type UseInfiniteQueryResult,
 } from '@tanstack/react-query';
 
 import {
-  challengeUser,
   getRivalry,
+  getUser,
   getStats,
   getUserGames,
   getUserRivalries,
   getUserStats,
   getUserTournaments,
+  listUsers,
 } from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
 import type { Game, RivalryStats, Stats } from '@/api/types';
@@ -25,6 +25,8 @@ export const DETAIL_PAGE_SIZE = 10;
 /** Every key starts with 'users' or 'stats' so a submitted game can invalidate both roots. */
 export const userKeys = {
   all: ['users'] as const,
+  list: () => ['users', 'list'] as const,
+  detail: (username: string) => ['users', username, 'detail'] as const,
   stats: (username: string) => ['users', username, 'stats'] as const,
   tournaments: (username: string) => ['users', username, 'tournaments'] as const,
   games: (username: string, tournamentName: string | undefined, pageSize: number) =>
@@ -40,6 +42,19 @@ export const statsKeys = {
   rivalry: (username: string, rivalName: string, tournamentName: string) =>
     ['stats', 'rivalry', username, rivalName, tournamentName] as const,
 };
+
+export function useUser(username: string | undefined) {
+  return useQuery({
+    queryKey: userKeys.detail(username ?? ''),
+    queryFn: () => getUser(username!),
+    enabled: !!username,
+  });
+}
+
+/** Every player, for picking someone into a game without scanning their code. */
+export function useUsers(enabled: boolean = true) {
+  return useQuery({ queryKey: userKeys.list(), queryFn: listUsers, enabled });
+}
 
 export function useUserStats(username: string | undefined) {
   return useQuery({
@@ -66,7 +81,8 @@ export function useTournamentStats(username: string, tournamentName: string | un
       try {
         return await getStats(username, tournamentName!);
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null;
+        // Any other 404 means the tournament or player is out of reach, not an empty record.
+        if (err instanceof ApiError && err.code === 'STATS_NOT_FOUND') return null;
         throw err;
       }
     },
@@ -97,7 +113,10 @@ export function useUserGames(
   });
 }
 
-/** Directional rivalry, or null when the two players never met in that tournament. */
+/**
+ * Directional rivalry, or null when the two players never met in that tournament. Any other 404
+ * means the tournament or a player is out of reach.
+ */
 export function useRivalry(
   username: string,
   rivalName: string,
@@ -110,25 +129,15 @@ export function useRivalry(
       try {
         return await getRivalry(username, rivalName, tournamentName);
       } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null;
+        if (err instanceof ApiError && err.code === 'RIVALRY_NOT_FOUND') return null;
         throw err;
       }
     },
     enabled,
+    retry: (failureCount, error) =>
+      !(error instanceof ApiError && error.status === 404) && failureCount < 1,
     // Expanding a row should always show the live rivalry, not a cached snapshot.
     staleTime: 0,
-  });
-}
-
-export const CHALLENGE_MESSAGE = 'I demand a trial by combat.';
-
-export function challengeFailureMessage(username: string): string {
-  return `Challenge failed, ${username} doesn't have push notification turned on.`;
-}
-
-export function useChallenge(username: string) {
-  return useMutation({
-    mutationFn: () => challengeUser(username, CHALLENGE_MESSAGE),
   });
 }
 

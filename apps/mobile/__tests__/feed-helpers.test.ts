@@ -7,6 +7,7 @@ function rivalry(rival: string, score: number): RivalryStats {
   const user = {
     id: 'u',
     username: 'dev-alex',
+    accountType: 'REGISTERED' as const,
     firstName: null,
     lastName: null,
     pictureUrl: null,

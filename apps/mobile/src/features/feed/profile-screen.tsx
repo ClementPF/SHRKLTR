@@ -1,31 +1,42 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 
+import { ApiError } from '@/api/errors';
 import type { Stats } from '@/api/types';
-import { showAlert } from '@/components/dropdown-alert';
+import { Button } from '@/components/button';
 import { CenteredLoading, EmptyState, ListFooter, SectionTitle } from '@/components/list-parts';
 import { UserTile } from '@/components/user-tile';
+import { BadgeStrip } from '@/features/achievements/badge-strip';
+import { useUserAchievements } from '@/features/achievements/queries';
+import { openChallengeComposer, openChallenges } from '@/features/challenges/queries';
+import { useEvictWhenDenied } from '@/features/groups/use-group-access';
+import { TOURNAMENT_NOT_FOUND_TEXT } from '@/features/tournaments/tournament-screen';
 import {
   DETAIL_PAGE_SIZE,
-  challengeFailureMessage,
   flattenPages,
-  useChallenge,
   useTournamentStats,
+  useUser,
   useUserGames,
   useUserRivalries,
   useUserStats,
 } from '@/features/users/queries';
 import { useErrorAlert } from '@/features/users/use-error-alert';
 import { splitRivalries, toDonutSlices } from '@/lib/rivalries';
+import { isPlaceholder } from '@/lib/users';
 import { Colors, Palette, Spacing } from '@/theme';
 
 import { historyItems, renderListItem, statsItems, type ListItem } from './list-items';
+
+export const PROFILE_NOT_FOUND_TEXT = "This player doesn't exist or you can't see them.";
+
+const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
 
 export interface ProfileScreenProps {
   username: string;
   /** Narrows the screen to one tournament and adds the SHARKS / FISHES charts. */
   tournamentName?: string;
-  /** Username of the signed-in user; their own profile cannot be challenged. */
+  /** Username of the signed-in user; their own profile links to their challenges instead. */
   viewer?: string;
 }
 
@@ -44,29 +55,44 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const stats = useProfileStats(username, tournamentName);
   const rivalries = useUserRivalries(username, tournamentName);
   const games = useUserGames(username, { tournamentName, pageSize: DETAIL_PAGE_SIZE });
-  const challenge = useChallenge(username);
-  const [challenged, setChallenged] = useState(false);
+  const profile = useUser(username);
+  const badges = useUserAchievements(username);
   const [refreshing, setRefreshing] = useState(false);
-  useErrorAlert(stats.error, 'stats');
-  useErrorAlert(tournamentName ? rivalries.error : null, 'rivalries');
-  useErrorAlert(games.error, 'games');
+  // The tournament (or a player only seen in private tournaments) is out of reach, for instance
+  // after leaving its group; cached rows from before must not be shown.
+  const missing = [stats.error, rivalries.error, games.error].some(isMissing);
+  useErrorAlert(missing ? null : stats.error, 'stats');
+  useErrorAlert(tournamentName && !missing ? rivalries.error : null, 'rivalries');
+  useErrorAlert(missing ? null : games.error, 'games');
+  useEvictWhenDenied(missing, tournamentName);
 
+  if (missing) {
+    return tournamentName ? (
+      <EmptyState
+        title={TOURNAMENT_NOT_FOUND_TEXT}
+        actionTitle="Go to tournaments"
+        onAction={() => router.navigate('/tournaments')}
+      />
+    ) : (
+      <EmptyState
+        title={PROFILE_NOT_FOUND_TEXT}
+        actionTitle="Back to feed"
+        onAction={() => router.navigate('/feed')}
+      />
+    );
+  }
   if (stats.isPending || games.isPending) return <CenteredLoading />;
 
   const statsList = stats.data ?? [];
   const wins = statsList.reduce((n, s) => n + s.winCount, 0);
   const gameCount = statsList.reduce((n, s) => n + s.gameCount, 0);
-  const canChallenge = !!viewer && viewer !== username;
+  const unclaimed = isPlaceholder(profile.data);
+  // Only a known registered account can be challenged; placeholders cannot sign in to respond.
+  const canChallenge =
+    !!viewer && viewer !== username && profile.data?.accountType === 'REGISTERED';
 
-  const onChallenge = () => {
-    challenge.mutate(undefined, {
-      onSuccess: () => setChallenged(true),
-      onError: () => {
-        setChallenged(false);
-        showAlert('error', 'Error', challengeFailureMessage(username));
-      },
-    });
-  };
+  const onChallenge = () =>
+    openChallengeComposer({ opponent: username, tournament: tournamentName });
 
   const { sharks, fishes } = tournamentName
     ? splitRivalries(rivalries.data ?? [])
@@ -84,12 +110,21 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
               username={username}
               wins={wins}
               games={gameCount}
-              challenged={challenged}
-              challenging={challenge.isPending}
+              unclaimed={unclaimed}
               onChallenge={canChallenge ? onChallenge : undefined}
             />
           ),
         },
+        { kind: 'node', key: 'badge-strip', node: <BadgeStrip username={username} /> },
+        ...(viewer === username
+          ? [
+              {
+                kind: 'node' as const,
+                key: 'my-challenges',
+                node: <Button title="My challenges" variant="secondary" onPress={openChallenges} />,
+              },
+            ]
+          : []),
       ],
     },
     { title: 'STATS', data: statsItems(statsList, tournamentName ? undefined : 'user') },
@@ -112,7 +147,7 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await Promise.all([stats.refetch(), rivalries.refetch(), games.refetch()]);
+      await Promise.all([stats.refetch(), rivalries.refetch(), games.refetch(), badges.refetch()]);
     } finally {
       setRefreshing(false);
     }
@@ -129,6 +164,8 @@ export function ProfileScreen({ username, tournamentName, viewer }: ProfileScree
           section.title ? <SectionTitle title={section.title} /> : null
         }
         stickySectionHeadersEnabled={false}
+        // Covers the tile, badge strip, stats and both rivalry charts on the first render pass.
+        initialNumToRender={15}
         contentContainerStyle={styles.content}
         ItemSeparatorComponent={Separator}
         refreshControl={

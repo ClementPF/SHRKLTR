@@ -31,6 +31,7 @@ const mockedRouter = jest.mocked(router);
 const user = (username: string): User => ({
   id: `id-${username}`,
   username,
+  accountType: 'REGISTERED',
   firstName: null,
   lastName: null,
   pictureUrl: null,
@@ -75,8 +76,8 @@ const game = (id: string): Game => ({
   date: new Date(Date.now() - 3_600_000).toISOString(),
   tournament: babyfoot,
   outcomes: [
-    { id: `${id}-w`, result: 'WIN', scoreValue: 16, user: user('dev-alex') },
-    { id: `${id}-l`, result: 'LOSS', scoreValue: -16, user: user('dev-sam') },
+    { id: `${id}-w`, result: 'WIN', scoreValue: 16, ratingBefore: 1000, user: user('dev-alex') },
+    { id: `${id}-l`, result: 'LOSS', scoreValue: -16, ratingBefore: 1000, user: user('dev-sam') },
   ],
 });
 

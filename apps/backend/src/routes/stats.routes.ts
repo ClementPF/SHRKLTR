@@ -43,7 +43,12 @@ export const statsRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request) =>
       toStatsDto(
-        await getUserTournamentStats(app.db, request.query.userName, request.query.tournamentName),
+        await getUserTournamentStats(
+          app.db,
+          request.query.userName,
+          request.query.tournamentName,
+          request.user.id,
+        ),
       ),
   );
 
@@ -58,7 +63,8 @@ export const statsRoutes: FastifyPluginAsyncZod = async (app) => {
         response: { 200: z.array(rivalryStatsDtoSchema), ...errors },
       },
     },
-    async (request) => (await listRivalries(app.db, request.query)).map(toRivalryStatsDto),
+    async (request) =>
+      (await listRivalries(app.db, request.query, request.user.id)).map(toRivalryStatsDto),
   );
 
   app.get(
@@ -72,6 +78,6 @@ export const statsRoutes: FastifyPluginAsyncZod = async (app) => {
         response: { 200: rivalryStatsDtoSchema, ...errors },
       },
     },
-    async (request) => toRivalryStatsDto(await getRivalry(app.db, request.query)),
+    async (request) => toRivalryStatsDto(await getRivalry(app.db, request.query, request.user.id)),
   );
 };

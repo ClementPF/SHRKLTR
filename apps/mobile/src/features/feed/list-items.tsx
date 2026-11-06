@@ -6,6 +6,7 @@ import { GameRow } from '@/components/game-row';
 import { RivalryCard } from '@/components/rivalry-card';
 import { RivalryDonut } from '@/components/rivalry-donut';
 import { StatsCard } from '@/components/stats-card';
+import { openGame } from '@/features/games/queries';
 import type { DonutSlice } from '@/lib/rivalries';
 
 /** A history entry is either a played game or a rivalry summary card. */
@@ -48,7 +49,7 @@ export function renderListItem(item: ListItem, viewer: string | undefined): Reac
     }
     case 'history':
       return isGame(item.item) ? (
-        <GameRow game={item.item} viewer={viewer} />
+        <GameRow game={item.item} viewer={viewer} onPress={openGame.bind(null, item.item.id)} />
       ) : (
         <RivalryCard rivalry={item.item} />
       );

@@ -32,7 +32,8 @@ Scripts (run with `npm run <script> -w apps/backend` from the root):
 | `build` / `start`            | compile to `dist/` and run it                                                           |
 | `test`                       | vitest, sequential files, against `sharkulator_test`                                    |
 | `typecheck`                  | `tsc --noEmit`                                                                          |
-| `seed`                       | idempotent demo data                                                                    |
+| `seed`                       | idempotent demo data; prints LOCAL ONLY fixture links                                   |
+| `achievements:backfill`      | award historical badges once (`-- --dry-run` to only report, `-- --batch-size=N`)       |
 | `db:generate` / `db:migrate` | drizzle-kit                                                                             |
 
 ## API
@@ -51,7 +52,7 @@ Scripts (run with `npm run <script> -w apps/backend` from the root):
 - `POST /auth/google/code {code, codeVerifier, redirectUri}` is the primary Google login. The app
   runs the PKCE authorization-code request, and the backend exchanges the code with Google using
   the server-only `GOOGLE_CLIENT_SECRET`. `redirectUri` must exactly match an entry in
-  `GOOGLE_REDIRECT_ALLOWLIST` (default `http://localhost:8081`), else 400. Secret unset → 503.
+  `GOOGLE_REDIRECT_ALLOWLIST` (default `http://localhost:8083`), else 400. Secret unset → 503.
   Google rejects the code → 401. Google unreachable or 5xx → 502. Returns
   `{accessToken, refreshToken, user}`.
 - `POST /auth/token {provider: "google", idToken}` returns the same session for callers that
@@ -80,16 +81,30 @@ curl -s -X POST localhost:3100/auth/dev-token \
 ## Database migrations and demo data
 
 - The schema lives in `src/db/schema.ts`. After changing it, run
-  `DATABASE_URL=postgres://sharkulator:sharkulator@localhost:5433/sharkulator_dev npm run db:generate -w apps/backend`
-  and commit the new folder under `apps/backend/drizzle/`.
+  `docker compose exec -T api npm run db:generate`, review the generated SQL, commit the new
+  folder under `apps/backend/drizzle/`, and apply it with `docker compose restart api` (wait for
+  `/health`).
 - The api container applies pending migrations on every boot (`docker/api/entrypoint.sh`). The
   server also runs the drizzle migrator before listening (`src/db/migrate.ts`), so the production
   image (`docker build --target prod`) migrates its database on start.
 - `npm run seed -w apps/backend` loads idempotent demo data into `sharkulator_dev` (host default
   `localhost:5433`, override with `DATABASE_URL`): users `dev-alex`, `dev-sam`, `dev-jordan`,
-  `dev-taylor`, `dev-morgan`, four sports, and four tournaments (Office Babyfoot, Friday Ping
-  Pong, Chess Club, Lunch Darts) with 27 games and their stats and rivalries. `dev-alex` has more
-  than 15 games, enough to exercise feed pagination. Re-running the seed adds nothing.
+  `dev-taylor`, `dev-morgan`, four sports, four open tournaments (Office Babyfoot, Friday Ping
+  Pong, Chess Club, Lunch Darts) with their stats and rivalries, the **Shark Tank** group
+  (dev-alex OWNER, dev-sam ADMIN, dev-jordan MEMBER) with the members-only Shark Tank Cup and a
+  rostered unclaimed player, placeholders in every claim-link state, challenges in every state
+  (the completed one linked to its game), read and unread inbox entries, and historical badges
+  from the backfill. `dev-alex` has more than 15 games, enough to exercise feed pagination. The
+  full list is in the [root README](../../README.md#local-demo-data).
+- Reruns insert only missing rows: they never replay games, rotate or reset fixture links, roles,
+  challenges or read state, never register push devices and never push (`test/seed.test.ts`
+  checks this). The seed prints the LOCAL ONLY claim links and the group invite link and code with
+  their current state, on `PUBLIC_WEB_URL` taken from the shell, else the root `.env`, else
+  `http://localhost:8083`, so they match the links the api issues.
+- `npm run achievements:backfill -w apps/backend` awards the badges existing history qualifies for
+  (first win, games played, win streaks, explorer) in bounded batches, idempotently and without
+  inbox entries or push. The seed runs it for you. In production run it once after the migration
+  (see [Production deployment notes](../../README.md#production-deployment-notes)).
 
 ## Tests
 
@@ -109,9 +124,14 @@ client secret. Helpers live in `test/helpers.ts` (`buildTestApp`, `truncateAll`,
 
 ## Layout
 
-- `src/app.ts`: `buildApp()` (config, CORS from `CORS_ORIGINS`, helmet, swagger, error handler,
-  JWT namespaces, routes)
-- `src/routes/`: auth, users, sports, tournaments, stats, health
-- `src/services/`: game submission (one transaction), stats/rivalry updates, push, sessions
+- `src/app.ts`: `buildApp()` (config, CORS for the `CORS_ORIGINS` allowlist, helmet, swagger, error
+  handler, JWT namespaces, routes)
+- `src/routes/`: auth, users, sports, tournaments, games, stats, players (placeholders), invites,
+  groups, notifications, achievements, challenges, shares (public `/s/*`), health
+- `src/services/`: game submission (one transaction with challenge completion, badges and inbox),
+  stats/rivalry updates, visibility, groups, claims, challenges and the 60-second maintenance
+  sweep, notifications and push (after commit), share snapshots, sessions
+- `src/lib/share-*.ts`: share page HTML and the satori + resvg PNG card with bundled Inter fonts
+- `src/scripts/achievements-backfill.ts`: historical badge backfill CLI
 - `src/elo/elo.ts`: pure Elo engine
 - `src/db/`: schema, client, migrator, seed

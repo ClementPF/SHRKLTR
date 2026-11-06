@@ -76,7 +76,7 @@ free certificate only covers one subdomain level (`*.<your-domain>`): use names 
 
 In Google Cloud Console (**APIs & Services → Credentials**), open the Web-application client
 whose ID is `GOOGLE_CLIENT_ID` and add `https://app.<your-domain>` to both **Authorized
-JavaScript origins** and **Authorized redirect URIs**. Keep `http://localhost:8081` for local
+JavaScript origins** and **Authorized redirect URIs**. Keep `http://localhost:8083` for local
 development. Copy the client secret for the next step (create a new one with **Add secret** if
 the existing one is no longer shown).
 
@@ -94,8 +94,11 @@ for option A, `CLOUDFLARE_TUNNEL_TOKEN`. The file is gitignored; never commit it
 here, not the ones from your development `.env`.
 
 The compose file derives the rest from these values: the api allows CORS and Google redirects
-from `https://<APP_HOSTNAME>` only, and the web app is built against `https://<API_HOSTNAME>`
-with dev sign-in removed.
+from `https://<APP_HOSTNAME>` only and builds claim, invite, join and share-page links from
+`PUBLIC_WEB_URL=https://<APP_HOSTNAME>` and `PUBLIC_API_URL=https://<API_HOSTNAME>`. The web app
+is built against `https://<API_HOSTNAME>` with `EXPO_PUBLIC_WEB_URL=https://<APP_HOSTNAME>` and
+dev sign-in removed. Set `EXPO_ACCESS_TOKEN` in `.env.production` only if enhanced push security
+is on in your Expo project.
 
 ## 4. Start
 
@@ -135,6 +138,11 @@ npm run prod -- --profile tunnel up -d --build   # option B: npm run prod:lan --
 
 The web image inlines `APP_HOSTNAME`/`API_HOSTNAME`/`GOOGLE_CLIENT_ID` at build time, so rebuild
 (`--build`) after changing them.
+
+The api applies pending migrations on boot. Back up the database first (see [Backups](#backups)).
+After the first update that adds achievements, award historical badges once:
+`npm run prod -- exec api node dist/scripts/achievements-backfill.js --dry-run`, then the same
+command without `--dry-run`. It is idempotent and sends no notifications.
 
 ## Automatic updates with host-side polling
 

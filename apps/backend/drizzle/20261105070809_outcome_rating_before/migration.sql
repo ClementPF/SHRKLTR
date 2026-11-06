@@ -1,0 +1,1 @@
+ALTER TABLE "outcomes" ADD COLUMN "rating_before" double precision;

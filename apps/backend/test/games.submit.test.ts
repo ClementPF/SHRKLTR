@@ -253,6 +253,7 @@ describe('POST /tournaments/:name/games', () => {
       expect(byUser.get('bob')?.user).toEqual({
         id: bob.id,
         username: 'bob',
+        accountType: 'REGISTERED',
         firstName: bob.firstName,
         lastName: bob.lastName,
         pictureUrl: null,

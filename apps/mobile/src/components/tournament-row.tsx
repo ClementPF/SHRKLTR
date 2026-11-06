@@ -24,6 +24,16 @@ export function TournamentRow({ tournament, onPress }: TournamentRowProps) {
         <Text style={styles.slug} numberOfLines={1}>
           @{tournament.name}
         </Text>
+        {tournament.group && (
+          <Text
+            style={styles.group}
+            numberOfLines={1}
+            testID={`tournament-row-${tournament.name}-group`}
+            accessibilityLabel={`Group ${tournament.group.name}`}
+          >
+            GROUP · {tournament.group.name}
+          </Text>
+        )}
       </View>
       <Text style={styles.sport}>{tournament.sport.name}</Text>
     </Pressable>
@@ -42,5 +52,6 @@ const styles = StyleSheet.create({
   names: { flex: 1, gap: Spacing.xs },
   title: { ...Typography.body, fontSize: 18 },
   slug: { ...Typography.caption },
+  group: { ...Typography.caption, color: Colors.accent, fontWeight: '700', letterSpacing: 1 },
   sport: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '700' },
 });

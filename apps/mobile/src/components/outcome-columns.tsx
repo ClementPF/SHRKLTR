@@ -9,6 +9,8 @@ export interface TeamMember {
   username: string;
   /** Optional trailing detail, e.g. the points won or lost. */
   detail?: string;
+  /** Placeholder player added by name. */
+  unclaimed?: boolean;
 }
 
 export function TeamColumn({
@@ -33,6 +35,7 @@ export function TeamColumn({
         {members.map((m) => (
           <Text key={m.username} style={styles.player} numberOfLines={1}>
             {m.detail ? `${m.username} ${m.detail}` : m.username}
+            {m.unclaimed && <Text style={styles.unclaimed}> · unclaimed</Text>}
           </Text>
         ))}
       </View>
@@ -72,5 +75,6 @@ const styles = StyleSheet.create({
   },
   player: { ...Typography.body, textAlign: 'center' },
   empty: { ...Typography.body, textAlign: 'center', color: Colors.textMuted },
+  unclaimed: { ...Typography.caption, color: Colors.warning },
   vs: { fontSize: 24, fontWeight: '700', color: Colors.accent },
 });

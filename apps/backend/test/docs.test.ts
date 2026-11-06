@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from '@fastify/type-provider-zod';
 import { z } from 'zod';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { RESERVED_USERNAMES } from '../src/services/user.service.js';
 import { buildTestApp } from './helpers.js';
 
 describe('API docs', () => {
@@ -57,6 +58,16 @@ describe('API docs', () => {
     expect(Object.keys(doc.paths).some((p) => p.startsWith('/docs'))).toBe(false);
   });
 
+  it('reserves every static segment that shadows /users/{username}', async () => {
+    const doc = (await app.inject({ method: 'GET', url: '/docs/json' })).json();
+    const staticSegments = Object.keys(doc.paths)
+      .map((p) => p.split('/'))
+      .filter((parts) => parts[1] === 'users' && parts[2] && !parts[2].startsWith('{'))
+      .map((parts) => parts[2] as string);
+    expect(staticSegments).toContain('me');
+    for (const segment of staticSegments) expect(RESERVED_USERNAMES.has(segment)).toBe(true);
+  });
+
   it('documents every route group with zod-derived schemas', async () => {
     const doc = (await app.inject({ method: 'GET', url: '/docs/json' })).json();
     const paths = Object.keys(doc.paths);
@@ -73,8 +84,19 @@ describe('API docs', () => {
         '/users/{username}/rivalries',
         '/users/{username}/tournaments',
         '/users/{username}/games',
-        '/users/me/push-token',
-        '/users/{username}/challenge',
+        '/users/me/notification-preferences',
+        '/users/me/push-devices',
+        '/users/me/push-devices/{installationId}',
+        '/notifications',
+        '/notifications/unread-count',
+        '/notifications/{id}/read',
+        '/notifications/read-all',
+        '/achievements',
+        '/achievements/recent',
+        '/users/{username}/achievements',
+        '/challenges',
+        '/challenges/{id}',
+        '/challenges/{id}/response',
         '/sports',
         '/tournaments',
         '/tournaments/{name}',
@@ -82,9 +104,32 @@ describe('API docs', () => {
         '/tournaments/{name}/stats',
         '/tournaments/{name}/games',
         '/tournaments/{name}/rivalries',
+        '/games/{id}',
+        '/players/placeholders',
+        '/players/invited',
+        '/players/{id}/claim-link',
+        '/invites/claim/{token}',
+        '/invites/app',
+        '/invites/app/{token}',
         '/stats',
         '/rivalries',
         '/rivalry',
+        '/groups',
+        '/groups/join',
+        '/groups/{id}',
+        '/groups/{id}/members',
+        '/groups/{id}/members/{userId}',
+        '/groups/{id}/transfer-owner',
+        '/groups/{id}/leave',
+        '/groups/{id}/tournaments',
+        '/groups/{id}/players',
+        '/groups/{id}/invites',
+        '/groups/{id}/invites/{inviteId}',
+        '/invites/group/{token}',
+        '/games/{id}/share',
+        '/games/{id}/share/{shareId}',
+        '/s/{token}',
+        '/s/{token}.png',
       ]),
     );
     const games = doc.paths['/tournaments/{name}/games'];
@@ -104,7 +149,82 @@ describe('API docs', () => {
     expect(games.get.responses['200'].content['application/json'].schema.items.$ref).toBe(
       '#/components/schemas/Game',
     );
-    for (const schema of ['Game', 'Outcome', 'Stats', 'RivalryStats', 'User', 'Tournament']) {
+    expect(
+      doc.paths['/games/{id}'].get.responses['200'].content['application/json'].schema.$ref,
+    ).toBe('#/components/schemas/Game');
+    expect(doc.components.schemas.Outcome.properties.ratingBefore).toBeDefined();
+    expect(doc.components.schemas.User.properties.accountType.enum).toEqual([
+      'REGISTERED',
+      'PLACEHOLDER',
+    ]);
+    expect(doc.components.schemas.TokenRequest.properties.claimToken).toBeDefined();
+    expect(doc.components.schemas.GoogleCodeExchangeRequest.properties.claimToken).toBeDefined();
+    expect(paths).not.toContain('/users/me/push-token');
+    expect(paths).not.toContain('/users/{username}/challenge');
+    expect(doc.components.schemas.ChallengeRequest).toBeUndefined();
+    expect(doc.paths['/challenges'].post.security).toEqual([{ bearerAuth: [] }]);
+    expect(
+      doc.paths['/challenges/{id}'].get.responses['200'].content['application/json'].schema.$ref,
+    ).toBe('#/components/schemas/Challenge');
+    expect(doc.components.schemas.ChallengeStatus.enum).toEqual([
+      'PENDING',
+      'ACCEPTED',
+      'DECLINED',
+      'COMPLETED',
+      'EXPIRED',
+    ]);
+    expect(doc.paths['/invites/claim/{token}'].get.security).toBeUndefined();
+    expect(doc.paths['/notifications'].get.security).toEqual([{ bearerAuth: [] }]);
+    expect(
+      doc.paths['/notifications'].get.responses['200'].content['application/json'].schema.items
+        .$ref,
+    ).toBe('#/components/schemas/Notification');
+    expect(Object.keys(doc.components.schemas.NotificationPreferences.properties).sort()).toEqual([
+      'achievements',
+      'challenges',
+      'claims',
+      'games',
+      'groups',
+    ]);
+    expect(doc.paths['/invites/app'].post.security).toEqual([{ bearerAuth: [] }]);
+    for (const schema of [
+      'Game',
+      'Outcome',
+      'Stats',
+      'RivalryStats',
+      'User',
+      'Tournament',
+      'PlaceholderClaimLink',
+      'InvitedPlayer',
+      'ClaimPreview',
+      'AppInvite',
+      'AppInvitePreview',
+      'Notification',
+      'NotificationTarget',
+      'NotificationPreferences',
+      'UpdateNotificationPreferencesRequest',
+      'RegisterPushDeviceRequest',
+      'UnreadCount',
+      'Achievement',
+      'AchievementSource',
+      'UserAchievement',
+      'AchievementUnlock',
+      'Group',
+      'GroupRole',
+      'GroupMember',
+      'GroupPlayer',
+      'GroupInvite',
+      'IssuedGroupInvite',
+      'GroupInvitePreview',
+      'GroupJoinResult',
+      'JoinGroupRequest',
+      'TournamentGroup',
+      'Challenge',
+      'ChallengeStatus',
+      'CreateChallengeRequest',
+      'ChallengeResponseRequest',
+      'GameShare',
+    ]) {
       expect(doc.components.schemas[schema]).toBeDefined();
     }
     const tags = new Set(
@@ -113,7 +233,39 @@ describe('API docs', () => {
       ),
     );
     expect([...tags]).toEqual(
-      expect.arrayContaining(['auth', 'users', 'sports', 'tournaments', 'games', 'stats']),
+      expect.arrayContaining([
+        'auth',
+        'users',
+        'sports',
+        'tournaments',
+        'games',
+        'stats',
+        'players',
+        'invites',
+        'notifications',
+        'achievements',
+        'groups',
+        'challenges',
+        'shares',
+      ]),
     );
+    expect(doc.paths['/invites/group/{token}'].get.security).toBeUndefined();
+    expect(doc.paths['/s/{token}'].get.security).toBeUndefined();
+    expect(doc.paths['/s/{token}.png'].get.security).toBeUndefined();
+    expect(doc.paths['/games/{id}/share'].post.security).toEqual([{ bearerAuth: [] }]);
+    expect(doc.paths['/games/{id}/share/{shareId}'].delete.security).toEqual([{ bearerAuth: [] }]);
+    expect(
+      doc.paths['/games/{id}/share'].post.responses['201'].content['application/json'].schema.$ref,
+    ).toBe('#/components/schemas/GameShare');
+    expect(doc.paths['/groups/join'].post.security).toEqual([{ bearerAuth: [] }]);
+    expect(doc.components.schemas.GroupInvite.properties.url).toBeUndefined();
+    expect(doc.components.schemas.GroupInvite.properties.code).toBeUndefined();
+    expect(doc.components.schemas.CreateTournamentRequest.properties.groupId).toBeDefined();
+    expect(doc.components.schemas.Achievement.properties.code.enum).toContain('giant_killer');
+    expect(
+      doc.paths['/users/{username}/achievements'].get.responses['200'].content['application/json']
+        .schema.items.$ref,
+    ).toBe('#/components/schemas/UserAchievement');
+    expect(doc.paths['/achievements/recent'].get.security).toEqual([{ bearerAuth: [] }]);
   });
 });

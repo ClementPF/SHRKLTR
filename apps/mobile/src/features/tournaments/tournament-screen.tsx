@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { RefreshControl, SectionList, StyleSheet, View } from 'react-native';
 
+import { ApiError } from '@/api/errors';
 import { CenteredLoading, EmptyState, ListFooter, SectionTitle } from '@/components/list-parts';
 import { RankRow } from '@/components/rank-row';
 import {
@@ -10,15 +11,20 @@ import {
   renderListItem,
   type ListItem,
 } from '@/features/feed/list-items';
+import { useEvictWhenDenied } from '@/features/groups/use-group-access';
 import { flattenPages } from '@/features/users/queries';
 import { useErrorAlert } from '@/features/users/use-error-alert';
 import { rankStats } from '@/lib/tournaments';
+import { isPlaceholder } from '@/lib/users';
 import { Colors, Palette, Spacing } from '@/theme';
 
 import { useTournamentGames, useTournamentLeaderboard } from './queries';
 
 export const NO_GAMES_TEXT = "No Games have been played for this tournament, let's change that.";
 export const TOURNAMENT_LOAD_FAILED_TEXT = "Couldn't load this tournament.";
+export const TOURNAMENT_NOT_FOUND_TEXT = "This tournament doesn't exist or you can't see it.";
+
+const isMissing = (error: unknown) => error instanceof ApiError && error.status === 404;
 
 export interface TournamentScreenProps {
   name: string;
@@ -30,9 +36,22 @@ export function TournamentScreen({ name, viewer }: TournamentScreenProps) {
   const leaderboard = useTournamentLeaderboard(name);
   const games = useTournamentGames(name);
   const [refreshing, setRefreshing] = useState(false);
-  useErrorAlert(leaderboard.error, 'the ranking');
-  useErrorAlert(games.error, 'the tournament history');
+  const missing = isMissing(leaderboard.error) || isMissing(games.error);
+  // A 404 renders the not-found state instead of an alert.
+  useErrorAlert(isMissing(leaderboard.error) ? null : leaderboard.error, 'the ranking');
+  useErrorAlert(isMissing(games.error) ? null : games.error, 'the tournament history');
+  useEvictWhenDenied(missing, name);
 
+  // Checked before cached data: access to a members-only tournament can be lost meanwhile.
+  if (missing) {
+    return (
+      <EmptyState
+        title={TOURNAMENT_NOT_FOUND_TEXT}
+        actionTitle="Go to tournaments"
+        onAction={() => router.navigate('/tournaments')}
+      />
+    );
+  }
   if (leaderboard.isPending || games.isPending) return <CenteredLoading />;
 
   const onRefresh = async () => {
@@ -74,6 +93,7 @@ export function TournamentScreen({ name, viewer }: TournamentScreenProps) {
         position={position}
         name={stats.user.username}
         score={stats.score}
+        unclaimed={isPlaceholder(stats.user)}
         onPress={() => openUserDetail(stats.user.username, name)}
       />
     ),

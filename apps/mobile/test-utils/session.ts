@@ -4,6 +4,7 @@ import type { KeyValueStorage, StoredSession } from '@/auth/storage';
 export const testUser: User = {
   id: '00000000-0000-4000-8000-000000000001',
   username: 'dev-alex',
+  accountType: 'REGISTERED',
   firstName: 'Alex',
   lastName: 'Martin',
   pictureUrl: null,
@@ -40,8 +41,10 @@ export function jsonResponse(status: number, body?: unknown): Response {
 
 export function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => {
-    resolve = r;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }

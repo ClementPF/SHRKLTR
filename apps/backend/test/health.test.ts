@@ -23,9 +23,9 @@ describe('GET /health', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/health',
-      headers: { origin: 'http://localhost:8081' },
+      headers: { origin: 'http://localhost:8083' },
     });
-    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8083');
     expect(res.headers['x-content-type-options']).toBe('nosniff');
   });
 
@@ -64,7 +64,7 @@ describe('CORS_ORIGINS', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/health',
-      headers: { origin: 'http://localhost:8081' },
+      headers: { origin: 'http://localhost:8083' },
     });
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });

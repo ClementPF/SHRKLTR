@@ -1,10 +1,27 @@
 import type { FastifyInstance } from 'fastify';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { buildApp } from '../src/app.js';
 import { loadConfig, type AppConfig } from '../src/config.js';
 import type { Database } from '../src/db/client.js';
-import { games, outcomes, sports, stats, tournaments, users } from '../src/db/schema.js';
+import {
+  challenges,
+  games,
+  groupMembers,
+  groupPlayers,
+  groups,
+  notifications,
+  outcomes,
+  playerClaims,
+  pushDevices,
+  sports,
+  stats,
+  tournaments,
+  userAchievements,
+  users,
+} from '../src/db/schema.js';
+import { generateCapabilityToken, hashCapabilityToken } from '../src/lib/capability-token.js';
 import type { LogDestination } from '../src/lib/logger.js';
+import type { ShareSnapshot } from '../src/lib/share-snapshot.js';
 import { TEST_DATABASE_URL } from './test-env.js';
 
 export const testEnv: Record<string, string> = {
@@ -18,6 +35,7 @@ export const testEnv: Record<string, string> = {
   GOOGLE_CLIENT_ID: 'test-client-id.apps.googleusercontent.com',
   GOOGLE_JWKS_URL: 'http://127.0.0.1:1/jwks',
   PUSH_URL: 'http://127.0.0.1:1/push',
+  MAINTENANCE_ENABLED: 'false',
 };
 
 export function testConfig(overrides: Record<string, string> = {}): AppConfig {
@@ -27,11 +45,18 @@ export function testConfig(overrides: Record<string, string> = {}): AppConfig {
 export interface BuildTestAppOptions {
   env?: Record<string, string>;
   logger?: false | LogDestination;
+  clock?: () => Date;
+  renderShareCard?: (snapshot: ShareSnapshot) => Promise<Buffer>;
 }
 
 /** Returns an app that is not yet ready, so tests may still register extra routes. */
 export async function buildTestApp(opts: BuildTestAppOptions = {}): Promise<FastifyInstance> {
-  return buildApp({ config: testConfig(opts.env), logger: opts.logger ?? false });
+  return buildApp({
+    config: testConfig(opts.env),
+    logger: opts.logger ?? false,
+    ...(opts.clock ? { clock: opts.clock } : {}),
+    ...(opts.renderShareCard ? { renderShareCard: opts.renderShareCard } : {}),
+  });
 }
 
 export async function truncateAll(db: Database): Promise<void> {
@@ -74,6 +99,54 @@ export async function createUser(db: Database, overrides: Partial<UserInsert> = 
       })
       .returning(),
   );
+}
+
+/** A PLACEHOLDER user (no Google subject, email or claim timestamp). */
+export async function createPlaceholderUser(db: Database, overrides: Partial<UserInsert> = {}) {
+  const n = nextSeq();
+  return firstRow(
+    await db
+      .insert(users)
+      .values({
+        username: `placeholder-${n}`,
+        firstName: `Guest${n}`,
+        ...overrides,
+        accountType: 'PLACEHOLDER',
+        googleSub: null,
+        email: null,
+        emailVerified: false,
+        claimedAt: null,
+      })
+      .returning(),
+  );
+}
+
+export interface ClaimInput {
+  placeholderUserId: string;
+  creatorUserId: string;
+  token?: string;
+  expiresAt?: Date;
+  consumedAt?: Date | null;
+  revokedAt?: Date | null;
+}
+
+/** Stores a claim for the placeholder and returns it with its raw token. */
+export async function createClaim(db: Database, input: ClaimInput) {
+  const token = input.token ?? generateCapabilityToken();
+  const claim = firstRow(
+    await db
+      .insert(playerClaims)
+      .values({
+        placeholderUserId: input.placeholderUserId,
+        creatorUserId: input.creatorUserId,
+        tokenHash: hashCapabilityToken(token),
+        expiresAt: input.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        consumedAt: input.consumedAt ?? null,
+        revokedAt: input.revokedAt ?? null,
+      })
+      .returning(),
+  );
+  return { claim, token };
 }
 
 export async function createSport(db: Database, overrides: Partial<SportInsert> = {}) {
@@ -139,6 +212,172 @@ export async function createGameRow(db: Database, input: GameRowInput) {
             .returning();
     return { game, outcomes: outcomeRows };
   });
+}
+
+export interface HistoryInput {
+  tournamentId: string;
+  userId: string;
+  opponentId: string;
+  /** Results of `userId`, oldest first; the opponent gets the opposite result. */
+  results: readonly ('WIN' | 'LOSS')[];
+  /** Date of the first game; later games are one minute apart. */
+  start?: Date;
+}
+
+/**
+ * Bulk-inserts historical 1v1 games without ratings, stats or rivalries (like games recorded
+ * before rating snapshots existed). Returns the games oldest first.
+ */
+export async function playHistory(db: Database, input: HistoryInput) {
+  if (input.results.length === 0) return [];
+  const start = input.start ?? new Date('2026-01-01T00:00:00Z');
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .insert(games)
+      .values(
+        input.results.map((_, i) => ({
+          tournamentId: input.tournamentId,
+          date: new Date(start.getTime() + i * 60_000),
+        })),
+      )
+      .returning();
+    const ordered = [...rows].sort((a, b) => a.date.getTime() - b.date.getTime());
+    await tx.insert(outcomes).values(
+      ordered.flatMap((game, i) => {
+        const result = input.results[i]!;
+        return [
+          { gameId: game.id, userId: input.userId, result, scoreValue: 0 },
+          {
+            gameId: game.id,
+            userId: input.opponentId,
+            result: result === 'WIN' ? ('LOSS' as const) : ('WIN' as const),
+            scoreValue: 0,
+          },
+        ];
+      }),
+    );
+    return ordered;
+  });
+}
+
+/** Achievement codes the user has unlocked, sorted. */
+export async function achievementCodesOf(db: Database, userId: string): Promise<string[]> {
+  const rows = await db
+    .select({ code: userAchievements.achievementCode })
+    .from(userAchievements)
+    .where(eq(userAchievements.userId, userId));
+  return rows.map((r) => r.code).sort();
+}
+type GroupRoleValue = (typeof groupMembers.$inferInsert)['role'];
+
+/** A group with the given OWNER and optional extra members, inserted directly (no badges). */
+export async function createGroup(
+  db: Database,
+  input: { ownerId: string; name?: string; members?: Record<string, GroupRoleValue> },
+) {
+  const group = firstRow(
+    await db
+      .insert(groups)
+      .values({ name: input.name ?? `Group ${nextSeq()}`, createdByUserId: input.ownerId })
+      .returning(),
+  );
+  await db.insert(groupMembers).values([
+    { groupId: group.id, userId: input.ownerId, role: 'OWNER' },
+    ...Object.entries(input.members ?? {}).map(([userId, role]) => ({
+      groupId: group.id,
+      userId,
+      role,
+    })),
+  ]);
+  return group;
+}
+
+export async function addGroupMember(
+  db: Database,
+  groupId: string,
+  userId: string,
+  role: GroupRoleValue = 'MEMBER',
+) {
+  await db.insert(groupMembers).values({ groupId, userId, role });
+}
+
+export async function rosterPlayer(db: Database, groupId: string, placeholderUserId: string) {
+  await db.insert(groupPlayers).values({ groupId, placeholderUserId });
+}
+
+/** Current role per user id of a group. */
+export async function groupRolesOf(db: Database, groupId: string): Promise<Record<string, string>> {
+  const rows = await db.select().from(groupMembers).where(eq(groupMembers.groupId, groupId));
+  return Object.fromEntries(rows.map((r) => [r.userId, r.role]));
+}
+
+/** Valid-looking Expo push token derived from a label (never a real device). */
+export const expoTokenOf = (label: string) => `ExponentPushToken[${label}]`;
+
+export async function createPushDevice(
+  db: Database,
+  values: Pick<typeof pushDevices.$inferInsert, 'userId'> &
+    Partial<typeof pushDevices.$inferInsert>,
+) {
+  const n = nextSeq();
+  return firstRow(
+    await db
+      .insert(pushDevices)
+      .values({ installationId: `install-${n}`, expoToken: expoTokenOf(`device-${n}`), ...values })
+      .returning(),
+  );
+}
+
+export async function createNotification(
+  db: Database,
+  values: Pick<typeof notifications.$inferInsert, 'recipientUserId'> &
+    Partial<typeof notifications.$inferInsert>,
+) {
+  const n = nextSeq();
+  return firstRow(
+    await db
+      .insert(notifications)
+      .values({
+        type: 'placeholder_claimed',
+        category: 'claims',
+        dedupeKey: `fixture:${n}`,
+        ...values,
+      })
+      .returning(),
+  );
+}
+
+type ChallengeInsert = typeof challenges.$inferInsert;
+
+/**
+ * A challenge row inserted directly in any state. createdAt defaults to now and deadlineAt to
+ * seven days later; ACCEPTED/COMPLETED rows get acceptedAt = createdAt and resolved ones
+ * resolvedAt = createdAt unless given.
+ */
+export async function createChallengeRow(
+  db: Database,
+  values: Pick<ChallengeInsert, 'tournamentId' | 'challengerUserId' | 'opponentUserId'> &
+    Partial<ChallengeInsert>,
+) {
+  const status = values.status ?? 'PENDING';
+  const createdAt = values.createdAt ?? new Date();
+  const [pairLowUserId, pairHighUserId] = [values.challengerUserId, values.opponentUserId].sort();
+  return firstRow(
+    await db
+      .insert(challenges)
+      .values({
+        deadlineAt: new Date(createdAt.getTime() + 7 * 24 * 60 * 60 * 1000),
+        acceptedAt: status === 'ACCEPTED' || status === 'COMPLETED' ? createdAt : null,
+        resolvedAt: status === 'PENDING' || status === 'ACCEPTED' ? null : createdAt,
+        updatedAt: createdAt,
+        ...values,
+        status,
+        createdAt,
+        pairLowUserId: pairLowUserId!,
+        pairHighUserId: pairHighUserId!,
+      })
+      .returning(),
+  );
 }
 
 /** Authorization header carrying a freshly signed access token for the user. */

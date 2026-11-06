@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { router } from 'expo-router';
 import type { ReactElement } from 'react';
 
 import * as endpoints from '@/api/endpoints';
@@ -22,6 +23,7 @@ const api = jest.mocked(endpoints);
 const user = (username: string): User => ({
   id: `id-${username}`,
   username,
+  accountType: 'REGISTERED',
   firstName: null,
   lastName: null,
   pictureUrl: null,
@@ -88,8 +90,8 @@ const game: Game = {
   date: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   tournament,
   outcomes: [
-    { id: 'o1', result: 'WIN', scoreValue: 16, user: user('dev-alex') },
-    { id: 'o2', result: 'LOSS', scoreValue: -16, user: user('dev-sam') },
+    { id: 'o1', result: 'WIN', scoreValue: 16, ratingBefore: 1000, user: user('dev-alex') },
+    { id: 'o2', result: 'LOSS', scoreValue: -16, ratingBefore: 1000, user: user('dev-sam') },
   ],
 };
 
@@ -163,7 +165,7 @@ describe('GameRow', () => {
   });
 
   it('shows a notice when the two players have no rivalry yet', async () => {
-    api.getRivalry.mockRejectedValue(new ApiError(404, 'NOT_FOUND', 'nope'));
+    api.getRivalry.mockRejectedValue(new ApiError(404, 'RIVALRY_NOT_FOUND', 'Rivalry not found'));
     await renderWithClient(<GameRow game={game} />);
     await fireEvent.press(screen.getByTestId('game-row-g1'));
     expect(
@@ -204,6 +206,8 @@ describe('ProfileScreen (tournament user detail)', () => {
       rivalry('dev-sam', 'dev-taylor', -5.1),
     ]);
     api.getUserGames.mockResolvedValue([game]);
+    api.getUser.mockResolvedValue(user('dev-sam'));
+    api.getUserAchievements.mockResolvedValue([]);
   });
 
   async function renderDetail() {
@@ -229,31 +233,24 @@ describe('ProfileScreen (tournament user detail)', () => {
     );
   });
 
-  it('shows the challenged state after a successful challenge', async () => {
-    api.challengeUser.mockResolvedValue(undefined);
+  it('opens the challenge composer with the opponent and tournament prefilled', async () => {
     await renderDetail();
-    await fireEvent.press(screen.getByLabelText('Challenge dev-sam'));
-    expect(await screen.findByTestId('challenged-state')).toBeTruthy();
-    expect(api.challengeUser).toHaveBeenCalledWith('dev-sam', 'I demand a trial by combat.');
+    await fireEvent.press(await screen.findByLabelText('Challenge dev-sam'));
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: '/challenges/new',
+      params: { opponent: 'dev-sam', tournament: 'officebabyfoot' },
+    });
+    // Opening the composer creates nothing by itself.
+    expect(api.createChallenge).not.toHaveBeenCalled();
   });
 
-  it('alerts when the challenged user has no push token', async () => {
-    api.challengeUser.mockRejectedValue(new ApiError(400, 'NO_PUSH_TOKEN', 'no token'));
-    await renderDetail();
-    await fireEvent.press(screen.getByLabelText('Challenge dev-sam'));
-    expect(
-      await screen.findByText(
-        "Challenge failed, dev-sam doesn't have push notification turned on.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByTestId('challenged-state')).toBeNull();
-  });
-
-  it('does not offer a challenge on your own profile', async () => {
+  it('does not offer a challenge on your own profile, but links to your challenges', async () => {
     api.getUserStats.mockResolvedValue([stats]);
     await renderWithClient(<ProfileScreen username="dev-sam" viewer="dev-sam" />);
     expect(await screen.findByText('STATS')).toBeTruthy();
     expect(screen.queryByLabelText('Challenge dev-sam')).toBeNull();
     expect(screen.queryByText('SHARKS')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'My challenges' }));
+    expect(router.push).toHaveBeenCalledWith('/challenges');
   });
 });

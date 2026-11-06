@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type {
   games,
+  groups,
   outcomes,
   rivalryStats,
   sports,
@@ -13,6 +14,9 @@ export const userDtoSchema = z
   .object({
     id: z.uuid(),
     username: z.string(),
+    accountType: z
+      .enum(['REGISTERED', 'PLACEHOLDER'])
+      .describe('PLACEHOLDER players were added by name and have not claimed their profile yet'),
     firstName: z.string().nullable(),
     lastName: z.string().nullable(),
     pictureUrl: z.string().nullable(),
@@ -28,6 +32,7 @@ export function toUserDto(row: UserRow): UserDto {
   return {
     id: row.id,
     username: row.username,
+    accountType: row.accountType,
     firstName: row.firstName,
     lastName: row.lastName,
     pictureUrl: row.pictureUrl,
@@ -50,6 +55,10 @@ export function toSportDto(row: SportRow): SportDto {
   return { id: row.id, name: row.name };
 }
 
+export const tournamentGroupDtoSchema = z
+  .object({ id: z.uuid(), name: z.string() })
+  .meta({ id: 'TournamentGroup' });
+
 export const tournamentDtoSchema = z
   .object({
     id: z.uuid(),
@@ -58,6 +67,9 @@ export const tournamentDtoSchema = z
     isOver: z.boolean(),
     sport: sportDtoSchema,
     owner: userDtoSchema.nullable(),
+    group: tournamentGroupDtoSchema
+      .nullable()
+      .describe('Owning group of a members-only tournament; null for open tournaments'),
   })
   .meta({ id: 'Tournament' });
 
@@ -67,6 +79,7 @@ export function toTournamentDto(row: {
   tournament: typeof tournaments.$inferSelect;
   sport: SportRow;
   owner: UserRow | null;
+  group: typeof groups.$inferSelect | null;
 }): TournamentDto {
   return {
     id: row.tournament.id,
@@ -75,6 +88,7 @@ export function toTournamentDto(row: {
     isOver: row.tournament.isOver,
     sport: toSportDto(row.sport),
     owner: row.owner ? toUserDto(row.owner) : null,
+    group: row.group ? { id: row.group.id, name: row.group.name } : null,
   };
 }
 
@@ -82,7 +96,11 @@ export const outcomeDtoSchema = z
   .object({
     id: z.uuid(),
     result: z.enum(['WIN', 'TIE', 'LOSS']),
-    scoreValue: z.number(),
+    scoreValue: z.number().describe('Signed Elo change from this game'),
+    ratingBefore: z
+      .number()
+      .nullable()
+      .describe('Tournament rating just before the game; null for games recorded before tracking'),
     user: userDtoSchema,
   })
   .meta({ id: 'Outcome' });
@@ -97,6 +115,7 @@ export function toOutcomeDto(row: {
     id: row.outcome.id,
     result: row.outcome.result,
     scoreValue: row.outcome.scoreValue,
+    ratingBefore: row.outcome.ratingBefore,
     user: toUserDto(row.user),
   };
 }

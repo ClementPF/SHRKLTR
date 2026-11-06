@@ -13,10 +13,20 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { api } from '@/api/client';
 import { exchangeGoogleCode, getMe, logoutSession } from '@/api/endpoints';
 import type { GoogleCodeExchangeRequest, User } from '@/api/types';
-import { registerForPushNotifications } from '@/notifications/push-registration';
+import {
+  registerForPushNotifications,
+  unregisterPushNotifications,
+  watchPushTokenChanges,
+} from '@/notifications/push-registration';
 import { Colors, Palette, Spacing, Typography } from '@/theme';
 
 import { requestDevSession } from './devSession';
+import {
+  startPushSession,
+  type PushSession,
+  type RegisterPush,
+  type WatchPushToken,
+} from './push-session';
 import { sessionStore, type SessionStore } from './session-store';
 import type { StoredSession } from './storage';
 
@@ -37,12 +47,29 @@ export interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+const UNREGISTER_TIMEOUT_MS = 3000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out')), ms);
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
 export interface SessionProviderProps {
   children: ReactNode;
   /** Owns session cleanup (storage, query cache, auth-lost) for sign-out and expiry. */
   store?: SessionStore;
   refreshTokens?: () => Promise<string | null>;
-  registerPush?: () => Promise<string | null>;
+  /** Registers this installation; called on sign-in and with the new token on each rotation. */
+  registerPush?: RegisterPush;
+  /**
+   * Stops pushes to this installation; attempted on logout after in-flight registrations land,
+   * never blocks it beyond a short timeout.
+   */
+  unregisterPush?: () => Promise<void>;
+  /** Subscribes to push token rotation while signed in. */
+  watchPushToken?: WatchPushToken;
   /**
    * Checks a restored session against the server (GET /users/me). The API client refreshes an
    * expired access token, or clears the session when the refresh token is no longer accepted.
@@ -66,12 +93,14 @@ export function SessionProvider({
   store = sessionStore,
   refreshTokens = api.refresh,
   registerPush = registerForPushNotifications,
+  unregisterPush = unregisterPushNotifications,
+  watchPushToken = watchPushTokenChanges,
   fetchCurrentUser = getMe,
   fallback,
 }: SessionProviderProps) {
   const [hydrated, setHydrated] = useState(false);
   const [session, setSession] = useState<StoredSession | null>(store.get());
-  const pushRegisteredFor = useRef<string | null>(null);
+  const pushSession = useRef<PushSession | null>(null);
 
   useEffect(() => {
     const unsubscribe = store.subscribe(setSession);
@@ -97,18 +126,18 @@ export function SessionProvider({
     };
   }, [store, fetchCurrentUser]);
 
-  const userId = session?.user.id ?? null;
+  // Every installed session (not token refreshes) gets its own push session, so signing back in,
+  // even as the same user, registers again after a logout stopped the previous one.
+  const pushKey = session ? `${session.user.id}:${store.generation()}` : null;
   useEffect(() => {
-    if (!userId) {
-      pushRegisteredFor.current = null;
-      return;
-    }
-    if (pushRegisteredFor.current === userId) return;
-    pushRegisteredFor.current = userId;
-    registerPush().catch((err: unknown) => {
-      console.warn('Push registration failed', err);
-    });
-  }, [userId, registerPush]);
+    if (!pushKey) return;
+    const push = startPushSession(registerPush, watchPushToken);
+    pushSession.current = push;
+    return () => {
+      void push.stop();
+      if (pushSession.current === push) pushSession.current = null;
+    };
+  }, [pushKey, registerPush, watchPushToken]);
 
   const loginWithGoogleCode = useCallback(
     async (exchange: GoogleCodeExchangeRequest) => {
@@ -127,13 +156,23 @@ export function SessionProvider({
   const logout = useCallback(async () => {
     const generation = store.generation();
     const refreshToken = store.get()?.refreshToken;
+    // Stops rotation handling and pending registrations now, so nothing can re-register this
+    // installation after the final unregister below.
+    const pushStopped = pushSession.current?.stop() ?? Promise.resolve();
     if (refreshToken) {
+      // Runs after registration writes already on the wire, and needs the still-valid session.
+      // Once the session is replaced or cleared, the installation is no longer ours to remove.
+      const finalUnregister = pushStopped.then(() =>
+        store.generation() === generation ? unregisterPush() : undefined,
+      );
+      // Failures and slow networks must not keep the user signed in.
+      await withTimeout(finalUnregister, UNREGISTER_TIMEOUT_MS).catch(() => undefined);
       // Local sign-out must succeed even if the server cannot be reached.
       await logoutSession(refreshToken).catch(() => undefined);
     }
     // Skipped by the store if a login completed meanwhile; the store also clears the cache.
     await store.clear(generation);
-  }, [store]);
+  }, [store, unregisterPush]);
 
   const refresh = useCallback(async () => (await refreshTokens()) !== null, [refreshTokens]);
 

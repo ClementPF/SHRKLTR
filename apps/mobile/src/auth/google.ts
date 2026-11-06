@@ -10,8 +10,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
-import { GOOGLE_CLIENT_ID } from '@/api/config';
+import { GOOGLE_CLIENT_ID, WEB_URL } from '@/api/config';
 import type { GoogleCodeExchangeRequest } from '@/api/types';
+import { APP_SCHEME } from '@/lib/app-links';
 
 // Authorization endpoint only: the code is redeemed by the backend (POST /auth/google/code),
 // which holds the client secret, so the app never talks to Google's token endpoint.
@@ -21,9 +22,13 @@ export const GOOGLE_DISCOVERY: DiscoveryDocument = {
 
 export const GOOGLE_SCOPES = ['openid', 'email', 'profile'];
 
-/** Local dev web origin; it must be an authorized redirect URI of the Google web client. */
-export const GOOGLE_WEB_REDIRECT_URI = 'http://localhost:8081';
-export const GOOGLE_NATIVE_REDIRECT_URI = 'com.elo.sharkulator:/oauthredirect';
+/**
+ * Web redirect URI when the serving origin is unknown: EXPO_PUBLIC_WEB_URL, so it is the deployed
+ * web app's origin rather than a localhost default. It must be an authorized redirect URI of the
+ * Google web client and be listed in the backend GOOGLE_REDIRECT_ALLOWLIST.
+ */
+export const GOOGLE_WEB_REDIRECT_URI = WEB_URL;
+export const GOOGLE_NATIVE_REDIRECT_URI = `${APP_SCHEME}:/oauthredirect`;
 
 function currentWebOrigin(): string | undefined {
   return typeof window !== 'undefined' ? window.location?.origin : undefined;
@@ -31,8 +36,8 @@ function currentWebOrigin(): string | undefined {
 
 /**
  * On web, Google redirects back to the origin serving the app (the hosted app or the local dev
- * server); each origin must be registered on the Google client and in the backend's
- * GOOGLE_REDIRECT_ALLOWLIST.
+ * server), falling back to EXPO_PUBLIC_WEB_URL; each origin must be registered on the Google
+ * client and in the backend's GOOGLE_REDIRECT_ALLOWLIST.
  */
 export function googleRedirectUri(
   os: string = Platform.OS,

@@ -5,7 +5,7 @@ import { ScannerScreen } from '@/features/game-form/scanner-screen';
 import { ScannerHeader } from '@/features/game-form/scanner-header';
 
 export default function ScannerRoute() {
-  const username = useSession().user?.username;
+  const user = useSession().user;
   return (
     <>
       <Stack.Screen
@@ -15,7 +15,7 @@ export default function ScannerRoute() {
           header: () => <ScannerHeader />,
         }}
       />
-      <ScannerScreen username={username} />
+      <ScannerScreen username={user?.username} userId={user?.id} />
     </>
   );
 }

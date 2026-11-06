@@ -1,0 +1,47 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "8be4f954-90ff-47c7-9c6d-65e21c669bfb",
+  "prevIds": [
+    "d9c6ddba-20f0-4dca-9030-adab17b138b5"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "outcomes",
+        "rating_before"
+      ],
+      "writes": [
+        "s|col|public.outcomes.rating_before",
+        "n|col|public.outcomes.rating_before",
+        "e|col|public.outcomes.rating_before"
+      ],
+      "reads": [
+        "n|tbl|public.outcomes",
+        "n|sch|public"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "outcomes",
+        "name": "rating_before",
+        "type": "double precision",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

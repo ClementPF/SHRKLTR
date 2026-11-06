@@ -1,17 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { submitGame } from '@/api/endpoints';
-import type { Game } from '@/api/types';
+import { achievementKeys } from '@/features/achievements/queries';
+import { challengeKeys } from '@/features/challenges/keys';
+import { gameKeys } from '@/features/games/queries';
+import { notificationKeys } from '@/features/notifications/queries';
 import { tournamentKeys } from '@/features/tournaments/queries';
 import { FEED_PAGE_SIZE, statsKeys, userKeys, useUserGames } from '@/features/users/queries';
 import { toSubmitGameRequest, type ScannedOutcome } from '@/lib/qr';
 
 import { useGameFormStore } from './store';
-
-export const gameKeys = {
-  detail: (id: string) => ['games', id] as const,
-};
 
 export interface SubmitGameInput {
   tournamentName: string;
@@ -24,22 +23,21 @@ export function useSubmitGame() {
     mutationFn: ({ tournamentName, outcomes }: SubmitGameInput) =>
       submitGame(tournamentName, toSubmitGameRequest(outcomes)),
     onSuccess: (game) => {
+      // Pre-fills the durable game detail so the result opens instantly.
       queryClient.setQueryData(gameKeys.detail(game.id), game);
       // Not awaited: the result screen should open while the mounted feed/history refetch.
-      for (const queryKey of [userKeys.all, statsKeys.all, tournamentKeys.all]) {
+      for (const queryKey of [
+        userKeys.all,
+        statsKeys.all,
+        tournamentKeys.all,
+        notificationKeys.all,
+        achievementKeys.all,
+        // The game may complete an accepted challenge between its players.
+        challengeKeys.all,
+      ]) {
         void queryClient.invalidateQueries({ queryKey });
       }
     },
-  });
-}
-
-/** The game returned by the submission; there is no GET endpoint for a single game. */
-export function useSubmittedGame(id: string | undefined) {
-  return useQuery<Game | null>({
-    queryKey: gameKeys.detail(id ?? ''),
-    queryFn: () => null,
-    enabled: false,
-    staleTime: Infinity,
   });
 }
 

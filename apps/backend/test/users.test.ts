@@ -41,7 +41,7 @@ describe('user routes', () => {
       ['GET', '/users/me'],
       ['GET', '/users/someone'],
       ['PUT', '/users/me'],
-      ['POST', '/users/me/push-token'],
+      ['POST', '/users/me/push-devices'],
     ] as const)('%s %s without a token → 401', async (method, url) => {
       const res = await app.inject({ method, url, payload: method === 'GET' ? undefined : {} });
       expect(res.statusCode).toBe(401);
@@ -62,6 +62,7 @@ describe('user routes', () => {
       expect(res.json()).toEqual({
         id: me.id,
         username: 'jean-dupont',
+        accountType: 'REGISTERED',
         firstName: 'Jean',
         lastName: 'Dupont',
         pictureUrl: 'https://example.com/jean.png',
@@ -83,7 +84,7 @@ describe('user routes', () => {
     it('GET /users lists every user without private fields', async () => {
       const a = await createUser(app.db, fullProfile);
       const b = await createUser(app.db, { username: 'marie' });
-      const c = await createUser(app.db, { username: 'zoe', pushToken: 'ExponentPushToken[x]' });
+      const c = await createUser(app.db, { username: 'zoe' });
       const res = await app.inject({
         method: 'GET',
         url: '/users',
@@ -95,7 +96,7 @@ describe('user routes', () => {
       expect(body.map((u) => u.id).sort()).toEqual([a.id, b.id, c.id].sort());
       for (const u of body) {
         expect(Object.keys(u).sort()).toEqual(
-          ['firstName', 'id', 'lastName', 'locale', 'pictureUrl', 'username'].sort(),
+          ['accountType', 'firstName', 'id', 'lastName', 'locale', 'pictureUrl', 'username'].sort(),
         );
       }
     });
@@ -153,6 +154,7 @@ describe('user routes', () => {
       expect(res.json()).toEqual({
         id: me.id,
         username: 'jean-dupont',
+        accountType: 'REGISTERED',
         firstName: 'Jeanne',
         lastName: 'Durand',
         locale: 'en',
@@ -212,55 +214,17 @@ describe('user routes', () => {
     });
   });
 
-  describe('VAL-USERS-004: POST /users/me/push-token', () => {
-    it('stores the token on the authenticated user row (latest wins)', async () => {
+  describe('legacy push-token storage', () => {
+    it('POST /users/me/push-token is retired in favour of /users/me/push-devices', async () => {
       const me = await createUser(app.db);
-      const other = await createUser(app.db);
-      const headers = await authHeadersFor(app, me.id);
-
-      const first = await app.inject({
+      const res = await app.inject({
         method: 'POST',
         url: '/users/me/push-token',
-        headers,
+        headers: await authHeadersFor(app, me.id),
         payload: { value: 'ExponentPushToken[first]' },
       });
-      expect(first.statusCode).toBe(204);
-      expect((await rowOf(me.id)).pushToken).toBe('ExponentPushToken[first]');
-
-      const second = await app.inject({
-        method: 'POST',
-        url: '/users/me/push-token',
-        headers,
-        payload: { value: 'ExponentPushToken[second]' },
-      });
-      expect(second.statusCode).toBe(204);
-      expect((await rowOf(me.id)).pushToken).toBe('ExponentPushToken[second]');
-      expect((await rowOf(other.id)).pushToken).toBeNull();
-    });
-
-    it('does not expose the push token in the user DTO', async () => {
-      const me = await createUser(app.db, { pushToken: 'ExponentPushToken[secret]' });
-      const res = await app.inject({
-        method: 'GET',
-        url: '/users/me',
-        headers: await authHeadersFor(app, me.id),
-      });
-      expect(res.json()).not.toHaveProperty('pushToken');
-    });
-
-    it('rejects a missing or empty value with 400', async () => {
-      const me = await createUser(app.db);
-      const headers = await authHeadersFor(app, me.id);
-      for (const payload of [{}, { value: '' }]) {
-        const res = await app.inject({
-          method: 'POST',
-          url: '/users/me/push-token',
-          headers,
-          payload,
-        });
-        expect(res.statusCode).toBe(400);
-      }
-      expect((await rowOf(me.id)).pushToken).toBeNull();
+      expect(res.statusCode).toBe(404);
+      expect(Object.keys(await rowOf(me.id))).not.toContain('pushToken');
     });
   });
 });

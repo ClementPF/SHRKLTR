@@ -1,2 +1,2 @@
-/** Web receives no Expo pushes, so there is nothing to listen for. */
+/** Web receives no Expo pushes: nothing to listen for or route. */
 export function useNotificationListeners(): void {}
