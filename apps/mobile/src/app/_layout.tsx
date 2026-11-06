@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as WebBrowser from 'expo-web-browser';
 
 import { SessionProvider, useSession } from '@/auth/session';
+import { usePendingReturnCapture, usePendingReturnResume } from '@/features/auth/pending-return';
 import { usePendingJoinResume } from '@/features/groups/pending-join';
 import { queryClient } from '@/lib/query-client';
 import { useNotificationListeners } from '@/notifications/use-notification-listeners';
@@ -17,8 +18,12 @@ function RootNavigator() {
   const { session } = useSession();
   // Rendered only after the session hydrated; taps wait for a signed-in, mounted navigator.
   const navigationReady = !!useRootNavigationState()?.key;
-  useNotificationListeners(queryClient, !!session && navigationReady);
-  usePendingJoinResume(!!session && navigationReady, session?.user.id ?? null);
+  const signedInReady = !!session && navigationReady;
+  const accountKey = session?.user.id ?? null;
+  useNotificationListeners(queryClient, signedInReady);
+  usePendingJoinResume(signedInReady, accountKey);
+  usePendingReturnCapture(!!session);
+  usePendingReturnResume(signedInReady, accountKey);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>

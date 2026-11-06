@@ -21,6 +21,7 @@ import {
   readPendingClaim,
   savePendingClaim,
 } from '@/auth/pending-claim';
+import { PENDING_RETURN_KEY, savePendingReturn } from '@/auth/pending-return';
 import { useSession, type SessionContextValue } from '@/auth/session';
 import { LoginScreen } from '@/features/auth/login-screen';
 import { AppInviteLanding } from '@/features/invites/app-invite-landing';
@@ -525,6 +526,45 @@ describe('General app invitation after a cancelled claim', () => {
     expect(loginWithGoogleCode.mock.calls[0]).toEqual([
       expect.not.objectContaining({ claimToken: expect.anything() }),
     ]);
+  });
+});
+
+describe('LoginScreen with a screen kept for after sign-in', () => {
+  const GAME_PATH = '/games/dbc565ce-84b7-45ce-98b4-844909516cab';
+
+  it('keeps the destination through an ordinary Google code exchange', async () => {
+    await savePendingReturn(GAME_PATH);
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await render(<LoginScreen devSignInEnabled={false} />);
+
+    await fireEvent.press(await screen.findByLabelText('Continue with Google'));
+    expect(promptAsync).toHaveBeenCalledTimes(1);
+    googleReturns(success);
+    await view.rerender(<LoginScreen devSignInEnabled={false} />);
+    await waitFor(() => expect(loginWithGoogleCode).toHaveBeenCalledTimes(1));
+    expect(loginWithGoogleCode.mock.calls[0]).toEqual([
+      expect.not.objectContaining({ claimToken: expect.anything() }),
+    ]);
+    expect(mockSecureStore.has(PENDING_RETURN_KEY)).toBe(true);
+  });
+
+  it('drops the destination when the sign-in claims a player instead', async () => {
+    await savePendingReturn(GAME_PATH);
+    await savePendingClaim({ token: TOKEN, playerName: 'Riley Guest' });
+    const loginWithGoogleCode = jest.fn(async () => undefined);
+    mockedSession.mockReturnValue(sessionValue({ loginWithGoogleCode }));
+    const view = await render(<LoginScreen devSignInEnabled={false} />);
+
+    await fireEvent.press(await screen.findByLabelText('Claim with Google'));
+    await waitFor(() => expect(mockSecureStore.has(PENDING_RETURN_KEY)).toBe(false));
+    googleReturns(success);
+    await view.rerender(<LoginScreen devSignInEnabled={false} />);
+    await waitFor(() =>
+      expect(loginWithGoogleCode).toHaveBeenCalledWith(
+        expect.objectContaining({ claimToken: TOKEN }),
+      ),
+    );
   });
 });
 
