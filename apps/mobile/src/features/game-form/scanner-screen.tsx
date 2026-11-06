@@ -1,18 +1,21 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { APP_ENV } from '@/api/config';
 import type { Tournament } from '@/api/types';
 import { Button } from '@/components/button';
+import { SegmentedControl } from '@/components/chip';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { showAlert } from '@/components/dropdown-alert';
 import { OutcomeColumns } from '@/components/outcome-columns';
 import { QrDisplay } from '@/components/qr-display';
 import { QrScanner } from '@/components/qr-scanner';
+import { StayAwake } from '@/components/stay-awake';
+import { haptics } from '@/lib/haptics';
 import { buildQrPayload, encodeQrPayload, submissionBlocker, type ScannedOutcome } from '@/lib/qr';
-import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
+import { Colors, Palette, Spacing, Typography } from '@/theme';
 
 import { ADD_WITHOUT_QR_ENABLED, AddPlayers } from './add-players';
 import { useGameFormTournament, useSubmitGame } from './queries';
@@ -46,7 +49,13 @@ function ManualCodeEntry({ onSubmit }: { onSubmit(raw: string): void }) {
         placeholderTextColor={Colors.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
-        style={styles.input}
+        returnKeyType="done"
+        onSubmitEditing={() => {
+          if (!code.trim()) return;
+          onSubmit(code.trim());
+          setCode('');
+        }}
+        style={Palette.input}
       />
       <Button
         title="Add code"
@@ -65,16 +74,21 @@ function ManualCodeEntry({ onSubmit }: { onSubmit(raw: string): void }) {
 const members = (outcomes: readonly ScannedOutcome[], result: ScannedOutcome['result']) =>
   outcomes.filter((o) => o.result === result).map(({ username }) => ({ username }));
 
-function handleScan(raw: string) {
+/** Applies a scan; returns the outcomes when they now make a complete game. */
+function handleScan(raw: string): ScannedOutcome[] | null {
   const result = useGameFormStore.getState().scan(raw);
-  if (!result) return;
+  if (!result) return null;
   if (result.status === 'added') {
+    haptics.tap();
+    // A complete game opens the confirmation, which already lists who was scanned.
+    if (!submissionBlocker(result.outcomes)) return result.outcomes;
     const role = result.added.result === 'WIN' ? 'winner' : 'loser';
     showAlert('success', 'Scanned', `${result.added.username} added as ${role}.`);
   } else if (result.status === 'invalid' || result.status === 'wrong-tournament') {
+    haptics.error();
     showAlert('error', 'Error', result.error);
   }
-  return result;
+  return null;
 }
 
 export interface ScannerScreenProps {
@@ -91,6 +105,8 @@ export function ScannerScreen({ username, userId }: ScannerScreenProps) {
       style={Palette.screen}
       contentContainerStyle={[styles.content, { paddingBottom: Spacing.md + insets.bottom }]}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      automaticallyAdjustKeyboardInsets
     >
       <GameFormTournamentHeader tournament={tournament} loading={loading} />
       {tournament && username && (
@@ -103,34 +119,16 @@ export function ScannerScreen({ username, userId }: ScannerScreenProps) {
 type Role = 'submitter' | 'teammate';
 
 /** In a team game only one loser submits; the other losers just show their code to them. */
+const ROLE_OPTIONS = [
+  { value: 'submitter', label: SUBMITTER_LABEL, testID: 'scanner-scan' },
+  { value: 'teammate', label: TEAMMATE_LABEL, testID: 'scanner-get-scanned' },
+] as const;
+
 function RoleChoice({ role, onChange }: { role: Role; onChange(role: Role): void }) {
-  const options = [
-    { value: 'submitter', label: SUBMITTER_LABEL, testID: 'scanner-scan' },
-    { value: 'teammate', label: TEAMMATE_LABEL, testID: 'scanner-get-scanned' },
-  ] as const;
   return (
     <View style={styles.roleBlock}>
       <Text style={styles.caption}>Team game (2v2, 3v3…)? Only one loser submits it.</Text>
-      <View style={styles.segments} accessibilityRole="tablist">
-        {options.map(({ value, label, testID }) => {
-          const selected = value === role;
-          return (
-            <Pressable
-              key={value}
-              accessibilityRole="tab"
-              accessibilityLabel={label}
-              aria-selected={selected}
-              testID={testID}
-              onPress={() => onChange(value)}
-              style={[styles.segment, selected && styles.segmentSelected]}
-            >
-              <Text style={[styles.segmentText, selected && styles.segmentTextSelected]}>
-                {label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      <SegmentedControl options={ROLE_OPTIONS} value={role} onChange={onChange} />
     </View>
   );
 }
@@ -160,10 +158,8 @@ function ScannerBody({
 
   const scan = (raw: string) => {
     if (confirmation) return;
-    const result = handleScan(raw);
-    if (result?.status === 'added' && !submissionBlocker(result.outcomes)) {
-      setConfirmation({ tournament, outcomes: result.outcomes });
-    }
+    const complete = handleScan(raw);
+    if (complete) setConfirmation({ tournament, outcomes: complete });
   };
 
   const confirm = () => {
@@ -172,11 +168,13 @@ function ScannerBody({
       { tournamentName: confirmation.tournament.name, outcomes: confirmation.outcomes },
       {
         onSuccess: (game) => {
+          haptics.success();
           setConfirmation(null);
           resetOutcomes();
           router.replace({ pathname: '/game-form/result', params: { id: game.id } });
         },
         onError: (err) => {
+          haptics.error();
           setConfirmation(null);
           showAlert('error', 'Error', `Failed to submit the game: ${err.message}`);
         },
@@ -187,6 +185,7 @@ function ScannerBody({
   if (role === 'teammate') {
     return (
       <>
+        <StayAwake />
         <RoleChoice role={role} onChange={setRole} />
         <Text style={styles.text} testID="scanner-teammate-text">
           {TEAMMATE_TEXT}
@@ -245,37 +244,4 @@ const styles = StyleSheet.create({
   caption: { ...Typography.caption, textAlign: 'center' },
   manual: { gap: Spacing.sm },
   roleBlock: { gap: Spacing.sm },
-  segments: {
-    flexDirection: 'row',
-    padding: Spacing.xs,
-    gap: Spacing.xs,
-    borderRadius: Radius.md,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  segment: {
-    flex: 1,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.sm,
-    borderRadius: Radius.sm,
-  },
-  segmentSelected: { backgroundColor: Colors.accent },
-  segmentText: {
-    ...Typography.body,
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: 'center',
-  },
-  segmentTextSelected: { color: Colors.text, fontWeight: '700' },
-  input: {
-    ...Typography.body,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.surface,
-    padding: Spacing.sm,
-  },
 });

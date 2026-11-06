@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
 import type { ReactElement } from 'react';
@@ -141,7 +141,23 @@ describe('Settings tab', () => {
     expect(router.push).toHaveBeenCalledWith('/settings/invite');
     await fireEvent.press(screen.getByLabelText('Invited players'));
     expect(router.push).toHaveBeenCalledWith('/settings/invited-players');
-    expect(screen.getByLabelText('LOGOUT')).toBeTruthy();
+    expect(screen.getByLabelText('Log out')).toBeTruthy();
+  });
+
+  it('asks before logging out and logs out only once confirmed', async () => {
+    const { logout } = useSession();
+    await render(<SettingsScreen />);
+    expect(screen.queryByTestId('confirm-dialog')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Log out'));
+    expect(screen.getByText('Log out?')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Cancel'));
+    expect(screen.queryByText('Log out?')).toBeNull();
+    expect(logout).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByLabelText('Log out'));
+    const dialog = screen.getByTestId('confirm-dialog');
+    await fireEvent.press(within(dialog).getByLabelText('Log out'));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
   });
 });
 

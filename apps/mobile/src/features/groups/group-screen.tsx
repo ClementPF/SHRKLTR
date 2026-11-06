@@ -177,7 +177,7 @@ function AddRosterPlayer({
         placeholderTextColor={Colors.textMuted}
         autoCapitalize="none"
         autoCorrect={false}
-        style={styles.input}
+        style={Palette.input}
       />
       {search.length > 0 && candidates.isSuccess && found.length === 0 && (
         <Text style={styles.caption}>No unclaimed player matches “{query.trim()}”.</Text>
@@ -366,14 +366,6 @@ const styles = StyleSheet.create({
   chipText: { ...Typography.body },
   selectedTitle: { ...Typography.body, fontWeight: '700' },
   leaderboard: { gap: 1, borderRadius: Radius.sm, overflow: 'hidden' },
-  input: {
-    ...Typography.body,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.surface,
-    padding: Spacing.sm,
-  },
   option: {
     flexDirection: 'row',
     alignItems: 'center',

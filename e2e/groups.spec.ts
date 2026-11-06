@@ -31,7 +31,7 @@ test('removal evicts previously loaded group, tournament, and feed data', async 
   const member = await signIn('dev-jordan');
   await member.page.goto('/feed');
   await expect(member.page.getByTestId('feed-list')).toContainText('Shark Tank Cup');
-  await member.page.getByRole('tab', { name: 'Settings' }).click();
+  await member.page.getByRole('tab', { name: 'Tournaments', exact: true }).click();
   await member.page.getByRole('button', { name: 'Groups', exact: true }).click();
   await member.page.getByRole('button', { name: /Shark Tank/ }).click();
   await expect(member.page.getByTestId('group-player-guest-robin')).toBeVisible();

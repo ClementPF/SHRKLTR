@@ -9,7 +9,7 @@ export function HealthStatus() {
   if (isPending) {
     return (
       <View style={styles.card} testID="health-status">
-        <ActivityIndicator color={Colors.accent} />
+        <ActivityIndicator color={Colors.text} />
         <Text style={Typography.bodySecondary}>Checking backend…</Text>
       </View>
     );

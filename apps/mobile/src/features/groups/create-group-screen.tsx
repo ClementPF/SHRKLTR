@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, TextInput } from 'react-native';
 
 import type { Group } from '@/api/types';
 import { Button } from '@/components/button';
-import { Colors, Palette, Radius, Spacing, Typography } from '@/theme';
+import { Colors, Palette, Spacing, Typography } from '@/theme';
 
 import { GROUP_NAME_MAX, useCreateGroup } from './queries';
 
@@ -36,6 +36,8 @@ export function CreateGroupScreen({ onCreated }: { onCreated(group: Group): void
       style={Palette.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      automaticallyAdjustKeyboardInsets
     >
       <Text style={styles.intro}>
         A group keeps its tournaments, games and standings private to its members. You will be its
@@ -53,7 +55,8 @@ export function CreateGroupScreen({ onCreated }: { onCreated(group: Group): void
         }}
         placeholder="Office Pong Club"
         placeholderTextColor={Colors.textMuted}
-        style={styles.input}
+        returnKeyType="done"
+        style={Palette.input}
         onSubmitEditing={submit}
       />
       <Text
@@ -88,14 +91,6 @@ const styles = StyleSheet.create({
   content: { padding: Spacing.md, gap: Spacing.sm },
   intro: { ...Typography.bodySecondary },
   label: { ...Typography.body, fontWeight: '700', marginTop: Spacing.sm },
-  input: {
-    ...Typography.body,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: Radius.sm,
-    backgroundColor: Colors.surface,
-    padding: Spacing.sm,
-  },
   counter: { ...Typography.caption, textAlign: 'right' },
   error: { ...Typography.body, color: Colors.warning },
   submit: { marginTop: Spacing.md },

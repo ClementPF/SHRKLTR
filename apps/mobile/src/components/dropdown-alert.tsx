@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Animated, Platform, Pressable, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { create } from 'zustand';
 
@@ -32,7 +32,15 @@ export function showAlert(kind: AlertKind, title: string, message: string) {
   useAlertStore.getState().show(kind, title, message);
 }
 
-const AUTO_DISMISS_MS = 5000;
+/** Errors stay long enough to read; confirmations get out of the way of the header sooner. */
+export const AUTO_DISMISS_MS: Record<AlertKind, number> = {
+  error: 5000,
+  success: 3000,
+  info: 3000,
+};
+
+const ANIMATION_MS = 180;
+const useNativeDriver = Platform.OS !== 'web';
 
 const BACKGROUNDS: Record<AlertKind, string> = {
   error: Colors.error,
@@ -48,27 +56,60 @@ export function DropdownAlert() {
   const current = useAlertStore((s) => s.current);
   const dismiss = useAlertStore((s) => s.dismiss);
   const insets = useSafeAreaInsets();
+  // The last message stays rendered while it slides out after the store has cleared it.
+  const [shown, setShown] = useState(current);
+  const [progress] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    if (current) {
+      setShown(current);
+      Animated.timing(progress, {
+        toValue: 1,
+        duration: ANIMATION_MS,
+        useNativeDriver,
+      }).start();
+      return;
+    }
+    Animated.timing(progress, { toValue: 0, duration: ANIMATION_MS, useNativeDriver }).start(
+      ({ finished }) => {
+        if (finished) setShown(null);
+      },
+    );
+  }, [current, progress]);
 
   useEffect(() => {
     if (!current) return;
-    const timer = setTimeout(() => dismiss(current.id), AUTO_DISMISS_MS);
+    const timer = setTimeout(() => dismiss(current.id), AUTO_DISMISS_MS[current.kind]);
     return () => clearTimeout(timer);
   }, [current, dismiss]);
 
-  if (!current) return null;
+  const message = current ?? shown;
+  if (!message) return null;
   return (
-    <Pressable
-      accessibilityRole="alert"
-      testID="dropdown-alert"
-      onPress={() => dismiss(current.id)}
+    <Animated.View
+      pointerEvents={current ? 'auto' : 'none'}
       style={[
         styles.banner,
-        { top: insets.top + Spacing.sm, backgroundColor: BACKGROUNDS[current.kind] },
+        {
+          top: insets.top + Spacing.sm,
+          backgroundColor: BACKGROUNDS[message.kind],
+          opacity: progress,
+          transform: [
+            { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-24, 0] }) },
+          ],
+        },
       ]}
     >
-      <Text style={styles.title}>{current.title}</Text>
-      <Text style={styles.message}>{current.message}</Text>
-    </Pressable>
+      <Pressable
+        accessibilityRole="alert"
+        testID={current ? 'dropdown-alert' : undefined}
+        onPress={() => dismiss(message.id)}
+        style={styles.content}
+      >
+        <Text style={styles.title}>{message.title}</Text>
+        <Text style={styles.message}>{message.message}</Text>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -78,10 +119,9 @@ const styles = StyleSheet.create({
     left: Spacing.sm,
     right: Spacing.sm,
     zIndex: 1000,
-    padding: Spacing.md,
     borderRadius: Radius.md,
-    gap: Spacing.xs,
   },
+  content: { padding: Spacing.md, gap: Spacing.xs },
   title: { ...Typography.body, fontWeight: '700', color: Colors.errorText },
   message: { ...Typography.body, color: Colors.errorText },
 });

@@ -82,7 +82,7 @@ export interface SessionProviderProps {
 export function SessionLoading() {
   return (
     <View style={styles.loading} accessibilityLabel="Loading session">
-      <ActivityIndicator size="large" color={Colors.accent} />
+      <ActivityIndicator size="large" color={Colors.text} />
       <Text style={Typography.bodySecondary}>Loading…</Text>
     </View>
   );

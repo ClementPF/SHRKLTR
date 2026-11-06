@@ -2,7 +2,6 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 
 import { useSession } from '@/auth/session';
 import { ChallengeComposer } from '@/features/challenges/composer-screen';
-import { Colors } from '@/theme';
 
 export default function NewChallengeRoute() {
   const { opponent, tournament } = useLocalSearchParams<{
@@ -14,10 +13,7 @@ export default function NewChallengeRoute() {
     <>
       <Stack.Screen
         options={{
-          headerShown: true,
           title: 'New challenge',
-          headerStyle: { backgroundColor: Colors.background },
-          headerTintColor: Colors.text,
         }}
       />
       {viewer && (

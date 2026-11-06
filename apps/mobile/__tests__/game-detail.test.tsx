@@ -28,7 +28,14 @@ jest.mock('expo-router', () => {
   );
   return {
     Stack,
-    router: { push: jest.fn(), navigate: jest.fn(), replace: jest.fn(), back: jest.fn() },
+    router: {
+      push: jest.fn(),
+      navigate: jest.fn(),
+      dismissTo: jest.fn(),
+      replace: jest.fn(),
+      back: jest.fn(),
+    },
+    useFocusEffect: jest.fn(),
   };
 });
 jest.mock('react-native-safe-area-context', () => ({
@@ -261,9 +268,9 @@ describe('GameResultScreen', () => {
     await renderWithClient(<GameResultScreen id="g1" viewer="dev-alex" />);
     expect(screen.getByText('Office Babyfoot')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Add another game'));
-    expect(mockedRouter.navigate).toHaveBeenCalledWith('/add-game');
+    expect(mockedRouter.dismissTo).toHaveBeenCalledWith('/add-game');
     await fireEvent.press(screen.getByTestId('result-back-to-feed'));
-    expect(mockedRouter.navigate).toHaveBeenCalledWith('/feed');
+    expect(mockedRouter.dismissTo).toHaveBeenCalledWith('/feed');
   });
 
   it('loads the game by id after a reload with an empty cache', async () => {
@@ -288,5 +295,25 @@ describe('app stack layout', () => {
     expect(unstable_settings).toEqual({ anchor: '(tabs)' });
     const tabs = Stack.Screen.mock.calls.find(([props]) => props.name === '(tabs)');
     expect(tabs?.[0].options).toEqual(expect.objectContaining({ title: 'Back' }));
+  });
+
+  it('shows a bare back chevron and keeps the result screen from going back into the form', async () => {
+    const { Stack } = jest.requireMock<{ Stack: jest.Mock & { Screen: jest.Mock } }>('expo-router');
+    await render(<AppLayout />);
+    expect(Stack.mock.lastCall?.[0].screenOptions).toEqual(
+      expect.objectContaining({ headerShown: true, headerBackButtonDisplayMode: 'minimal' }),
+    );
+    // Native headers measure the status bar themselves; only web gets an explicit height.
+    expect(Stack.mock.lastCall?.[0].screenOptions).not.toHaveProperty('headerStatusBarHeight');
+    const options = (name: string) =>
+      Stack.Screen.mock.calls.find(([props]) => props.name === name)?.[0].options;
+    expect(options('game-form/tournament')).toEqual(
+      expect.objectContaining({ presentation: 'modal' }),
+    );
+    const result = options('game-form/result');
+    expect(result).toEqual(
+      expect.objectContaining({ headerBackVisible: false, gestureEnabled: false }),
+    );
+    expect(result.headerLeft()).toBeNull();
   });
 });

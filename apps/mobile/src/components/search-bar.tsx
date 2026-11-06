@@ -18,7 +18,7 @@ export function SearchBar({
     <View style={styles.container}>
       <SymbolView
         name={{ ios: 'magnifyingglass', android: 'search', web: 'search' }}
-        tintColor={Colors.text}
+        tintColor={Colors.textMuted}
         size={20}
       />
       <TextInput
@@ -31,6 +31,7 @@ export function SearchBar({
         autoCapitalize="none"
         autoCorrect={false}
         clearButtonMode="while-editing"
+        returnKeyType="search"
         style={styles.input}
       />
     </View>
@@ -44,9 +45,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     paddingHorizontal: Spacing.sm,
     borderWidth: 1,
-    borderColor: Colors.text,
+    borderColor: Colors.border,
     borderRadius: Radius.sm,
-    backgroundColor: Colors.background,
+    backgroundColor: Colors.surface,
   },
   input: { ...Typography.body, flex: 1, paddingVertical: Spacing.sm },
 });

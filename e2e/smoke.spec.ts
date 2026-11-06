@@ -9,7 +9,12 @@ test('UI dev sign-in, session reload, and logout @smoke', async ({ page }) => {
   await expect(page.getByTestId('feed-list')).toBeVisible();
   await page.getByRole('tab', { name: 'Settings' }).click();
   await expect(page.getByText('Signed in as dev-alex', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'LOGOUT', exact: true }).click();
+  await page.getByRole('button', { name: 'Log out', exact: true }).click();
+  // Logging out asks first; the confirmation has its own Log out button.
+  await page
+    .getByTestId('confirm-dialog')
+    .getByRole('button', { name: 'Log out', exact: true })
+    .click();
   await expect(page.getByTestId('dev-sign-in')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('sharkulator.session')))

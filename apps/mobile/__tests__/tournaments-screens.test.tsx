@@ -209,10 +209,10 @@ describe('CreateTournamentScreen', () => {
     const onCreated = jest.fn();
     await renderWithClient(<CreateTournamentScreen onCreated={onCreated} />);
 
-    expect(screen.getByLabelText('Create Tournament')).toBeDisabled();
+    expect(screen.getByLabelText('Create tournament')).toBeDisabled();
     await fireEvent.changeText(screen.getByTestId('tournament-title-input'), ' Office Babyfoot ');
     await fireEvent.press(await screen.findByLabelText('Sport babyfoot'));
-    await fireEvent.press(screen.getByLabelText('Create Tournament'));
+    await fireEvent.press(screen.getByLabelText('Create tournament'));
 
     expect(await screen.findByText(createdMessage('Office Babyfoot'))).toBeTruthy();
     expect(api.createTournament).toHaveBeenCalledWith({
@@ -235,7 +235,7 @@ describe('CreateTournamentScreen', () => {
     await screen.findByLabelText('Sport babyfoot');
     await fireEvent.changeText(screen.getByTestId('tournament-title-input'), 'Office Babyfoot');
     await fireEvent.changeText(screen.getByTestId('tournament-sport-input'), 'babyfoot');
-    await fireEvent.press(screen.getByLabelText('Create Tournament'));
+    await fireEvent.press(screen.getByLabelText('Create tournament'));
 
     expect(
       await screen.findByText(
@@ -258,8 +258,8 @@ describe('CreateTournamentScreen', () => {
 
     await fireEvent.changeText(screen.getByTestId('tournament-title-input'), 'Office Babyfoot');
     await fireEvent.changeText(screen.getByTestId('tournament-sport-input'), 'babyfoot');
-    expect(screen.getByLabelText('Create Tournament')).toBeEnabled();
-    await fireEvent.press(screen.getByLabelText('Create Tournament'));
+    expect(screen.getByLabelText('Create tournament')).toBeEnabled();
+    await fireEvent.press(screen.getByLabelText('Create tournament'));
     expect(await screen.findByText('Failed to create tournament: boom')).toBeTruthy();
     expect(api.createTournament).toHaveBeenCalledWith({
       displayName: 'Office Babyfoot',

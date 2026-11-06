@@ -3,8 +3,9 @@ import { Tabs } from 'expo-router/js-tabs';
 import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 import { StyleSheet, View, type ColorValue } from 'react-native';
 
-import { HeaderButton } from '@/components/header-button';
+import { HeaderIconButton } from '@/components/header-button';
 import { NotificationBell } from '@/features/notifications/notification-bell';
+import { useWebStatusBarHeight } from '@/lib/use-web-status-bar-height';
 import { Colors } from '@/theme';
 
 type TabIconName = SymbolViewProps['name'];
@@ -17,9 +18,11 @@ function tabIcon(name: TabIconName) {
 }
 
 export default function TabsLayout() {
+  const webStatusBarHeight = useWebStatusBarHeight();
   return (
     <Tabs
       screenOptions={{
+        headerStatusBarHeight: webStatusBarHeight,
         headerStyle: { backgroundColor: Colors.background },
         headerTintColor: Colors.text,
         tabBarStyle: { backgroundColor: Colors.tabBar, borderTopColor: Colors.border },
@@ -33,7 +36,11 @@ export default function TabsLayout() {
           title: 'Feed',
           headerRight: () => (
             <View style={styles.headerButtons}>
-              <HeaderButton title="Challenges" onPress={() => router.push('/challenges')} />
+              <HeaderIconButton
+                label="Challenges"
+                icon={{ ios: 'flag.checkered', android: 'sports_score', web: 'sports_score' }}
+                onPress={() => router.push('/challenges')}
+              />
               <NotificationBell />
             </View>
           ),
@@ -50,7 +57,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="add-game"
         options={{
-          title: 'Add Game',
+          title: 'Add game',
           tabBarIcon: tabIcon({
             ios: 'plus.circle.fill',
             android: 'add_circle',
@@ -62,11 +69,19 @@ export default function TabsLayout() {
         name="tournaments"
         options={{
           title: 'Tournaments',
-          headerTitle: 'Explore Tournaments',
+          headerTitle: 'Explore tournaments',
           headerRight: () => (
             <View style={styles.headerButtons}>
-              <HeaderButton title="Groups" onPress={() => router.push('/groups')} />
-              <HeaderButton title="Add" onPress={() => router.push('/new-tournament')} />
+              <HeaderIconButton
+                label="Groups"
+                icon={{ ios: 'person.3.fill', android: 'groups', web: 'groups' }}
+                onPress={() => router.push('/groups')}
+              />
+              <HeaderIconButton
+                label="Create a tournament"
+                icon={{ ios: 'plus', android: 'add', web: 'add' }}
+                onPress={() => router.push('/new-tournament')}
+              />
             </View>
           ),
           tabBarIcon: tabIcon({ ios: 'trophy.fill', android: 'emoji_events', web: 'emoji_events' }),

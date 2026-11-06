@@ -8,7 +8,7 @@ export default function NewTournamentRoute() {
     <>
       <Stack.Screen
         options={{
-          title: 'Create a Tournament',
+          title: 'Create a tournament',
         }}
       />
       <CreateTournamentScreen

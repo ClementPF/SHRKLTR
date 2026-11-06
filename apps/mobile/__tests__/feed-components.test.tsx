@@ -169,7 +169,7 @@ describe('GameRow', () => {
     await renderWithClient(<GameRow game={game} />);
     await fireEvent.press(screen.getByTestId('game-row-g1'));
     expect(
-      await screen.findByText('NO RIVALRY BETWEEN dev-alex AND dev-sam FOR officebabyfoot'),
+      await screen.findByText('No rivalry between dev-alex and dev-sam in Office Babyfoot yet.'),
     ).toBeTruthy();
   });
 

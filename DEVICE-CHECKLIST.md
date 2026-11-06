@@ -96,7 +96,7 @@ Prerequisites:
 Steps:
 
 1. In a private/incognito Mac browser window, open http://localhost:8083. If you are already
-   signed in, go to **Settings → LOGOUT** first.
+   signed in, go to **Settings → Log out** and confirm first.
 2. Click **Continue with Google**.
 3. Choose your Google account and approve the consent screen (`openid`, `email`, `profile`).
 4. The browser returns to http://localhost:8083 and lands on the **Feed** tab, signed in. A new
@@ -156,9 +156,9 @@ Steps:
    `dev-sam` vs `dev-alex`. Note **Total Points** and **Game Count** on each device. They match the
    step 1 rivalry lines for that direction (the Mac's left Total Points is dev-alex's `score`, the
    iPhone's left Total Points is dev-sam's `score`). Tap the row again to collapse it.
-5. Mac: open **Add Game** → **WON**. Press **EDIT** and pick **Office Babyfoot**. A QR code
-   appears.
-6. iPhone: open **Add Game** → **LOST**. Press **EDIT** and pick **Office Babyfoot** (both sides
+5. Mac: open **Add game** → **Won**. Tap the tournament card at the top and pick
+   **Office Babyfoot**. A QR code appears.
+6. iPhone: open **Add game** → **Lost**. Tap the tournament card and pick **Office Babyfoot** (both sides
    must use the same tournament, or the scan is rejected). Allow camera access when asked.
 7. iPhone: point the camera at the QR code on the Mac screen. `dev-alex` appears on the winner
    side and `dev-sam` on the loser side.
@@ -169,12 +169,7 @@ Steps:
    shows the new score. Tap the new game to expand its **RIVALRY** section (`dev-sam` vs
    `dev-alex`): **Game Count** is one higher than in step 4 and the left **Total Points** is
    `x` lower; the right column shows the same number with the opposite sign.
-10. Mac: the browser is still on the **Winner** screen, which has no tab bar. Open the Feed in one
-    of two ways:
-    - press the browser's **Back** button once to return to the **Add Game** tab (the tab bar is
-      visible again), then click the **Feed** tab; or
-    - type http://localhost:8083/feed in the address bar and press Enter.
-
+10. Mac: the browser is still on the **Winner** screen. Click **Done**: the **Feed** tab opens.
     Do not just reload: a reload stays on the Winner screen.
 
     The new game appears at the top of dev-alex's **YOUR HISTORY** with the updated Office
@@ -305,7 +300,7 @@ Steps:
 6. **Push-only preferences**: in **Settings → Notifications**, turn off **Games**. Record a game
    with the step 3 command. No push arrives, but the inbox (bell on the Feed) still lists the new
    "game recorded" entry. Turn **Games** back on; the next game pushes again.
-7. **Logout unregisters this phone**: **Settings → LOGOUT**. Re-run the step 2 query: the row now
+7. **Logout unregisters this phone**: **Settings → Log out**, then confirm. Re-run the step 2 query: the row now
    has a `disabled_at` time. Record a game with the step 3 command: no push arrives.
 
 Expected outcome: pushes arrive on the phone, taps open the right screen both while the app is
@@ -330,8 +325,8 @@ account for the negative check (the one from section 1).
 
 Steps:
 
-1. Mac browser: **DEV SIGN-IN** as `dev-alex`. Open **Add Game** → **LOST**. Pick the tournament
-   first: tap **EDIT** next to the tournament at the top (**Select a tournament** if none is
+1. Mac browser: **DEV SIGN-IN** as `dev-alex`. Open **Add game** → **Lost**. Pick the tournament
+   first: tap the tournament card at the top (**Select a tournament** if none is
    shown) and choose **Shark Tank Cup**. The **NO QR CODE?** section now says "Shark Tank
    tournament: … New players added by name join the group's unclaimed players." Only then, with
    **Add as winner** selected, type a new name in **New player name** (for example `Claim Test`)
@@ -352,7 +347,7 @@ Steps:
 4. Open the same link again in a new private window (it must still work), click
    **Claim with Google**, and choose the **brand-new** account.
 5. Expected: you land signed in as the claimed player. **Me** shows the inherited game and rating;
-   **Settings → Groups** lists **Shark Tank** (you are a member because the player was on its
+   **Tournaments → Groups** (the people icon in the header) lists **Shark Tank** (you are a member because the player was on its
    roster), and the Shark Tank Cup leaderboard is visible.
 6. As `dev-alex` (normal window), the bell shows "Invite accepted", and **Settings → Invited
    players** shows the player as claimed. Opening the link again shows that it can't be used.
