@@ -54,7 +54,7 @@ export function GameShareActions({ game }: { game: Game }) {
   const share = useMyGameShare(game.id).data ?? null;
   const issue = useIssueGameShare(game.id);
   const revoke = useRevokeGameShare(game.id);
-  const [sharing, setSharing] = useState(false);
+  const [busy, setBusy] = useState<'share' | 'copy' | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
 
@@ -85,22 +85,28 @@ export function GameShareActions({ game }: { game: Game }) {
     await copyLink(link);
   };
 
-  const onShare = async () => {
+  /**
+   * Hands out the active link. The cached one is never trusted: another session of this account
+   * may have revoked it, and issuing returns the active link or a new one.
+   */
+  const withActiveLink = async (
+    action: 'share' | 'copy',
+    use: (link: GameShare) => Promise<void>,
+  ) => {
+    if (busy) return;
     setStatus(null);
-    setSharing(true);
+    setBusy(action);
     try {
-      let link = share;
-      if (!link) {
-        try {
-          link = await issue.mutateAsync();
-        } catch (err) {
-          setStatus({ kind: 'error', message: `Couldn't create the link: ${errorMessage(err)}` });
-          return;
-        }
+      let link: GameShare;
+      try {
+        link = await issue.mutateAsync();
+      } catch (err) {
+        setStatus({ kind: 'error', message: `Couldn't create the link: ${errorMessage(err)}` });
+        return;
       }
-      await offer(link);
+      await use(link);
     } finally {
-      setSharing(false);
+      setBusy(null);
     }
   };
 
@@ -122,9 +128,9 @@ export function GameShareActions({ game }: { game: Game }) {
       <Button
         title="Share result"
         testID="game-share-button"
-        loading={sharing}
-        disabled={revoke.isPending}
-        onPress={() => void onShare()}
+        loading={busy === 'share'}
+        disabled={busy !== null || revoke.isPending}
+        onPress={() => void withActiveLink('share', offer)}
       />
       <Text style={styles.caption}>{SHARE_DISCLOSURE_TEXT}</Text>
       {share && (
@@ -146,14 +152,15 @@ export function GameShareActions({ game }: { game: Game }) {
           <Button
             title="Copy link"
             variant="secondary"
-            disabled={sharing}
+            loading={busy === 'copy'}
+            disabled={busy !== null || revoke.isPending}
             style={styles.rowButton}
-            onPress={() => void copyLink(share)}
+            onPress={() => void withActiveLink('copy', copyLink)}
           />
           <Button
             title="Revoke link"
             variant="secondary"
-            disabled={sharing || revoke.isPending}
+            disabled={busy !== null || revoke.isPending}
             style={styles.rowButton}
             onPress={() => setConfirmRevoke(true)}
           />

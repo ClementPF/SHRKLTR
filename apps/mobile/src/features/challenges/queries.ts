@@ -86,6 +86,9 @@ export function useChallenge(id: string) {
     queryKey: challengeKeys.detail(id),
     queryFn: ({ signal }) => getChallenge(id, signal),
     retry: retryUnlessMissing,
+    // The other player can answer at any moment, so opening the screen (e.g. from the
+    // acceptance notification) refetches even a challenge cached seconds ago.
+    staleTime: 0,
   });
 }
 

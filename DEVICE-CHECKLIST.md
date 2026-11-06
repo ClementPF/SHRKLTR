@@ -330,10 +330,20 @@ account for the negative check (the one from section 1).
 
 Steps:
 
-1. Mac browser: **DEV SIGN-IN** as `dev-alex`. Open **Add Game** → **LOST** → **NO QR CODE?**, type
-   a new name in **New player name** (for example `Claim Test`) and add it as the winner, pick the
-   **Shark Tank Cup** tournament with **EDIT**, then **Review game** → **Confirm game**. Copy the new
-   player's claim link from **Settings → Invited players**.
+1. Mac browser: **DEV SIGN-IN** as `dev-alex`. Open **Add Game** → **LOST**. Pick the tournament
+   first: tap **EDIT** next to the tournament at the top (**Select a tournament** if none is
+   shown) and choose **Shark Tank Cup**. The **NO QR CODE?** section now says "Shark Tank
+   tournament: … New players added by name join the group's unclaimed players." Only then, with
+   **Add as winner** selected, type a new name in **New player name** (for example `Claim Test`)
+   and tap **Add player by name**. Then **Review game** → **Confirm game**. Copy the new player's
+   claim link from **Settings → Invited players**.
+
+   Keep this order. Picking a tournament clears the players already in the draft (so **Review
+   game** stays disabled), and a player added by name joins the roster of the group whose
+   tournament is selected at that moment. If you added the player before picking Shark Tank Cup,
+   start again with a different new name: that player is not on the Shark Tank roster, so
+   claiming it would not grant group access.
+
 2. In a private/incognito window, open the claim link. The page shows the player's name and game
    history, and no private group details.
 3. Negative check first: click **Claim with Google** and choose your **existing** Sharkulator

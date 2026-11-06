@@ -163,10 +163,10 @@ describe('native sharing', () => {
     expect(screen.getByRole('button', { name: 'Revoke link' })).toBeTruthy();
     expect(api.revokeGameShare).not.toHaveBeenCalled();
 
-    // Sharing again reuses the known link without another request.
+    // Sharing again confirms the link with the server, which returns the same active one.
     await fireEvent.press(shareButton());
     await waitFor(() => expect(sheet).toHaveBeenCalledTimes(2));
-    expect(api.issueGameShare).toHaveBeenCalledTimes(1);
+    expect(api.issueGameShare).toHaveBeenCalledTimes(2);
     expect(sheet.mock.calls[1]![0]).toEqual(expect.objectContaining({ url: SHARE.url }));
   });
 
@@ -326,6 +326,96 @@ describe('revoking my link', () => {
   });
 });
 
+describe('a link revoked in another session', () => {
+  // This session issued SHARE earlier; the same account revoked it elsewhere, so the server's
+  // create-or-reuse endpoint now issues NEW_SHARE.
+  beforeEach(() => {
+    client.setQueryData(gameKeys.share('g1'), SHARE);
+    api.issueGameShare.mockResolvedValue(NEW_SHARE);
+  });
+
+  it('shares the replacement link, never the revoked one', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    stubNavigator({});
+    copy.mockResolvedValue(true);
+    await renderWithClient(<GameDetailScreen id="g1" viewer="dev-alex" />);
+    expect(await screen.findByTestId('game-share-url')).toHaveTextContent(SHARE.url);
+
+    await fireEvent.press(shareButton());
+    expect(await screen.findByText(COPIED_TEXT)).toBeTruthy();
+    expect(api.issueGameShare).toHaveBeenCalledWith('g1');
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(copy).toHaveBeenCalledWith(NEW_SHARE.url);
+    expect(screen.getByTestId('game-share-url')).toHaveTextContent(NEW_SHARE.url);
+    expect(client.getQueryData(gameKeys.share('g1'))).toEqual(NEW_SHARE);
+  });
+
+  it('opens the native share sheet with the replacement link', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    const sheet = jest
+      .spyOn(Share, 'share')
+      .mockResolvedValue({ action: Share.sharedAction, activityType: undefined });
+    await renderWithClient(<GameDetailScreen id="g1" viewer="dev-alex" />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Share result' }));
+
+    await waitFor(() => expect(sheet).toHaveBeenCalledTimes(1));
+    expect(sheet.mock.calls[0]![0]).toEqual(expect.objectContaining({ url: NEW_SHARE.url }));
+    expect(await screen.findByTestId('game-share-url')).toHaveTextContent(NEW_SHARE.url);
+  });
+
+  it('copies the replacement link from Copy link', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    stubNavigator({});
+    copy.mockResolvedValue(true);
+    await renderWithClient(<GameDetailScreen id="g1" viewer="dev-alex" />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Copy link' }));
+
+    expect(await screen.findByText(COPIED_TEXT)).toBeTruthy();
+    expect(api.issueGameShare).toHaveBeenCalledTimes(1);
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(copy).toHaveBeenCalledWith(NEW_SHARE.url);
+    expect(screen.getByTestId('game-share-url')).toHaveTextContent(NEW_SHARE.url);
+  });
+
+  it('does not hand out the cached link when it cannot be confirmed', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    const share = jest.fn().mockResolvedValue(undefined);
+    stubNavigator({ share });
+    api.issueGameShare.mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Network down'));
+    await renderWithClient(<GameDetailScreen id="g1" viewer="dev-alex" />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Share result' }));
+
+    expect(await screen.findByText("Couldn't create the link: Network down")).toBeTruthy();
+    expect(share).not.toHaveBeenCalled();
+    expect(copy).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+    await waitFor(() => expect(api.issueGameShare).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Couldn't create the link: Network down")).toBeTruthy();
+    expect(copy).not.toHaveBeenCalled();
+  });
+
+  it('disables the actions while the link is being confirmed', async () => {
+    jest.replaceProperty(Platform, 'OS', 'web');
+    stubNavigator({});
+    copy.mockResolvedValue(true);
+    const issuing = deferred<GameShare>();
+    api.issueGameShare.mockReturnValue(issuing.promise);
+    await renderWithClient(<GameDetailScreen id="g1" viewer="dev-alex" />);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Share result' }));
+
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Revoke link' })).toBeDisabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+    expect(api.issueGameShare).toHaveBeenCalledTimes(1);
+
+    issuing.resolve(NEW_SHARE);
+    expect(await screen.findByText(COPIED_TEXT)).toBeTruthy();
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(copy).toHaveBeenCalledWith(NEW_SHARE.url);
+  });
+});
+
 describe('post-record result screen', () => {
   beforeEach(() => {
     jest.replaceProperty(Platform, 'OS', 'web');
@@ -352,6 +442,6 @@ describe('post-record result screen', () => {
     await fireEvent.press(shareButton());
     await waitFor(() => expect(copy).toHaveBeenCalledTimes(2));
     expect(copy).toHaveBeenLastCalledWith(SHARE.url);
-    expect(api.issueGameShare).toHaveBeenCalledTimes(1);
+    expect(api.issueGameShare).toHaveBeenCalledTimes(2);
   });
 });

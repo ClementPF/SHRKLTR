@@ -8,7 +8,7 @@ import type { GameShare } from '@/api/types';
 export const gameKeys = {
   all: ['games'] as const,
   detail: (id: string) => ['games', 'detail', id] as const,
-  /** My public link for the game: set by issuing it, null once revoked. Never fetched. */
+  /** My public link for the game as last seen: set by issuing it, null once revoked. Never fetched. */
   share: (id: string) => ['games', 'share', id] as const,
 };
 
@@ -29,7 +29,9 @@ export function useGame(id: string | undefined) {
 
 /**
  * The link this account issued for the game during this session, shared by every screen that
- * shows the game. There is no read endpoint: issuing returns the active link if one exists.
+ * shows the game. There is no read endpoint: issuing returns the active link if one exists, so
+ * sharing or copying re-issues first rather than trusting this copy, which another session may
+ * have revoked.
  */
 export function useMyGameShare(gameId: string) {
   return useQuery<GameShare | null>({ queryKey: gameKeys.share(gameId), queryFn: skipToken });
